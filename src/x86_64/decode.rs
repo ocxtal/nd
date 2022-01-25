@@ -219,3 +219,210 @@ fn test_parse_multi() {
         Some(16)
     );
 }
+
+unsafe fn parse_header(src: &[u8]) -> Option<(usize, usize, usize)> {
+    let x = _mm256_loadu_si256(src.as_ptr() as *const __m256i);
+
+    let delim_mask = _mm256_cmpeq_epi8(x, _mm256_set1_epi8(b'|' as i8));
+    let delim_mask = _mm256_movemask_epi8(delim_mask) as u64;
+    let delim_pos = delim_mask.trailing_zeros() as usize;
+
+    let (offset, fwd0) = parse_single(_mm256_extracti128_si256(x, 0))?;
+    let (len, fwd1) = parse_single(_mm_loadu_si128((&src[fwd0 + 1..]).as_ptr() as *const __m128i))?;
+    if fwd0 > 14 || fwd1 > 15 || fwd0 + fwd1 + 2 != delim_pos {
+        return None;
+    }
+
+    Some((offset as usize, len as usize, delim_pos))
+}
+
+#[test]
+fn test_parse_header() {
+    macro_rules! test {
+        ( $input: expr, $expected: expr ) => {{
+            assert_eq!(unsafe { parse_header($input.as_bytes()) }, $expected);
+        }};
+    }
+
+    test!("xbcdef01                        ", None);
+    test!("  |                             ", Some((0, 0, 2)));
+    test!(" 0 |                            ", Some((0, 0, 3)));
+    test!("0  |                            ", Some((0, 0, 3)));
+    test!("0 0 |                           ", Some((0, 0, 4)));
+    test!("0 x |                           ", None);
+    test!("x 0 |                           ", None);
+    test!("12 34  |                        ", None);
+    test!("12 34|                          ", None);
+    test!("12 34 |||                       ", Some((0x12, 0x34, 6)));
+
+    test!("12 2 |                          ", Some((0x12, 0x2, 5)));
+    test!("34 56 |                         ", Some((0x34, 0x56, 6)));
+    test!("67 89a |                        ", Some((0x67, 0x89a, 7)));
+
+    test!(" 98 |                           ", Some((0, 0x98, 4)));
+    test!("12345 98 |                      ", Some((0x12345, 0x98, 9)));
+
+    test!(" 0 |                            ", Some((0, 0, 3)));
+    test!("0 0 |                           ", Some((0, 0, 4)));
+    test!("0 0 x                           ", None);
+    test!("0 x |                           ", None);
+    test!("x 0 |                           ", None);
+
+    test!("0123  |                         ", Some((0x123, 0, 6)));
+    test!("abcde  |                        ", Some((0xabcde, 0, 7)));
+    test!("abcdef1  |                      ", Some((0xabcdef1, 0, 9)));
+    test!("ffffffffffffff ffffffffffffff | ", Some((0xffffffffffffff, 0xffffffffffffff, 30)));
+    test!("fffffffffffffff ffffffffffffff |", None);
+}
+
+unsafe fn parse_body(src: &[u8], dst: &mut [u8]) -> Option<(usize, usize)> {
+    debug_assert!(src.len() >= 64);
+
+    let find_delim = |x0: __m256i, x1: __m256i, delim: u8| -> usize {
+        let delim = _mm256_set1_epi8(delim as i8);
+        let x0 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(x0, delim)) as u64;
+        let x1 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(x1, delim)) as u64;
+        (x0 | (x1 << 32) | (1 << 48)).trailing_zeros() as usize
+    };
+
+    let mut is_body = true;
+    let mut dst_fwd = 0;
+    let mut src_fwd = 0;
+    loop {
+        let x0 = _mm256_loadu_si256((&src[src_fwd..]).as_ptr() as *const __m256i);
+        let x1 = _mm256_loadu_si256((&src[src_fwd + 32..]).as_ptr() as *const __m256i);
+
+        let delim_pos = find_delim(x0, x1, b'|');
+        let tail_pos = find_delim(x0, x1, b'\n');
+        let pos = delim_pos.min(tail_pos);
+        is_body &= pos > 0;
+        println!("{:?}, {:?}, {:?}", delim_pos, tail_pos, pos);
+
+        if is_body {
+            dst_fwd += parse_multi(&src[src_fwd..], (pos + 2) / 3, &mut dst[dst_fwd..])?;
+            is_body = delim_pos == 48;
+        }
+
+        src_fwd += tail_pos;
+        if tail_pos != 48 {
+            return Some((src_fwd, dst_fwd));
+        }
+    }
+}
+
+#[test]
+fn test_parse_body() {
+    macro_rules! test {
+        ( $input: expr, $expected_arr: expr, $expected_counts: expr ) => {
+            unsafe {
+                let mut input = $input.as_bytes().to_vec();
+                input.resize(input.len() + 256, 0);
+                let mut buf = [0; 256];
+                let counts = parse_body(&input, &mut buf);
+                assert_eq!(counts, $expected_counts);
+                if counts.is_some() {
+                    assert_eq!(&buf[..counts.unwrap().1], $expected_arr);
+                }
+            }
+        };
+    }
+
+    // ends with '\n'
+    test!("48 b1\n                                          ", [], None);
+    test!("48 b1 \n                                         ", [0x48, 0xb1], Some((6, 2)));
+    test!("48 b1  \n                                        ", [], None);
+    test!("48 b1    \n                                      ", [0x48, 0xb1], Some((9, 2)));
+    test!("48 b1     \n                                     ", [], None);
+
+    // ends with '|'
+    test!("48 b1| H.\n                                      ", [], None);
+    test!("48 b1 | H.\n                                     ", [0x48, 0xb1], Some((10, 2)));
+    test!("48 b1  | H.\n                                    ", [], None);
+    test!("48 b1    | H.\n                                  ", [0x48, 0xb1], Some((13, 2)));
+    test!("48 b1     | H.\n                                 ", [], None);
+
+    // invaid hex
+    test!("48 g1 \n                                         ", [], None);
+    test!("48 g1    \n                                      ", [], None);
+    test!("48 bg | H.\n                                     ", [], None);
+    test!("48 bg    | H.\n                                  ", [], None);
+
+    // multiple chunks
+    test!("48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b\n", [], None);
+    test!("48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b  \n", [], None);
+    test!("48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b   \n", [], None);
+    test!("48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b     \n", [], None);
+    test!(
+        "48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b \n",
+        [0x48, 0xb1, 0xe3, 0x9c, 0x98, 0xac, 0xa3, 0x27, 0xc9, 0x65, 0x48, 0x50, 0x2b, 0xb7, 0xbb, 0x6b],
+        Some((48, 16))
+    );
+    test!(
+        "48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b    \n",
+        [0x48, 0xb1, 0xe3, 0x9c, 0x98, 0xac, 0xa3, 0x27, 0xc9, 0x65, 0x48, 0x50, 0x2b, 0xb7, 0xbb, 0x6b],
+        Some((51, 16))
+    );
+    test!(
+        "48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b 48 \n",
+        [0x48, 0xb1, 0xe3, 0x9c, 0x98, 0xac, 0xa3, 0x27, 0xc9, 0x65, 0x48, 0x50, 0x2b, 0xb7, 0xbb, 0x6b, 0x48],
+        Some((51, 17))
+    );
+    test!(
+        "48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b 48    \n",
+        [0x48, 0xb1, 0xe3, 0x9c, 0x98, 0xac, 0xa3, 0x27, 0xc9, 0x65, 0x48, 0x50, 0x2b, 0xb7, 0xbb, 0x6b, 0x48],
+        Some((54, 17))
+    );
+
+    // multiple chunks, ends with '|'
+    test!("48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b|H......'.eHP+..k\n", [], None);
+    test!("48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b  |H......'.eHP+..k\n", [], None);
+    test!("48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b   |H......'.eHP+..k\n", [], None);
+    test!("48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b     |H......'.eHP+..k\n", [], None);
+    test!(
+        "48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b |H......'.eHP+..k\n",
+        [0x48, 0xb1, 0xe3, 0x9c, 0x98, 0xac, 0xa3, 0x27, 0xc9, 0x65, 0x48, 0x50, 0x2b, 0xb7, 0xbb, 0x6b],
+        Some((65, 16))
+    );
+    test!(
+        "48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b    |H......'.eHP+..k\n",
+        [0x48, 0xb1, 0xe3, 0x9c, 0x98, 0xac, 0xa3, 0x27, 0xc9, 0x65, 0x48, 0x50, 0x2b, 0xb7, 0xbb, 0x6b],
+        Some((68, 16))
+    );
+    test!(
+        "48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b 48 |H......'.eHP+..k\n",
+        [0x48, 0xb1, 0xe3, 0x9c, 0x98, 0xac, 0xa3, 0x27, 0xc9, 0x65, 0x48, 0x50, 0x2b, 0xb7, 0xbb, 0x6b, 0x48],
+        Some((68, 17))
+    );
+    test!(
+        "48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b 48    |H......'.eHP+..k\n",
+        [0x48, 0xb1, 0xe3, 0x9c, 0x98, 0xac, 0xa3, 0x27, 0xc9, 0x65, 0x48, 0x50, 0x2b, 0xb7, 0xbb, 0x6b, 0x48],
+        Some((71, 17))
+    );
+
+    // longer
+    test!(
+        "48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 48    |\n",
+        [0x48, 0xb1, 0xe3, 0x9c, 0x98, 0xac, 0xa3, 0x27, 0xc9, 0x65, 0x48, 0x50, 0x2b, 0xb7, 0xbb, 0x48, 0xb1, 0xe3, 0x9c, 0x98, 0xac, 0xa3, 0x27, 0xc9, 0x65, 0x48, 0x50, 0x2b, 0xb7, 0xbb, 0x48, 0xb1, 0xe3, 0x9c, 0x98, 0xac, 0xa3, 0x27, 0xc9, 0x65, 0x48, 0x50, 0x2b, 0xb7, 0xbb, 0x48],
+        Some((142, 46))
+    );
+    test!(
+        "48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b |H......'.eHP+..kH......'.eHP+..kH......'.eHP+.\n",
+        [0x48, 0xb1, 0xe3, 0x9c, 0x98, 0xac, 0xa3, 0x27, 0xc9, 0x65, 0x48, 0x50, 0x2b, 0xb7, 0xbb, 0x6b],
+        Some((95, 16))
+    );
+    test!(
+        "48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b |H......'.eHP+..kH......'.eHP+..kH......'.eHP+..\n",
+        [0x48, 0xb1, 0xe3, 0x9c, 0x98, 0xac, 0xa3, 0x27, 0xc9, 0x65, 0x48, 0x50, 0x2b, 0xb7, 0xbb, 0x6b],
+        Some((96, 16))
+    );
+    test!(
+        "48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b |H......'.eHP+..kH......'.eHP+..kH......'.eHP+..k\n",
+        [0x48, 0xb1, 0xe3, 0x9c, 0x98, 0xac, 0xa3, 0x27, 0xc9, 0x65, 0x48, 0x50, 0x2b, 0xb7, 0xbb, 0x6b],
+        Some((97, 16))
+    );
+    test!(
+        "48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b |H......'.eHP+..kH......'.eHP+..kH......'.eHP+..kH\n",
+        [0x48, 0xb1, 0xe3, 0x9c, 0x98, 0xac, 0xa3, 0x27, 0xc9, 0x65, 0x48, 0x50, 0x2b, 0xb7, 0xbb, 0x6b],
+        Some((98, 16))
+    );
+}
