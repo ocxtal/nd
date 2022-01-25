@@ -14,7 +14,9 @@ unsafe fn to_hex(x: __m128i) -> (__m128i, u64, u64) {
     let ub = [0u8, 0, 0x20, 0x3a, 0x47, 0, 0x67, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let ub = _mm_loadu_si128(ub.as_ptr() as *const __m128i);
 
-    let base = [0xffu8, 0xff, 0xff, 0x30, 0x37, 0xff, 0x57, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
+    let base = [
+        0xffu8, 0xff, 0xff, 0x30, 0x37, 0xff, 0x57, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    ];
     let base = _mm_loadu_si128(base.as_ptr() as *const __m128i);
 
     let mask = _mm_set1_epi8(0x0f);
@@ -73,7 +75,10 @@ unsafe fn parse_single(x: __m128i) -> Option<(u64, usize)> {
 fn test_parse_single() {
     macro_rules! test {
         ( $input: expr, $expected: expr ) => {
-            assert_eq!(unsafe { parse_single(_mm_loadu_si128($input.as_bytes().as_ptr() as *const __m128i)) }, $expected);
+            assert_eq!(
+                unsafe { parse_single(_mm_loadu_si128($input.as_bytes().as_ptr() as *const __m128i)) },
+                $expected
+            );
         };
     }
 
@@ -107,7 +112,6 @@ fn test_parse_single() {
     test!("abc|ef01                        ", None);
     test!("abcdef01|                       ", None);
 }
-
 
 unsafe fn parse_multi(x: &[u8], elems: usize, v: &mut [u8]) -> Option<usize> {
     debug_assert!(elems <= 16 && x.len() >= 36 + 16);
