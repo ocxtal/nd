@@ -53,7 +53,7 @@ unsafe fn vld4q_u8(arr: &[u8]) -> uint8x16x4_t {
 
 unsafe fn find_delim_ld2q(x: uint8x16x2_t, delim: u8) -> Option<usize> {
     let index = [0u8, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30];
-    let index = vld1q_u8(&index[0] as *const u8);
+    let index = vld1q_u8(index.as_ptr());
     let inc = vdupq_n_u8(1);
 
     let delim = vdupq_n_u8(delim);
@@ -90,7 +90,7 @@ fn test_find_delim_ld2q() {
 
 unsafe fn find_delim_ld3q(x: uint8x16x3_t, delim: u8) -> Option<usize> {
     let index = [0u8, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45];
-    let index = vld1q_u8(&index[0] as *const u8);
+    let index = vld1q_u8(index.as_ptr());
     let inc = vdupq_n_u8(1);
 
     let delim = vdupq_n_u8(delim);
@@ -132,15 +132,15 @@ unsafe fn to_hex(x: uint8x16_t) -> (uint8x16_t, uint8x16_t, uint8x16_t) {
     // the original algorithm obtained from http://0x80.pl/notesen/2022-01-17-validating-hex-parse.html
     // with a small modification on ' ' handling
     let lb = [0u8, 0, 0x21, 0x30, 0x41, 0, 0x61, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    let lb = vld1q_u8(&lb[0] as *const u8);
+    let lb = vld1q_u8(lb.as_ptr());
 
     let ub = [0u8, 0, 0x20, 0x3a, 0x47, 0, 0x67, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    let ub = vld1q_u8(&ub[0] as *const u8);
+    let ub = vld1q_u8(ub.as_ptr());
 
     let base = [
         0xffu8, 0xff, 0xff, 0x30, 0x37, 0xff, 0x57, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     ];
-    let base = vld1q_u8(&base[0] as *const u8);
+    let base = vld1q_u8(base.as_ptr());
 
     let h = vshrq_n_u8(x, 4);
     let lb = vqtbl1q_u8(lb, h);
@@ -260,7 +260,7 @@ unsafe fn parse_multi(x: uint8x16x3_t, elems: usize, v: &mut [u8]) -> Option<usi
         return None;
     }
 
-    vst1q_u8(&mut v[0] as *mut u8, vorrq_u8(xl, vshlq_n_u8(xh, 4)));
+    vst1q_u8(v.as_mut_ptr(), vorrq_u8(xl, vshlq_n_u8(xh, 4)));
     Some((is_null | mask).leading_zeros() as usize)
 }
 

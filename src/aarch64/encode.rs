@@ -7,11 +7,6 @@ use core::arch::aarch64::*;
 pub fn format_header(dst: &mut [u8], offset: usize, bytes: usize) -> usize {
     debug_assert!(offset < (1usize << 56));
     debug_assert!((1..8).contains(&bytes));
-
-    let table = [
-        b'f', b'e', b'd', b'c', b'b', b'a', b'9', b'8', b'7', b'6', b'5', b'4', b'3', b'2', b'1', b'0',
-    ];
-
     let shift = 64 - 8 * bytes;
     let mask = 0xf0f0f0f0f0f0f0f0;
 
@@ -23,7 +18,7 @@ pub fn format_header(dst: &mut [u8], offset: usize, bytes: usize) -> usize {
 
     unsafe {
         let space = vdupq_n_u8(b' ');
-        let table = vld1q_u8(&table as *const u8);
+        let table = vld1q_u8(b"fedcba9876543210".as_ptr());
 
         let l = vsetq_lane_u64(l, vmovq_n_u64(0), 0);
         let h = vsetq_lane_u64(h, vmovq_n_u64(0), 0);
@@ -69,16 +64,12 @@ fn test_format_header() {
 }
 
 pub fn format_body(dst: &mut [u8], src: &[u8]) -> usize {
-    let table = [
-        b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9', b'a', b'b', b'c', b'd', b'e', b'f',
-    ];
-
     unsafe {
-        let table = vld1q_u8(&table as *const u8);
+        let table = vld1q_u8(b"0123456789abcdef".as_ptr());
         let space = vdupq_n_u8(b' ');
         let mask = vdupq_n_u8(0x0f);
 
-        let x = vld1q_u8(&src[0] as *const u8);
+        let x = vld1q_u8(src.as_ptr());
         let l = vqtbl1q_u8(table, vandq_u8(x, mask));
         let h = vqtbl1q_u8(table, vandq_u8(vshrq_n_u8(x, 4), mask));
 
@@ -124,12 +115,12 @@ pub fn format_mosaic(dst: &mut [u8], src: &[u8]) -> usize {
         let offset = vdupq_n_u8(b' ');
         let dots = vdupq_n_u8(b'.');
 
-        let x = vld1q_u8(&src[0] as *const u8);
+        let x = vld1q_u8(src.as_ptr());
         let y = vaddq_u8(x, vdupq_n_u8(1));
         let is_ascii = vcgtq_s8(vreinterpretq_s8_u8(y), vreinterpretq_s8_u8(offset));
 
         let z = vbslq_u8(is_ascii, x, dots);
-        vst1q_u8(&mut dst[0] as *mut u8, z);
+        vst1q_u8(dst.as_mut_ptr(), z);
     }
 
     16
@@ -155,8 +146,5 @@ fn test_format_mosaic() {
     test!([0x7e; 16], "~~~~~~~~~~~~~~~~");
     test!([0x7f; 16], "................");
     test!([0xff; 16], "................");
-    test!(
-        [b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9', b'a', b'b', b'c', b'd', b'e', b'f'],
-        "0123456789abcdef"
-    );
+    test!(b"0123456789abcdef".as_slice(), "0123456789abcdef");
 }
