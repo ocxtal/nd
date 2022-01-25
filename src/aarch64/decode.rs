@@ -386,17 +386,16 @@ unsafe fn parse_body(src: &[u8], dst: &mut [u8]) -> Option<(usize, usize)> {
         let x = vld3q_u8(&src[src_fwd..]);
         let delim_pos = find_delim_ld3q(x, b'|').unwrap_or(48);
         let tail_pos = find_delim_ld3q(x, b'\n').unwrap_or(48);
-        src_fwd += tail_pos;
 
         let pos = delim_pos.min(tail_pos);
         is_body &= pos > 0;
-        println!("{:?}, {:?}, {:?}", delim_pos, tail_pos, pos);
 
         if is_body {
             dst_fwd += parse_multi(x, (pos + 2) / 3, &mut dst[dst_fwd..])?;
             is_body = delim_pos == 48;
         }
 
+        src_fwd += tail_pos;
         if tail_pos != 48 {
             return Some((src_fwd, dst_fwd));
         }

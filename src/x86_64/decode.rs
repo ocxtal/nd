@@ -294,9 +294,9 @@ unsafe fn parse_body(src: &[u8], dst: &mut [u8]) -> Option<(usize, usize)> {
 
         let delim_pos = find_delim(x0, x1, b'|');
         let tail_pos = find_delim(x0, x1, b'\n');
+
         let pos = delim_pos.min(tail_pos);
         is_body &= pos > 0;
-        println!("{:?}, {:?}, {:?}", delim_pos, tail_pos, pos);
 
         if is_body {
             dst_fwd += parse_multi(&src[src_fwd..], (pos + 2) / 3, &mut dst[dst_fwd..])?;
