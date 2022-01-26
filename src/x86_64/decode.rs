@@ -113,16 +113,11 @@ fn test_parse_single() {
     test!("abcdef01|                       ", None);
 }
 
-unsafe fn parse_multi(x: &[u8], elems: usize, v: &mut [u8]) -> Option<usize> {
-    debug_assert!(elems <= 16 && x.len() >= 36 + 16);
+unsafe fn parse_multi(x0: __m128i, x1: __m128i, x2: __m128i, x3: __m128i, elems: usize, v: &mut [u8]) -> Option<usize> {
+    debug_assert!(elems <= 16);
 
     let index_0 = [0u8, 3, 6, 9, 1, 4, 7, 10, 2, 5, 8, 11, 0x80, 0x80, 0x80, 0x80];
     let index_0 = _mm_loadu_si128(index_0.as_ptr() as *const __m128i);
-
-    let x0 = _mm_loadu_si128((&x[0..]).as_ptr() as *const __m128i);
-    let x1 = _mm_loadu_si128((&x[12..]).as_ptr() as *const __m128i);
-    let x2 = _mm_loadu_si128((&x[24..]).as_ptr() as *const __m128i);
-    let x3 = _mm_loadu_si128((&x[36..]).as_ptr() as *const __m128i);
 
     let x0 = _mm_shuffle_epi8(x0, index_0);
     let x1 = _mm_shuffle_epi8(x1, index_0);
@@ -163,14 +158,20 @@ unsafe fn parse_multi(x: &[u8], elems: usize, v: &mut [u8]) -> Option<usize> {
 #[test]
 fn test_parse_multi() {
     macro_rules! test {
-        ( $input: expr, $elems: expr, $expected_arr: expr, $expected_ret: expr ) => {{
-            let mut buf = [0u8; 256];
-            let ret = unsafe { parse_multi($input.as_bytes(), $elems, &mut buf) };
-            assert_eq!(ret, $expected_ret);
-            if ret.is_some() {
-                assert_eq!(&buf[..ret.unwrap()], $expected_arr);
+        ( $input: expr, $elems: expr, $expected_arr: expr, $expected_ret: expr ) => {
+            unsafe {
+                let x0 = _mm_loadu_si128((&($input.as_bytes())[0..]).as_ptr() as *const __m128i);
+                let x1 = _mm_loadu_si128((&($input.as_bytes())[12..]).as_ptr() as *const __m128i);
+                let x2 = _mm_loadu_si128((&($input.as_bytes())[24..]).as_ptr() as *const __m128i);
+                let x3 = _mm_loadu_si128((&($input.as_bytes())[36..]).as_ptr() as *const __m128i);
+                let mut buf = [0u8; 256];
+                let ret = parse_multi(x0, x1, x2, x3, $elems, &mut buf);
+                assert_eq!(ret, $expected_ret);
+                if ret.is_some() {
+                    assert_eq!(&buf[..ret.unwrap()], $expected_arr);
+                }
             }
-        }};
+        };
     }
 
     test!("                                                    ", 0, &[], Some(0));
@@ -278,28 +279,33 @@ fn test_parse_header() {
 unsafe fn parse_body(src: &[u8], dst: &mut [u8]) -> Option<(usize, usize)> {
     debug_assert!(src.len() >= 64);
 
-    let find_delim = |x0: __m256i, x1: __m256i, delim: u8| -> usize {
-        let delim = _mm256_set1_epi8(delim as i8);
-        let x0 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(x0, delim)) as u64;
-        let x1 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(x1, delim)) as u64;
-        (x0 | (x1 << 32) | (1 << 48)).trailing_zeros() as usize
+    let find_delim = |x0: __m128i, x1: __m128i, x2: __m128i, x3: __m128i, delim: u8| -> usize {
+        let delim = _mm_set1_epi8(delim as i8);
+        let x0 = _mm_movemask_epi8(_mm_cmpeq_epi8(x0, delim)) as u64;
+        let x1 = _mm_movemask_epi8(_mm_cmpeq_epi8(x1, delim)) as u64;
+        let x2 = _mm_movemask_epi8(_mm_cmpeq_epi8(x2, delim)) as u64;
+        let x3 = _mm_movemask_epi8(_mm_cmpeq_epi8(x3, delim)) as u64;
+
+        let mask = (((x3 << 12) | x2) << 24) | (x1 << 12) | x0 | (1 << 48);
+        mask.trailing_zeros() as usize
     };
 
     let mut is_body = true;
     let mut dst_fwd = 0;
     let mut src_fwd = 0;
     loop {
-        let x0 = _mm256_loadu_si256((&src[src_fwd..]).as_ptr() as *const __m256i);
-        let x1 = _mm256_loadu_si256((&src[src_fwd + 32..]).as_ptr() as *const __m256i);
+        let x0 = _mm_loadu_si128((&src[src_fwd + 0..]).as_ptr() as *const __m128i);
+        let x1 = _mm_loadu_si128((&src[src_fwd + 12..]).as_ptr() as *const __m128i);
+        let x2 = _mm_loadu_si128((&src[src_fwd + 24..]).as_ptr() as *const __m128i);
+        let x3 = _mm_loadu_si128((&src[src_fwd + 36..]).as_ptr() as *const __m128i);
 
-        let delim_pos = find_delim(x0, x1, b'|');
-        let tail_pos = find_delim(x0, x1, b'\n');
-
+        let delim_pos = find_delim(x0, x1, x2, x3, b'|');
+        let tail_pos = find_delim(x0, x1, x2, x3, b'\n');
         let pos = delim_pos.min(tail_pos);
         is_body &= pos > 0;
 
         if is_body {
-            dst_fwd += parse_multi(&src[src_fwd..], (pos + 2) / 3, &mut dst[dst_fwd..])?;
+            dst_fwd += parse_multi(x0, x1, x2, x3, (pos + 2) / 3, &mut dst[dst_fwd..])?;
             is_body = delim_pos == 48;
         }
 
