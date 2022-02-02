@@ -376,47 +376,50 @@ fn test_parse_header() {
     test!("fffffffffffffff ffffffffffffff |", None);
 }
 
-unsafe fn parse_body(src: &[u8], dst: &mut [u8]) -> Option<(usize, usize)> {
+pub fn parse_hex_single(src: &[u8]) -> Option<(u64, usize)> {
+    unsafe { parse_single(vld2q_u8(src)) }
+}
+
+pub fn parse_hex_body(src: &[u8], dst: &mut [u8]) -> Option<(usize, usize)> {
     debug_assert!(src.len() >= 64);
 
     let mut is_body = true;
     let mut dst_fwd = 0;
     let mut src_fwd = 0;
-    loop {
-        let x = vld3q_u8(&src[src_fwd..]);
-        let delim_pos = find_delim_ld3q(x, b'|').unwrap_or(48);
-        let tail_pos = find_delim_ld3q(x, b'\n').unwrap_or(48);
+    unsafe {
+        loop {
+            let x = vld3q_u8(&src[src_fwd..]);
+            let delim_pos = find_delim_ld3q(x, b'|').unwrap_or(48);
+            let tail_pos = find_delim_ld3q(x, b'\n').unwrap_or(48);
+            let pos = delim_pos.min(tail_pos);
+            is_body &= pos > 0;
 
-        let pos = delim_pos.min(tail_pos);
-        is_body &= pos > 0;
+            if is_body {
+                dst_fwd += parse_multi(x, (pos + 2) / 3, &mut dst[dst_fwd..])?;
+                is_body = delim_pos == 48;
+            }
 
-        if is_body {
-            dst_fwd += parse_multi(x, (pos + 2) / 3, &mut dst[dst_fwd..])?;
-            is_body = delim_pos == 48;
-        }
-
-        src_fwd += tail_pos;
-        if tail_pos != 48 {
-            return Some((src_fwd, dst_fwd));
+            src_fwd += tail_pos;
+            if tail_pos != 48 {
+                return Some((src_fwd, dst_fwd));
+            }
         }
     }
 }
 
 #[test]
-fn test_parse_body() {
+fn test_parse_hex_body() {
     macro_rules! test {
-        ( $input: expr, $expected_arr: expr, $expected_counts: expr ) => {
-            unsafe {
-                let mut input = $input.as_bytes().to_vec();
-                input.resize(input.len() + 256, 0);
-                let mut buf = [0; 256];
-                let counts = parse_body(&input, &mut buf);
-                assert_eq!(counts, $expected_counts);
-                if counts.is_some() {
-                    assert_eq!(&buf[..counts.unwrap().1], $expected_arr);
-                }
+        ( $input: expr, $expected_arr: expr, $expected_counts: expr ) => {{
+            let mut input = $input.as_bytes().to_vec();
+            input.resize(input.len() + 256, 0);
+            let mut buf = [0; 256];
+            let counts = parse_hex_body(&input, &mut buf);
+            assert_eq!(counts, $expected_counts);
+            if counts.is_some() {
+                assert_eq!(&buf[..counts.unwrap().1], $expected_arr);
             }
-        };
+        }};
     }
 
     // ends with '\n'

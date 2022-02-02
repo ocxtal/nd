@@ -4,7 +4,7 @@
 
 use core::arch::aarch64::*;
 
-pub fn format_header(dst: &mut [u8], offset: usize, bytes: usize) -> usize {
+pub fn format_hex_single(dst: &mut [u8], offset: usize, bytes: usize) -> usize {
     debug_assert!(offset < (1usize << 56));
     debug_assert!((1..8).contains(&bytes));
     let shift = 64 - 8 * bytes;
@@ -41,11 +41,11 @@ pub fn format_header(dst: &mut [u8], offset: usize, bytes: usize) -> usize {
 }
 
 #[test]
-fn test_format_header() {
+fn test_format_hex_single() {
     macro_rules! test {
         ( $offset: expr, $width: expr, $expected_str: expr ) => {{
             let mut buf = [0u8; 256];
-            let bytes = format_header(&mut buf, $offset, $width);
+            let bytes = format_hex_single(&mut buf, $offset, $width);
 
             let expected_bytes = $expected_str.len();
             assert_eq!(bytes, expected_bytes);
@@ -63,7 +63,7 @@ fn test_format_header() {
     test!(0x0123456789abcd, 7, "0123456789abcd ");
 }
 
-pub fn format_body(dst: &mut [u8], src: &[u8]) -> usize {
+pub fn format_hex_body(dst: &mut [u8], src: &[u8]) -> usize {
     unsafe {
         let table = vld1q_u8(b"0123456789abcdef".as_ptr());
         let space = vdupq_n_u8(b' ');
@@ -86,11 +86,11 @@ pub fn format_body(dst: &mut [u8], src: &[u8]) -> usize {
 }
 
 #[test]
-fn test_format_body() {
+fn test_format_hex_body() {
     macro_rules! test {
         ( $src: expr, $expected_str: expr ) => {{
             let mut buf = [0u8; 256 * 256];
-            let bytes = format_body(&mut buf, &$src);
+            let bytes = format_hex_body(&mut buf, &$src);
 
             let expected_bytes = $expected_str.len();
             assert_eq!(bytes, expected_bytes);
