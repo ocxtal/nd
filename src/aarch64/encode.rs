@@ -4,64 +4,64 @@
 
 use core::arch::aarch64::*;
 
-pub fn format_hex_single(dst: &mut [u8], offset: usize, bytes: usize) -> usize {
-    debug_assert!(offset < (1usize << 56));
-    debug_assert!((1..8).contains(&bytes));
-    let shift = 64 - 8 * bytes;
-    let mask = 0xf0f0f0f0f0f0f0f0;
+// pub fn format_hex_single(dst: &mut [u8], offset: usize, bytes: usize) -> usize {
+//     debug_assert!(offset < (1usize << 56));
+//     debug_assert!((1..8).contains(&bytes));
+//     let shift = 64 - 8 * bytes;
+//     let mask = 0xf0f0f0f0f0f0f0f0;
 
-    let l = offset as u64;
-    let h = l >> 4;
+//     let l = offset as u64;
+//     let h = l >> 4;
 
-    let l = !((l | mask) << shift).swap_bytes();
-    let h = !((h | mask) << shift).swap_bytes();
+//     let l = !((l | mask) << shift).swap_bytes();
+//     let h = !((h | mask) << shift).swap_bytes();
 
-    unsafe {
-        let space = vdupq_n_u8(b' ');
-        let table = vld1q_u8(b"fedcba9876543210".as_ptr());
+//     unsafe {
+//         let space = vdupq_n_u8(b' ');
+//         let table = vld1q_u8(b"fedcba9876543210".as_ptr());
 
-        let l = vsetq_lane_u64(l, vmovq_n_u64(0), 0);
-        let h = vsetq_lane_u64(h, vmovq_n_u64(0), 0);
+//         let l = vsetq_lane_u64(l, vmovq_n_u64(0), 0);
+//         let h = vsetq_lane_u64(h, vmovq_n_u64(0), 0);
 
-        let l = vreinterpretq_u8_u64(l);
-        let h = vreinterpretq_u8_u64(h);
+//         let l = vreinterpretq_u8_u64(l);
+//         let h = vreinterpretq_u8_u64(h);
 
-        let l = vqtbx1q_u8(space, table, l);
-        let h = vqtbx1q_u8(space, table, h);
+//         let l = vqtbx1q_u8(space, table, l);
+//         let h = vqtbx1q_u8(space, table, h);
 
-        std::arch::asm!(
-            "st2 {{ v0.16b, v1.16b }}, [{ptr}]",
-            ptr = in(reg) dst.as_mut_ptr(),
-            in("v0") h,
-            in("v1") l,
-        );
-    }
+//         std::arch::asm!(
+//             "st2 {{ v0.16b, v1.16b }}, [{ptr}]",
+//             ptr = in(reg) dst.as_mut_ptr(),
+//             in("v0") h,
+//             in("v1") l,
+//         );
+//     }
 
-    2 * bytes + 1 // add a space as a separator
-}
+//     2 * bytes + 1 // add a space as a separator
+// }
 
-#[test]
-fn test_format_hex_single() {
-    macro_rules! test {
-        ( $offset: expr, $width: expr, $expected_str: expr ) => {{
-            let mut buf = [0u8; 256];
-            let bytes = format_hex_single(&mut buf, $offset, $width);
+// #[test]
+// fn test_format_hex_single() {
+//     macro_rules! test {
+//         ( $offset: expr, $width: expr, $expected_str: expr ) => {{
+//             let mut buf = [0u8; 256];
+//             let bytes = format_hex_single(&mut buf, $offset, $width);
 
-            let expected_bytes = $expected_str.len();
-            assert_eq!(bytes, expected_bytes);
-            assert_eq!(std::str::from_utf8(&buf[..expected_bytes]).unwrap(), $expected_str);
-        }};
-    }
+//             let expected_bytes = $expected_str.len();
+//             assert_eq!(bytes, expected_bytes);
+//             assert_eq!(std::str::from_utf8(&buf[..expected_bytes]).unwrap(), $expected_str);
+//         }};
+//     }
 
-    test!(0, 1, "00 ");
-    test!(0xf, 1, "0f ");
-    test!(0xff, 1, "ff ");
-    test!(0xff, 2, "00ff ");
-    test!(0xff, 3, "0000ff ");
-    test!(0x0123456, 4, "00123456 ");
-    test!(0x0123456789abcd, 4, "6789abcd ");
-    test!(0x0123456789abcd, 7, "0123456789abcd ");
-}
+//     test!(0, 1, "00 ");
+//     test!(0xf, 1, "0f ");
+//     test!(0xff, 1, "ff ");
+//     test!(0xff, 2, "00ff ");
+//     test!(0xff, 3, "0000ff ");
+//     test!(0x0123456, 4, "00123456 ");
+//     test!(0x0123456789abcd, 4, "6789abcd ");
+//     test!(0x0123456789abcd, 7, "0123456789abcd ");
+// }
 
 pub fn format_hex_body(dst: &mut [u8], src: &[u8]) -> usize {
     unsafe {

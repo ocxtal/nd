@@ -2,6 +2,8 @@
 
 pub mod aarch64;
 pub mod x86_64;
+pub mod drain;
+pub mod pipeline;
 
 use clap::{arg, App, AppSettings, Arg, ColorChoice};
 use std::io::{Read, Write};
@@ -12,6 +14,9 @@ use aarch64::{decode::*, encode::*};
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use x86_64::{decode::*, encode::*};
+
+use drain::hex::HexDrain;
+use pipeline::{BLOCK_SIZE, ReadBlock, DumpBlock};
 
 static USAGE: &str = "zd [options] <input.bin>... > <output.txt>";
 
@@ -235,57 +240,70 @@ fn main() {
     // }
 }
 
-fn format_line(dst: &mut [u8], src: &[u8], offset: usize, elems_per_line: usize) -> usize {
-    assert!(src.len() >= 16);
-    assert!(dst.len() >= 85);
+// fn format_line(dst: &mut [u8], src: &[u8], offset: usize, elems_per_line: usize) -> usize {
+//     assert!(src.len() >= 16);
+//     assert!(dst.len() >= 85);
 
-    // header; p is the current offset in the dst buffer
-    let mut p = format_hex_single(dst, offset, 6);
-    p += format_hex_single(&mut dst[p..], elems_per_line, 1);
+//     // header; p is the current offset in the dst buffer
+//     let mut p = format_hex_single(dst, offset, 6);
+//     p += format_hex_single(&mut dst[p..], elems_per_line, 1);
 
-    dst[p] = b'|';
-    p += 1;
-    dst[p] = b' ';
-    p += 1;
+//     dst[p] = b'|';
+//     p += 1;
+//     dst[p] = b' ';
+//     p += 1;
 
-    let n_blks = (elems_per_line + 0x0f) >> 4;
-    let n_rem = 0usize.wrapping_sub(elems_per_line) & 0x0f;
+//     let n_blks = (elems_per_line + 0x0f) >> 4;
+//     let n_rem = 0usize.wrapping_sub(elems_per_line) & 0x0f;
 
-    // body
-    for i in 0..n_blks {
-        p += format_hex_body(&mut dst[p..], &src[i * 16..]);
+//     // body
+//     for i in 0..n_blks {
+//         p += format_hex_body(&mut dst[p..], &src[i * 16..]);
+//     }
+//     p -= 4 * n_rem;
+
+//     dst[p] = b'|';
+//     p += 1;
+//     dst[p] = b' ';
+//     p += 1;
+
+//     // mosaic
+//     for i in 0..n_blks {
+//         p += format_mosaic(&mut dst[p..], &src[i * 16..]);
+//     }
+//     p -= n_rem;
+
+//     dst[p] = b'\n';
+//     p + 1
+// }
+
+// fn patch_line(dst: &mut [u8], valid_elements: usize, elems_per_line: usize) {
+//     debug_assert!(valid_elements < elems_per_line);
+//     debug_assert!(dst.len() > 4 * elems_per_line);
+
+//     let last_line_offset = dst.len() - 4 * elems_per_line - 3;
+//     let (_, last) = dst.split_at_mut(last_line_offset);
+
+//     let (body, mosaic) = last.split_at_mut(3 * elems_per_line);
+//     for i in valid_elements..elems_per_line {
+//         body[3 * i] = b' ';
+//         body[3 * i + 1] = b' ';
+//         mosaic[i + 2] = b' ';
+//     }
+//     // body[4 * valid_elements + 1] = b'|';
+// }
+
+fn create_source(name: &str) -> Box<dyn Read> {
+    if name == "-" {
+        return Box::new(std::io::stdin());
     }
-    p -= 4 * n_rem;
 
-    dst[p] = b'|';
-    p += 1;
-    dst[p] = b' ';
-    p += 1;
-
-    // mosaic
-    for i in 0..n_blks {
-        p += format_mosaic(&mut dst[p..], &src[i * 16..]);
-    }
-    p -= n_rem;
-
-    dst[p] = b'\n';
-    p + 1
-}
-
-fn patch_line(dst: &mut [u8], valid_elements: usize, elems_per_line: usize) {
-    debug_assert!(valid_elements < elems_per_line);
-    debug_assert!(dst.len() > 4 * elems_per_line);
-
-    let last_line_offset = dst.len() - 4 * elems_per_line - 3;
-    let (_, last) = dst.split_at_mut(last_line_offset);
-
-    let (body, mosaic) = last.split_at_mut(3 * elems_per_line);
-    for i in valid_elements..elems_per_line {
-        body[3 * i] = b' ';
-        body[3 * i + 1] = b' ';
-        mosaic[i + 2] = b' ';
-    }
-    // body[4 * valid_elements + 1] = b'|';
+    let path = std::path::Path::new(name);
+    let file = match std::fs::File::open(&path) {
+        Ok(file) => file,
+        Err(ret) => panic!("{:?}", ret),
+    };
+    Box::new(file)
 }
 
 trait WithUninit {
@@ -435,12 +453,6 @@ impl HexdumpParser {
 
         Some((offset as usize, length as usize))
     }
-}
-
-const BLOCK_SIZE: usize = 2 * 1024 * 1024;
-
-trait ReadBlock {
-    fn read_block(&mut self, buf: &mut Vec<u8>) -> Option<usize>;
 }
 
 // struct PatchStream {
@@ -808,88 +820,3 @@ impl ReadBlock for ClipStream {
     }
 }
 
-trait DumpBlock {
-    fn dump_block(&mut self) -> Option<usize>;
-}
-
-struct HexDrain {
-    src: Box<dyn ReadBlock>,
-
-    in_buf: Vec<u8>,
-    consumed: usize,
-
-    out_buf: Vec<u8>,
-    offset: usize,
-}
-
-impl HexDrain {
-    fn new(src: Box<dyn ReadBlock>, offset: usize) -> HexDrain {
-        let mut out_buf = Vec::new();
-        out_buf.resize(2 * 128 * BLOCK_SIZE, 0);
-
-        HexDrain {
-            src,
-            in_buf: Vec::new(),
-            consumed: 0,
-            out_buf,
-            offset,
-        }
-    }
-}
-
-impl DumpBlock for HexDrain {
-    fn dump_block(&mut self) -> Option<usize> {
-        let tail = self.in_buf.len();
-        self.in_buf.copy_within(self.consumed..tail, 0);
-        self.in_buf.truncate(tail - self.consumed);
-
-        let mut is_eof = false;
-        while self.in_buf.len() < BLOCK_SIZE {
-            let len = self.src.read_block(&mut self.in_buf)?;
-            if len == 0 {
-                is_eof = true;
-                break;
-            }
-        }
-
-        if self.in_buf.len() == 0 {
-            return Some(0);
-        }
-
-        let mut p = 0;
-        let mut q = 0;
-        for _ in 0..self.in_buf.len() / 16 {
-            p += format_line(&mut self.out_buf[p..], &self.in_buf[q..], self.offset, 16);
-            q += 16;
-            self.offset += 16;
-        }
-
-        let len = self.in_buf.len();
-        let rem = len & 15;
-        if is_eof && rem > 0 {
-            self.in_buf.resize(len + 16, 0);
-            p += format_line(&mut self.out_buf[p..], &self.in_buf[q..], self.offset, 16);
-            q += len & 15;
-
-            patch_line(&mut self.out_buf[..p], len & 15, 16);
-            self.in_buf.truncate(len);
-        }
-        self.consumed = q;
-
-        std::io::stdout().write_all(&self.out_buf[..p]).unwrap();
-        Some(q)
-    }
-}
-
-fn create_source(name: &str) -> Box<dyn Read> {
-    if name == "-" {
-        return Box::new(std::io::stdin());
-    }
-
-    let path = std::path::Path::new(name);
-    let file = match std::fs::File::open(&path) {
-        Ok(file) => file,
-        Err(ret) => panic!("{:?}", ret),
-    };
-    Box::new(file)
-}
