@@ -276,61 +276,65 @@ fn test_parse_header() {
     test!("fffffffffffffff ffffffffffffff |", None);
 }
 
-unsafe fn parse_body(src: &[u8], dst: &mut [u8]) -> Option<(usize, usize)> {
+pub fn parse_hex_single(src: &[u8]) -> Option<(u64, usize)> {
+    unsafe { parse_single(_mm_loadu_si128(src.as_ptr() as *const __m128i)) }
+}
+
+pub fn parse_hex_body(src: &[u8], dst: &mut [u8]) -> Option<(usize, usize)> {
     debug_assert!(src.len() >= 64);
 
-    let find_delim = |x0: __m128i, x1: __m128i, x2: __m128i, x3: __m128i, delim: u8| -> usize {
-        let delim = _mm_set1_epi8(delim as i8);
-        let x0 = _mm_movemask_epi8(_mm_cmpeq_epi8(x0, delim)) as u64;
-        let x1 = _mm_movemask_epi8(_mm_cmpeq_epi8(x1, delim)) as u64;
-        let x2 = _mm_movemask_epi8(_mm_cmpeq_epi8(x2, delim)) as u64;
-        let x3 = _mm_movemask_epi8(_mm_cmpeq_epi8(x3, delim)) as u64;
+    unsafe {
+        let find_delim = |x0: __m128i, x1: __m128i, x2: __m128i, x3: __m128i, delim: u8| -> usize {
+            let delim = _mm_set1_epi8(delim as i8);
+            let x0 = _mm_movemask_epi8(_mm_cmpeq_epi8(x0, delim)) as u64;
+            let x1 = _mm_movemask_epi8(_mm_cmpeq_epi8(x1, delim)) as u64;
+            let x2 = _mm_movemask_epi8(_mm_cmpeq_epi8(x2, delim)) as u64;
+            let x3 = _mm_movemask_epi8(_mm_cmpeq_epi8(x3, delim)) as u64;
 
-        let mask = (((x3 << 12) | x2) << 24) | (x1 << 12) | x0 | (1 << 48);
-        mask.trailing_zeros() as usize
-    };
+            let mask = (((x3 << 12) | x2) << 24) | (x1 << 12) | x0 | (1 << 48);
+            mask.trailing_zeros() as usize
+        };
 
-    let mut is_body = true;
-    let mut dst_fwd = 0;
-    let mut src_fwd = 0;
-    loop {
-        let x0 = _mm_loadu_si128((&src[src_fwd + 0..]).as_ptr() as *const __m128i);
-        let x1 = _mm_loadu_si128((&src[src_fwd + 12..]).as_ptr() as *const __m128i);
-        let x2 = _mm_loadu_si128((&src[src_fwd + 24..]).as_ptr() as *const __m128i);
-        let x3 = _mm_loadu_si128((&src[src_fwd + 36..]).as_ptr() as *const __m128i);
+        let mut is_body = true;
+        let mut dst_fwd = 0;
+        let mut src_fwd = 0;
+        loop {
+            let x0 = _mm_loadu_si128((&src[src_fwd + 0..]).as_ptr() as *const __m128i);
+            let x1 = _mm_loadu_si128((&src[src_fwd + 12..]).as_ptr() as *const __m128i);
+            let x2 = _mm_loadu_si128((&src[src_fwd + 24..]).as_ptr() as *const __m128i);
+            let x3 = _mm_loadu_si128((&src[src_fwd + 36..]).as_ptr() as *const __m128i);
 
-        let delim_pos = find_delim(x0, x1, x2, x3, b'|');
-        let tail_pos = find_delim(x0, x1, x2, x3, b'\n');
-        let pos = delim_pos.min(tail_pos);
-        is_body &= pos > 0;
+            let delim_pos = find_delim(x0, x1, x2, x3, b'|');
+            let tail_pos = find_delim(x0, x1, x2, x3, b'\n');
+            let pos = delim_pos.min(tail_pos);
+            is_body &= pos > 0;
 
-        if is_body {
-            dst_fwd += parse_multi(x0, x1, x2, x3, (pos + 2) / 3, &mut dst[dst_fwd..])?;
-            is_body = delim_pos == 48;
-        }
+            if is_body {
+                dst_fwd += parse_multi(x0, x1, x2, x3, (pos + 2) / 3, &mut dst[dst_fwd..])?;
+                is_body = delim_pos == 48;
+            }
 
-        src_fwd += tail_pos;
-        if tail_pos != 48 {
-            return Some((src_fwd, dst_fwd));
+            src_fwd += tail_pos;
+            if tail_pos != 48 {
+                return Some((src_fwd, dst_fwd));
+            }
         }
     }
 }
 
 #[test]
-fn test_parse_body() {
+fn test_parse_hex_body() {
     macro_rules! test {
-        ( $input: expr, $expected_arr: expr, $expected_counts: expr ) => {
-            unsafe {
-                let mut input = $input.as_bytes().to_vec();
-                input.resize(input.len() + 256, 0);
-                let mut buf = [0; 256];
-                let counts = parse_body(&input, &mut buf);
-                assert_eq!(counts, $expected_counts);
-                if counts.is_some() {
-                    assert_eq!(&buf[..counts.unwrap().1], $expected_arr);
-                }
+        ( $input: expr, $expected_arr: expr, $expected_counts: expr ) => {{
+            let mut input = $input.as_bytes().to_vec();
+            input.resize(input.len() + 256, 0);
+            let mut buf = [0; 256];
+            let counts = parse_hex_body(&input, &mut buf);
+            assert_eq!(counts, $expected_counts);
+            if counts.is_some() {
+                assert_eq!(&buf[..counts.unwrap().1], $expected_arr);
             }
-        };
+        }};
     }
 
     // ends with '\n'

@@ -4,7 +4,7 @@
 
 use core::arch::x86_64::*;
 
-pub fn format_header(dst: &mut [u8], offset: usize, bytes: usize) -> usize {
+pub fn format_hex_single(dst: &mut [u8], offset: usize, bytes: usize) -> usize {
     debug_assert!(offset < (1usize << 56));
     debug_assert!((1..8).contains(&bytes));
 
@@ -39,11 +39,11 @@ pub fn format_header(dst: &mut [u8], offset: usize, bytes: usize) -> usize {
 }
 
 #[test]
-fn test_format_header() {
+fn test_format_hex_single() {
     macro_rules! test {
         ( $offset: expr, $width: expr, $expected_str: expr ) => {{
             let mut buf = [0u8; 256];
-            let bytes = format_header(&mut buf, $offset, $width);
+            let bytes = format_hex_single(&mut buf, $offset, $width);
 
             let expected_bytes = $expected_str.len();
             assert_eq!(bytes, expected_bytes);
@@ -61,7 +61,7 @@ fn test_format_header() {
     test!(0x0123456789abcd, 7, "0123456789abcd ");
 }
 
-pub fn format_body(dst: &mut [u8], src: &[u8]) -> usize {
+pub fn format_hex_body(dst: &mut [u8], src: &[u8]) -> usize {
     let table = [
         0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x10, 0x11, 0x12, 0x13, 0x14,
         0x15, 0x16, 0x17, 0x18, 0x19, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46,
@@ -102,11 +102,11 @@ pub fn format_body(dst: &mut [u8], src: &[u8]) -> usize {
 }
 
 #[test]
-fn test_format_body() {
+fn test_format_hex_body() {
     macro_rules! test {
         ( $src: expr, $expected_str: expr ) => {{
             let mut buf = [0u8; 256 * 256];
-            let bytes = format_body(&mut buf, &$src);
+            let bytes = format_hex_body(&mut buf, &$src);
 
             let expected_bytes = $expected_str.len();
             assert_eq!(bytes, expected_bytes);

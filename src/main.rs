@@ -3,15 +3,15 @@
 pub mod aarch64;
 pub mod x86_64;
 
-use clap::{arg, Arg, App, AppSettings, ColorChoice};
+use clap::{arg, App, AppSettings, Arg, ColorChoice};
 use std::io::{Read, Write};
 use std::ops::Range;
 
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-use aarch64::{encode::*, decode::*};
+use aarch64::{decode::*, encode::*};
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-use x86_64::encode::*;
+use x86_64::{decode::*, encode::*};
 
 static USAGE: &str = "zd [options] <input.bin>... > <output.txt>";
 
@@ -91,39 +91,173 @@ fn main() {
         .setting(AppSettings::DontDelimitTrailingValues)
         .setting(AppSettings::InferLongArgs)
         .args([
-            Arg::new("inputs").help("input files").value_name("input.bin").multiple_occurrences(true).default_value("-"),
-            Arg::new("in-format").short('i').long("in-format").help("input format signatures [b]").takes_value(true).number_of_values(1),
-            Arg::new("out-format").short('o').long("out-format").help("output format signatures [xxx]").takes_value(true).number_of_values(1),
-            Arg::new("patch-format").short('j').long("patch-format").help("patchfile format signatures [xxx]").takes_value(true).number_of_values(1),
-            Arg::new("cat").short('c').long("cat").help("concat all input streams into one with W-byte words (default) [1]").takes_value(true).min_values(0).possible_values(["1", "2", "4", "8", "16"]).default_missing_value("1"),
-            Arg::new("zip").short('z').long("zip").help("zip all input streams into one with W-byte words").takes_value(true).min_values(0).possible_values(["1", "2", "4", "8", "16"]).default_missing_value("1").conflicts_with("cat"),
-            Arg::new("seek").short('s').long("seek").help("skip first N bytes and clear stream offset [0]").takes_value(true).number_of_values(1),
-            Arg::new("range").short('r').long("range").help("drop bytes out of the range [0:inf]").takes_value(true),
-            Arg::new("patch").short('p').long("patch").help("patch the input stream with the patchfile (after all of the above)").takes_value(true),
-            Arg::new("patch-op").short('b').long("patch-op").help("do binary operation on patching").takes_value(true),
-            Arg::new("op").short('B').long("op").help("apply unary bit operation to every W-byte word").takes_value(true),
-            Arg::new("splice").short('L').long("splice").help("output only bytes at the indices in every W-byte word").takes_value(true),
-            Arg::new("shuffle").short('Y').long("shuffle").help("shuffle bytes with the indices in W-byte words").takes_value(true),
-            Arg::new("multiply").short('X').long("multiply").help("multiply bitmatrix to every W-byte word").takes_value(true),
-            Arg::new("substitute").short('S').long("substitute").help("substitute word with the map").takes_value(true),
-            Arg::new("histogram").short('H').long("histogram").help("compute a histogram of bits B:E in W-byte words on finite input stream").takes_value(true),
-            Arg::new("sort").short('O').long("sort").help("sort finite input stream of W-byte words by bits from N to M").takes_value(true),
-            Arg::new("cluster").short('D').long("cluster").help("cluster binary pattern by bits B:E in W-byte words").takes_value(true),
-            Arg::new("reverse").short('R').long("reverse").help("reverse finite input stream of W-byte words").takes_value(true),
-            Arg::new("transpose").short('T').long("transpose").help("transpose finite input stream with the shape and its indices").takes_value(true),
-            Arg::new("width").short('w').long("width").help("slice into N bytes (default) [16]").takes_value(true),
-            Arg::new("match").short('m').long("match").help("slice out every matches whose Hamming distance is less than K from the pattern").takes_value(true),
-            Arg::new("regex").short('e').long("regex").help("slice out every matches with regular expression (in PCRE)").takes_value(true),
-            Arg::new("margin").short('G').long("margin").help("extend every slice to left and right by N and M bytes [0:0]").takes_value(true),
-            Arg::new("merge").short('M').long("merge").help("merge two slices whose overlap is longer than N bytes (after extension) [0]").takes_value(true),
-            Arg::new("pad").short('P').long("pad").help("pad slices left and right by N and M bytes (after extension and merging) [0:0]").takes_value(true),
-            Arg::new("group").short('l').long("group").help("group N slices (default) [1]").takes_value(true),
-            Arg::new("uniq").short('u').long("uniq").help("group slices whose bits from B to E are the same [0:inf]").takes_value(true),
-            Arg::new("map").short('f').long("map").help("apply shell command to every grouped slices []").takes_value(true),
-            Arg::new("reduce").short('d').long("reduce").help("pass outputs of --map command to another as input files []").takes_value(true),
+            Arg::new("inputs")
+                .help("input files")
+                .value_name("input.bin")
+                .multiple_occurrences(true)
+                .default_value("-"),
+            Arg::new("in-format")
+                .short('i')
+                .long("in-format")
+                .help("input format signatures [b]")
+                .takes_value(true)
+                .number_of_values(1),
+            Arg::new("out-format")
+                .short('o')
+                .long("out-format")
+                .help("output format signatures [xxx]")
+                .takes_value(true)
+                .number_of_values(1),
+            Arg::new("patch-format")
+                .short('j')
+                .long("patch-format")
+                .help("patchfile format signatures [xxx]")
+                .takes_value(true)
+                .number_of_values(1),
+            Arg::new("cat")
+                .short('c')
+                .long("cat")
+                .help("concat all input streams into one with W-byte words (default) [1]")
+                .takes_value(true)
+                .min_values(0)
+                .possible_values(["1", "2", "4", "8", "16"])
+                .default_missing_value("1"),
+            Arg::new("zip")
+                .short('z')
+                .long("zip")
+                .help("zip all input streams into one with W-byte words")
+                .takes_value(true)
+                .min_values(0)
+                .possible_values(["1", "2", "4", "8", "16"])
+                .default_missing_value("1")
+                .conflicts_with("cat"),
+            Arg::new("seek")
+                .short('s')
+                .long("seek")
+                .help("skip first N bytes and clear stream offset [0]")
+                .takes_value(true)
+                .number_of_values(1),
+            Arg::new("range")
+                .short('r')
+                .long("range")
+                .help("drop bytes out of the range [0:inf]")
+                .takes_value(true),
+            Arg::new("patch")
+                .short('p')
+                .long("patch")
+                .help("patch the input stream with the patchfile (after all of the above)")
+                .takes_value(true),
+            Arg::new("patch-op")
+                .short('b')
+                .long("patch-op")
+                .help("do binary operation on patching")
+                .takes_value(true),
+            Arg::new("op")
+                .short('B')
+                .long("op")
+                .help("apply unary bit operation to every W-byte word")
+                .takes_value(true),
+            Arg::new("splice")
+                .short('L')
+                .long("splice")
+                .help("output only bytes at the indices in every W-byte word")
+                .takes_value(true),
+            Arg::new("shuffle")
+                .short('Y')
+                .long("shuffle")
+                .help("shuffle bytes with the indices in W-byte words")
+                .takes_value(true),
+            Arg::new("multiply")
+                .short('X')
+                .long("multiply")
+                .help("multiply bitmatrix to every W-byte word")
+                .takes_value(true),
+            Arg::new("substitute")
+                .short('S')
+                .long("substitute")
+                .help("substitute word with the map")
+                .takes_value(true),
+            Arg::new("histogram")
+                .short('H')
+                .long("histogram")
+                .help("compute a histogram of bits B:E in W-byte words on finite input stream")
+                .takes_value(true),
+            Arg::new("sort")
+                .short('O')
+                .long("sort")
+                .help("sort finite input stream of W-byte words by bits from N to M")
+                .takes_value(true),
+            Arg::new("cluster")
+                .short('D')
+                .long("cluster")
+                .help("cluster binary pattern by bits B:E in W-byte words")
+                .takes_value(true),
+            Arg::new("reverse")
+                .short('R')
+                .long("reverse")
+                .help("reverse finite input stream of W-byte words")
+                .takes_value(true),
+            Arg::new("transpose")
+                .short('T')
+                .long("transpose")
+                .help("transpose finite input stream with the shape and its indices")
+                .takes_value(true),
+            Arg::new("width")
+                .short('w')
+                .long("width")
+                .help("slice into N bytes (default) [16]")
+                .takes_value(true),
+            Arg::new("match")
+                .short('m')
+                .long("match")
+                .help("slice out every matches whose Hamming distance is less than K from the pattern")
+                .takes_value(true),
+            Arg::new("regex")
+                .short('e')
+                .long("regex")
+                .help("slice out every matches with regular expression (in PCRE)")
+                .takes_value(true),
+            Arg::new("margin")
+                .short('G')
+                .long("margin")
+                .help("extend every slice to left and right by N and M bytes [0:0]")
+                .takes_value(true),
+            Arg::new("merge")
+                .short('M')
+                .long("merge")
+                .help("merge two slices whose overlap is longer than N bytes (after extension) [0]")
+                .takes_value(true),
+            Arg::new("pad")
+                .short('P')
+                .long("pad")
+                .help("pad slices left and right by N and M bytes (after extension and merging) [0:0]")
+                .takes_value(true),
+            Arg::new("group")
+                .short('l')
+                .long("group")
+                .help("group N slices (default) [1]")
+                .takes_value(true),
+            Arg::new("uniq")
+                .short('u')
+                .long("uniq")
+                .help("group slices whose bits from B to E are the same [0:inf]")
+                .takes_value(true),
+            Arg::new("map")
+                .short('f')
+                .long("map")
+                .help("apply shell command to every grouped slices []")
+                .takes_value(true),
+            Arg::new("reduce")
+                .short('d')
+                .long("reduce")
+                .help("pass outputs of --map command to another as input files []")
+                .takes_value(true),
             Arg::new("help").short('h').long("help").help("print help (this) message"),
             Arg::new("version").short('v').long("version").help("print version information"),
-            Arg::new("verbose").short('V').long("verbose").help("print stream diagram and verbose logs"),
+            Arg::new("verbose")
+                .short('V')
+                .long("verbose")
+                .help("print stream diagram and verbose logs"),
         ])
         .get_matches();
 
@@ -145,14 +279,17 @@ fn main() {
     };
     println!("{:?}", input_format);
 
-    let inputs: Vec<Box<dyn ReadBlock>> = inputs.iter().map(|x| -> Box<dyn ReadBlock> {
-        let src = create_source(x);
-        if input_format.offset == Some(b'b') {
-            Box::new(BinaryStream::new(src, &input_format))
-        } else {
-            Box::new(HexStream::new(src, &input_format))
-        }
-    }).collect();
+    let inputs: Vec<Box<dyn ReadBlock>> = inputs
+        .iter()
+        .map(|x| -> Box<dyn ReadBlock> {
+            let src = create_source(x);
+            if input_format.offset == Some(b'b') {
+                Box::new(BinaryStream::new(src, &input_format))
+            } else {
+                Box::new(HexStream::new(src, &input_format))
+            }
+        })
+        .collect();
 
     let input: Box<dyn ReadBlock> = if let Some(x) = m.value_of_t("zip").ok() {
         Box::new(ZipStream::new(inputs, x))
@@ -232,6 +369,9 @@ fn main() {
 }
 
 fn format_line(dst: &mut [u8], src: &[u8], offset: usize, elems_per_line: usize) -> usize {
+    assert!(src.len() >= 16);
+    assert!(dst.len() >= 85);
+
     // header; p is the current offset in the dst buffer
     let mut p = format_hex_single(dst, offset, 6);
     p += format_hex_single(&mut dst[p..], elems_per_line, 1);
@@ -282,7 +422,10 @@ fn patch_line(dst: &mut [u8], valid_elements: usize, elems_per_line: usize) {
 }
 
 trait WithUninit {
-    fn with_uninit<T, F>(&mut self, len: usize, f: F) -> Option<T> where T: Sized, F: FnMut(&mut [u8]) -> Option<(T, usize)>;
+    fn with_uninit<T, F>(&mut self, len: usize, f: F) -> Option<T>
+    where
+        T: Sized,
+        F: FnMut(&mut [u8]) -> Option<(T, usize)>;
 }
 
 impl WithUninit for Vec<u8> {
@@ -302,7 +445,7 @@ impl WithUninit for Vec<u8> {
         }
 
         let arr = self.spare_capacity_mut();
-        let arr = unsafe { std::mem::transmute::<&mut [std::mem::MaybeUninit::<u8>], &mut [u8]>(arr) };
+        let arr = unsafe { std::mem::transmute::<&mut [std::mem::MaybeUninit<u8>], &mut [u8]>(arr) };
         let ret = f(&mut arr[..len]);
         let clip = match ret {
             Some((_, clip)) => clip,
@@ -319,9 +462,9 @@ impl WithUninit for Vec<u8> {
 
 #[derive(Copy, Clone, Debug)]
 struct InoutFormat {
-    offset: Option<u8>,     // in {'b', 'd', 'x'}
-    length: Option<u8>,     // in {'b', 'd', 'x'}
-    body: Option<u8>,       // in {'b', 'd', 'x', 'a'}
+    offset: Option<u8>, // in {'b', 'd', 'x'}
+    length: Option<u8>, // in {'b', 'd', 'x'}
+    body: Option<u8>,   // in {'b', 'd', 'x', 'a'}
 }
 
 struct HexdumpParser {
@@ -349,18 +492,18 @@ impl HexdumpParser {
 
         let header_parsers = {
             let mut t: [Option<fn(&[u8]) -> Option<(u64, usize)>>; 256] = [None; 256];
-            t[b'd' as usize] = Some(parse_hex_single);  // parse_dec_single
+            t[b'd' as usize] = Some(parse_hex_single); // parse_dec_single
             t[b'x' as usize] = Some(parse_hex_single);
-            t[b'n' as usize] = Some(parse_hex_single);  // parse_none_single
+            t[b'n' as usize] = Some(parse_hex_single); // parse_none_single
             t
         };
 
         let body_parsers = {
             let mut t: [Option<fn(&[u8], &mut [u8]) -> Option<(usize, usize)>>; 256] = [None; 256];
-            t[b'a' as usize] = Some(parse_hex_body);    // parse_contigous_hex_body
-            t[b'd' as usize] = Some(parse_hex_body);    // parse_dec_body
+            t[b'a' as usize] = Some(parse_hex_body); // parse_contigous_hex_body
+            t[b'd' as usize] = Some(parse_hex_body); // parse_dec_body
             t[b'x' as usize] = Some(parse_hex_body);
-            t[b'n' as usize] = Some(parse_hex_body);    // parse_none_body
+            t[b'n' as usize] = Some(parse_hex_body); // parse_none_body
             t
         };
 
@@ -573,11 +716,7 @@ struct CatStream {
 
 impl CatStream {
     fn new(srcs: Vec<Box<dyn ReadBlock>>, align: usize) -> CatStream {
-        CatStream {
-            srcs,
-            index: 0,
-            align,
-        }
+        CatStream { srcs, index: 0, align }
     }
 }
 
@@ -648,7 +787,7 @@ impl ZipStreamCache {
 
 struct ZipStream {
     srcs: Vec<ZipStreamCache>,
-    ptrs: Vec<*const u8>,       // pointer cache (only for use in the gather function)
+    ptrs: Vec<*const u8>, // pointer cache (only for use in the gather function)
     gather: fn(&mut Self, &mut Vec<u8>) -> Option<usize>,
     align: usize,
 }
@@ -696,13 +835,7 @@ impl ZipStream {
         assert!(srcs.len() > 0);
         assert!(align.is_power_of_two() && align <= 16);
 
-        let gathers = [
-            Self::gather_w1,
-            Self::gather_w2,
-            Self::gather_w4,
-            Self::gather_w8,
-            Self::gather_w16,
-        ];
+        let gathers = [Self::gather_w1, Self::gather_w2, Self::gather_w4, Self::gather_w8, Self::gather_w16];
         let index = align.trailing_zeros() as usize;
         debug_assert!(index < 5);
 
@@ -711,7 +844,7 @@ impl ZipStream {
             srcs: srcs.into_iter().map(|x| ZipStreamCache::new(x)).collect(),
             ptrs: (0..len).map(|_| std::ptr::null::<u8>()).collect(),
             gather: gathers[index],
-            align
+            align,
         }
     }
 
