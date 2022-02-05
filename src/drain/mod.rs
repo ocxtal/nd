@@ -2,6 +2,8 @@
 // @author Hajime Suzuki
 // @brief formatter implementations
 
-pub mod hex;
+mod hex;
+
+pub use hex::HexDrain;
 
 // end of mod.rs
