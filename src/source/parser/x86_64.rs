@@ -151,7 +151,7 @@ pub fn parse_hex_body_avx2(is_in_tail: bool, src: &[u8], dst: &mut [u8]) -> Opti
             let scan_len = find_delim(x0, x1, x2, x3, b'\n');
             scanned += scan_len;
             if is_in_tail {
-                if scan_len <= 48 {
+                if scan_len < 48 {
                     break;
                 }
                 continue;
@@ -162,7 +162,7 @@ pub fn parse_hex_body_avx2(is_in_tail: bool, src: &[u8], dst: &mut [u8]) -> Opti
 
             let parse_len = parse_len.min(scan_len);
             parsed += parse_len;
-            n_elems += parse_multi(x0, x1, x2, x3, (parse_len + 2) / 3, &mut dst[n_elems..])?;
+            n_elems += parse_multi(x0, x1, x2, x3, (parse_len + 1) / 3, &mut dst[n_elems..])?;
 
             if scan_len < 48 {
                 break;
