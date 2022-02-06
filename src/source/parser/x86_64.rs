@@ -146,7 +146,7 @@ pub fn parse_hex_body_avx2(is_in_tail: bool, src: &[u8], dst: &mut [u8]) -> Opti
             let x0 = _mm_loadu_si128((&chunk[0..]).as_ptr() as *const __m128i);
             let x1 = _mm_loadu_si128((&chunk[12..]).as_ptr() as *const __m128i);
             let x2 = _mm_loadu_si128((&chunk[24..]).as_ptr() as *const __m128i);
-            let x3 = _mm_loadu_si128((&chunk[36..]).as_ptr() as *const __m128i);  // invades the tail; see the assertion above!
+            let x3 = _mm_loadu_si128((&chunk[36..]).as_ptr() as *const __m128i); // invades the tail; see the assertion above!
 
             let scan_len = find_delim(x0, x1, x2, x3, b'\n');
             scanned += scan_len;

@@ -2,8 +2,8 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
+use crate::common::{ExtendUninit, InoutFormat, ReadBlock, BLOCK_SIZE};
 use std::io::Read;
-use crate::common::{BLOCK_SIZE, ExtendUninit, InoutFormat, ReadBlock};
 
 pub struct BinaryStream {
     src: Box<dyn Read>,

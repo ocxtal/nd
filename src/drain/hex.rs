@@ -10,16 +10,16 @@ use core::arch::aarch64::*;
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use core::arch::x86_64::*;
 
-use crate::{BLOCK_SIZE, DumpBlock, ReadBlock};
+use crate::{DumpBlock, ReadBlock, BLOCK_SIZE};
 
 fn format_hex_single_naive(dst: &mut [u8], offset: usize, bytes: usize) -> usize {
-	for i in 0..bytes {
-		let x = (offset >> 4 * (bytes - i - 1)) & 0x0f;
-		dst[i] = b"fedcba9876543210"[x];
-	}
-	dst[2 * bytes] = b' ';
+    for i in 0..bytes {
+        let x = (offset >> 4 * (bytes - i - 1)) & 0x0f;
+        dst[i] = b"fedcba9876543210"[x];
+    }
+    dst[2 * bytes] = b' ';
 
-	2 * bytes + 1
+    2 * bytes + 1
 }
 
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]

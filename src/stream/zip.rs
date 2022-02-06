@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
-use crate::common::{BLOCK_SIZE, ExtendUninit, ReadBlock};
+use crate::common::{ExtendUninit, ReadBlock, BLOCK_SIZE};
 
 struct ZipStreamCache {
     src: Box<dyn ReadBlock>,

@@ -14,8 +14,8 @@ mod x86_64;
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use x86_64::*;
 
+use crate::common::{ExtendUninit, InoutFormat, BLOCK_SIZE};
 use std::io::Read;
-use crate::common::{ExtendUninit, InoutFormat};
 
 mod naive;
 use naive::*;
@@ -41,19 +41,19 @@ fn test_parse_hex_single_impl(f: &dyn Fn(&[u8]) -> Option<(u64, usize)>) {
     }
 
     test!("                                ", Some((0, 0)));
-    test!("0                               ", Some((0, 1)));
+    test!("4                               ", Some((0x4, 1)));
     test!("012                             ", Some((0x012, 3)));
     test!("abcdef01                        ", Some((0xabcdef01, 8)));
     test!("AbcDef01                        ", Some((0xabcdef01, 8)));
 
     test!(" |                              ", Some((0, 0)));
-    test!("0 |                             ", Some((0, 1)));
+    test!("f |                             ", Some((0xf, 1)));
     test!("012 |                           ", Some((0x012, 3)));
     test!("abcdef01 |                      ", Some((0xabcdef01, 8)));
     test!("aBcDEF01 |                      ", Some((0xabcdef01, 8)));
 
     test!("          |                     ", Some((0, 0)));
-    test!("0         |                     ", Some((0, 1)));
+    test!("E         |                     ", Some((0xe, 1)));
     test!("012                |            ", Some((0x012, 3)));
     test!("abcdef01           |            ", Some((0xabcdef01, 8)));
 
@@ -96,6 +96,7 @@ pub fn parse_hex_body(is_in_tail: bool, src: &[u8], dst: &mut [u8]) -> Option<((
 }
 
 #[cfg(test)]
+#[rustfmt::skip]
 fn test_parse_hex_body_impl(f: &dyn Fn(bool, &[u8], &mut [u8]) -> Option<((usize, usize), usize)>) {
     macro_rules! test {
         ( $input: expr, $expected_arr: expr, $expected_counts: expr ) => {{
@@ -210,6 +211,8 @@ pub struct TextParser {
 }
 
 impl TextParser {
+    const MIN_MARGIN: usize = 256;
+
     pub fn new(src: Box<dyn Read>, format: &InoutFormat) -> TextParser {
         let offset_key = format.offset.unwrap_or(b'x') as usize;
         let length_key = format.length.unwrap_or(b'x') as usize;
@@ -251,34 +254,48 @@ impl TextParser {
         if self.eof != usize::MAX {
             return Some(0);
         }
+        eprintln!("{:?}, {:?}", self.loaded, self.consumed);
 
         self.buf.copy_within(self.consumed..self.loaded, 0);
         self.loaded -= self.consumed;
         self.consumed -= self.consumed;
 
-        let len = self.src.read(&mut self.buf[self.loaded..]).ok()?;
-        self.loaded += len;
+        let base = self.loaded;
+        while self.loaded < BLOCK_SIZE {
+            let len = match self.src.read(&mut self.buf[self.loaded..]) {
+                Ok(x) => {
+                    println!("ok, {:?}", x);
+                    x
+                }
+                Err(x) => {
+                    eprintln!("err, {:?}", x);
+                    0
+                }
+            };
+            self.loaded += len;
 
-        if len == 0 {
-            self.eof = self.loaded;
-            self.buf.resize(self.buf.len() + 4 * 48, b'\n');
+            if len == 0 {
+                self.eof = self.loaded;
+                self.buf.truncate(self.loaded);
+                self.buf.resize(self.buf.len() + Self::MIN_MARGIN, b'\n');
+                break;
+            }
         }
-        Some(len)
+        Some(self.loaded - base)
     }
 
-    pub fn read_line(&mut self, buf: &mut Vec<u8>) -> Option<(usize, usize)> {
-        if self.loaded < self.consumed + 32 + 4 * 48 {
-            self.fill_buf();
-        }
+    fn read_line_core(&mut self, buf: &mut Vec<u8>) -> Option<(usize, usize, usize)> {
+        assert!(self.buf[self.consumed..].len() >= Self::MIN_MARGIN);
 
         let (offset, fwd) = (self.parse_offset)(&self.buf[self.consumed..])?;
-        self.consumed += fwd;
+        self.consumed += fwd + 1;
 
         let (length, fwd) = (self.parse_length)(&self.buf[self.consumed..])?;
-        self.consumed += fwd;
+        self.consumed += fwd + 1;
 
-        assert!(self.buf[self.consumed] == b'|');
-        assert!(self.buf[self.consumed + 1] == b'|');
+        if self.buf[self.consumed] != b'|' || self.buf[self.consumed + 1] != b' ' {
+            return None;
+        }
         self.consumed += 2;
 
         let mut is_in_tail = false;
@@ -298,7 +315,29 @@ impl TextParser {
             }
         }
 
-        Some((offset as usize, length as usize))
+        if self.eof != usize::MAX {
+            eprintln!("eof, {:?}", offset);
+        }
+
+        if self.consumed < self.eof {
+            if self.buf[self.consumed] != b'\n' {
+                return None;
+            }
+            self.consumed += 1;
+        }
+        Some((1, offset as usize, length as usize))
+    }
+
+    pub fn read_line(&mut self, buf: &mut Vec<u8>) -> Option<(usize, usize, usize)> {
+        if self.consumed >= self.eof {
+            return Some((0, 0, 0));
+        }
+
+        if self.loaded < self.consumed + Self::MIN_MARGIN {
+            self.fill_buf()?;
+        }
+
+        self.read_line_core(buf)
     }
 }
 

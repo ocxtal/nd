@@ -8,7 +8,11 @@ fn is_valid_hex(x: u8) -> bool {
 
 fn to_hex(x: u8) -> u8 {
     // only valid for [0-9a-fA-F]
-    if x < b':' { x - b'0' } else { (x - b'A' + 10) & 0x0f }
+    if x < b':' {
+        x - b'0'
+    } else {
+        (x - b'A' + 10) & 0x0f
+    }
 }
 
 pub fn parse_hex_single_naive(src: &[u8]) -> Option<(u64, usize)> {
@@ -36,7 +40,9 @@ pub fn parse_hex_body_naive(is_in_tail: bool, src: &[u8], dst: &mut [u8]) -> Opt
 
     let find_first_match = |c: u8| {
         for (i, &x) in src[..4 * 48].iter().enumerate() {
-            if x == c { return i; }
+            if x == c {
+                return i;
+            }
         }
         4 * 48
     };

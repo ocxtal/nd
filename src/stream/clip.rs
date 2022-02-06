@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
-use crate::common::{BLOCK_SIZE, ReadBlock};
+use crate::common::{ReadBlock, BLOCK_SIZE};
 
 pub struct ClipStream {
     src: Box<dyn ReadBlock>,

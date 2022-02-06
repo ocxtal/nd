@@ -8,7 +8,7 @@ pub mod stream;
 use clap::{App, AppSettings, Arg, ColorChoice};
 use std::io::Read;
 
-use common::{BLOCK_SIZE, InoutFormat, ReadBlock, DumpBlock};
+use common::{DumpBlock, InoutFormat, ReadBlock, BLOCK_SIZE};
 use drain::HexDrain;
 use source::{BinaryStream, GaplessTextStream, TextStream};
 use stream::{CatStream, ClipStream, ZipStream};
@@ -129,7 +129,6 @@ fn main() {
         .get_matches();
 
     let inputs: Vec<&str> = m.values_of("inputs").unwrap().collect();
-    println!("{:?}", inputs);
 
     let input_format = if let Some(x) = m.value_of("in-format") {
         InoutFormat {
@@ -139,12 +138,11 @@ fn main() {
         }
     } else {
         InoutFormat {
-            offset: Some(b'x'),
-            length: Some(b'x'),
-            body: Some(b'x'),
+            offset: Some(b'b'),
+            length: None,
+            body: None,
         }
     };
-    println!("{:?}", input_format);
 
     let inputs: Vec<Box<dyn ReadBlock>> = inputs
         .iter()
@@ -153,7 +151,7 @@ fn main() {
             if input_format.offset == Some(b'b') {
                 Box::new(BinaryStream::new(src, &input_format))
             } else {
-                Box::new(TextStream::new(src, &input_format))
+                Box::new(GaplessTextStream::new(src, &input_format))
             }
         })
         .collect();
@@ -176,7 +174,6 @@ fn main() {
             break;
         }
     }
-    println!("done");
 
     // if let Some(input_format) = m.value_of("zip") {
     //     println!("{:?}", input_format);
@@ -310,4 +307,3 @@ fn create_source(name: &str) -> Box<dyn Read> {
 
 //     }
 // }
-
