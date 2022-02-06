@@ -12,8 +12,8 @@ pub struct GaplessTextStream {
 }
 
 impl GaplessTextStream {
-    pub fn new(src: Box<dyn Read>, format: &InoutFormat) -> GaplessTextStream {
-        assert!(format.offset == Some(b'x'));
+    pub fn new(src: Box<dyn Read>, format: &InoutFormat) -> Self {
+        assert!(!format.is_binary());
         GaplessTextStream {
             inner: TextParser::new(src, format),
         }
@@ -66,7 +66,8 @@ pub struct TextStream {
 }
 
 impl TextStream {
-    pub fn new(src: Box<dyn Read>, format: &InoutFormat) -> TextStream {
+    pub fn new(src: Box<dyn Read>, format: &InoutFormat) -> Self {
+        assert!(!format.is_binary());
         TextStream {
             inner: TextParser::new(src, format),
             curr: TextStreamCache::new(),

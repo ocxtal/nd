@@ -10,10 +10,8 @@ pub struct BinaryStream {
 }
 
 impl BinaryStream {
-    pub fn new(src: Box<dyn Read>, format: &InoutFormat) -> BinaryStream {
-        assert!(format.offset == Some(b'b'));
-        assert!(format.length.is_none());
-        assert!(format.body.is_none());
+    pub fn new(src: Box<dyn Read>, format: &InoutFormat) -> Self {
+        assert!(format.is_binary());
         BinaryStream { src }
     }
 }

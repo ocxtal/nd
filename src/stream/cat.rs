@@ -11,7 +11,7 @@ pub struct CatStream {
 }
 
 impl CatStream {
-    pub fn new(srcs: Vec<Box<dyn ReadBlock>>, align: usize) -> CatStream {
+    pub fn new(srcs: Vec<Box<dyn ReadBlock>>, align: usize) -> Self {
         CatStream { srcs, index: 0, align }
     }
 }
@@ -21,7 +21,7 @@ impl ReadBlock for CatStream {
         debug_assert!(buf.len() < BLOCK_SIZE);
 
         let base_len = buf.len();
-        while self.index < self.srcs.len() {
+        while buf.len() < BLOCK_SIZE && self.index < self.srcs.len() {
             let len = self.srcs[self.index].read_block(buf)?;
             if len == 0 {
                 let aligned = ((buf.len() + self.align - 1) / self.align) * self.align;

@@ -361,6 +361,7 @@ fn patch_line(dst: &mut [u8], valid_elements: usize, elems_per_line: usize) {
 
 pub struct HexDrain {
     src: Box<dyn ReadBlock>,
+    dst: Box<dyn Write>,
 
     in_buf: Vec<u8>,
     consumed: usize,
@@ -370,12 +371,13 @@ pub struct HexDrain {
 }
 
 impl HexDrain {
-    pub fn new(src: Box<dyn ReadBlock>, offset: usize) -> HexDrain {
+    pub fn new(src: Box<dyn ReadBlock>, offset: usize) -> Self {
         let mut out_buf = Vec::new();
         out_buf.resize(2 * 128 * BLOCK_SIZE, 0);
 
         HexDrain {
             src,
+            dst: Box::new(std::io::stdout()),
             in_buf: Vec::new(),
             consumed: 0,
             out_buf,
@@ -421,9 +423,9 @@ impl DumpBlock for HexDrain {
             patch_line(&mut self.out_buf[..p], len & 15, 16);
             self.in_buf.truncate(len);
         }
-        self.consumed = q;
 
-        std::io::stdout().write_all(&self.out_buf[..p]).unwrap();
+        self.dst.write(&self.out_buf[..p]).unwrap();
+        self.consumed = q;
         Some(q)
     }
 }

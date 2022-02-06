@@ -213,15 +213,15 @@ pub struct TextParser {
 impl TextParser {
     const MIN_MARGIN: usize = 256;
 
-    pub fn new(src: Box<dyn Read>, format: &InoutFormat) -> TextParser {
-        let offset_key = format.offset.unwrap_or(b'x') as usize;
-        let length_key = format.length.unwrap_or(b'x') as usize;
-        let body_key = format.body.unwrap_or(b'x') as usize;
-        assert!(offset_key != b'b' as usize);
+    pub fn new(src: Box<dyn Read>, format: &InoutFormat) -> Self {
+        assert!(!format.is_binary());
+        let offset = format.offset as usize;
+        let length = format.length as usize;
+        let body = format.body as usize;
 
         let header_parsers = {
             let mut t: [Option<fn(&[u8]) -> Option<(u64, usize)>>; 256] = [None; 256];
-            t[b'd' as usize] = Some(parse_hex_single); // parse_dec_single
+            t[b'd' as usize] = Some(parse_dec_single); // parse_dec_single
             t[b'x' as usize] = Some(parse_hex_single);
             t[b'n' as usize] = Some(parse_hex_single); // parse_none_single
             t
@@ -244,9 +244,9 @@ impl TextParser {
             loaded: 0,
             consumed: 0,
             eof: usize::MAX,
-            parse_offset: header_parsers[offset_key].expect("unrecognized parser key for header.offset"),
-            parse_length: header_parsers[length_key].expect("unrecognized parser key for header.length"),
-            parse_body: body_parsers[body_key].expect("unrecognized parser key for body"),
+            parse_offset: header_parsers[offset].expect("unrecognized parser key for header.offset"),
+            parse_length: header_parsers[length].expect("unrecognized parser key for header.length"),
+            parse_body: body_parsers[body].expect("unrecognized parser key for body"),
         }
     }
 
@@ -254,7 +254,6 @@ impl TextParser {
         if self.eof != usize::MAX {
             return Some(0);
         }
-        eprintln!("{:?}, {:?}", self.loaded, self.consumed);
 
         self.buf.copy_within(self.consumed..self.loaded, 0);
         self.loaded -= self.consumed;
@@ -262,16 +261,8 @@ impl TextParser {
 
         let base = self.loaded;
         while self.loaded < BLOCK_SIZE {
-            let len = match self.src.read(&mut self.buf[self.loaded..]) {
-                Ok(x) => {
-                    println!("ok, {:?}", x);
-                    x
-                }
-                Err(x) => {
-                    eprintln!("err, {:?}", x);
-                    0
-                }
-            };
+            let len = self.src.read(&mut self.buf[self.loaded..]);
+            let len = len.ok()?;
             self.loaded += len;
 
             if len == 0 {
@@ -313,10 +304,6 @@ impl TextParser {
             if self.loaded <= self.consumed + 4 * 48 {
                 self.fill_buf();
             }
-        }
-
-        if self.eof != usize::MAX {
-            eprintln!("eof, {:?}", offset);
         }
 
         if self.consumed < self.eof {

@@ -12,7 +12,7 @@ struct ZipStreamCache {
 }
 
 impl ZipStreamCache {
-    fn new(src: Box<dyn ReadBlock>) -> ZipStreamCache {
+    fn new(src: Box<dyn ReadBlock>) -> Self {
         ZipStreamCache {
             src,
             buf: Vec::new(),
@@ -94,7 +94,7 @@ macro_rules! gather {
 }
 
 impl ZipStream {
-    pub fn new(srcs: Vec<Box<dyn ReadBlock>>, align: usize) -> ZipStream {
+    pub fn new(srcs: Vec<Box<dyn ReadBlock>>, align: usize) -> Self {
         assert!(srcs.len() > 0);
         assert!(align.is_power_of_two() && align <= 16);
 

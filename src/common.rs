@@ -2,13 +2,104 @@
 // @author Hajime Suzuki
 // @brief formatter implementations
 
+use std::collections::HashMap;
+use std::ops::Range;
+
 pub const BLOCK_SIZE: usize = 2 * 1024 * 1024;
 
 #[derive(Copy, Clone, Debug)]
 pub struct InoutFormat {
-    pub offset: Option<u8>, // in {'b', 'd', 'x'}
-    pub length: Option<u8>, // in {'b', 'd', 'x'}
-    pub body: Option<u8>,   // in {'b', 'd', 'x', 'a'}
+    pub offset: u8, // in {'b', 'd', 'x'}
+    pub length: u8, // in {'b', 'd', 'x'}
+    pub body: u8,   // in {'b', 'd', 'x', 'a'}
+}
+
+impl InoutFormat {
+    fn from_str(config: &str) -> Self {
+        debug_assert!(config.len() == 3);
+
+        let config = config.as_bytes();
+        let offset = config[0];
+        let length = config[1];
+        let body = config[2];
+
+        InoutFormat { offset, length, body }
+    }
+
+    pub fn new(config: &str) -> Self {
+        let map = [
+            // shorthand form
+            ("x", "xxx"),
+            ("b", "nnb"),
+            ("d", "ddd"),
+            ("a", "xxa"),
+            // complete form; allowed combinations
+            ("nna", "nna"),
+            ("nnb", "nnb"),
+            ("nnx", "nnx"),
+            ("dda", "dda"),
+            ("ddd", "ddd"),
+            ("ddx", "ddx"),
+            ("dxa", "dxa"),
+            ("dxd", "dxd"),
+            ("dxx", "dxx"),
+            ("xda", "xda"),
+            ("xdd", "xdd"),
+            ("xdx", "xdx"),
+            ("xxa", "xxa"),
+            ("xxd", "xxd"),
+            ("xxx", "xxx"),
+        ];
+        let map: HashMap<&str, &str> = map.iter().cloned().collect();
+
+        match map.get(config) {
+            Some(x) => {
+                return InoutFormat::from_str(x);
+            }
+            _ => {
+                panic!("invalid input / output format signature: {:?}", config);
+            }
+        };
+    }
+
+    pub fn input_default() -> Self {
+        InoutFormat {
+            offset: b'n',
+            length: b'n',
+            body: b'b',
+        }
+    }
+
+    pub fn output_default() -> Self {
+        InoutFormat {
+            offset: b'x',
+            length: b'x',
+            body: b'x',
+        }
+    }
+
+    pub fn is_gapless(&self) -> bool {
+        self.offset == b'n' && self.length == b'n'
+    }
+
+    pub fn is_binary(&self) -> bool {
+        self.is_gapless() && self.body == b'b'
+    }
+}
+
+pub fn parse_range(s: &str) -> Option<Range<usize>> {
+    for (i, x) in s.bytes().enumerate() {
+        if x == b':' {
+            let start = if s[..i].len() == 0 { 0 } else { s[..i].parse::<usize>().ok()? };
+            let end = if s[i + 1..].len() == 0 {
+                usize::MAX
+            } else {
+                s[i + 1..].parse::<usize>().ok()?
+            };
+            return Some(start..end);
+        }
+    }
+    None
 }
 
 pub trait ReadBlock {
@@ -17,6 +108,10 @@ pub trait ReadBlock {
 
 pub trait DumpBlock {
     fn dump_block(&mut self) -> Option<usize>;
+}
+
+pub trait DumpSlice {
+    fn dump_slice(&mut self, offset: usize, bytes: &mut Vec<u8>) -> Option<usize>;
 }
 
 pub trait ExtendUninit {

@@ -12,9 +12,11 @@ pub struct ClipStream {
 }
 
 impl ClipStream {
-    pub fn new(src: Box<dyn ReadBlock>, pad: usize, skip: usize, len: usize) -> ClipStream {
+    pub fn new(src: Box<dyn ReadBlock>, pad: usize, skip: usize, len: usize) -> Self {
         assert!(skip < isize::MAX as usize);
-        assert!(len < isize::MAX as usize);
+
+        // FIXME: better handling of infinite stream
+        let len = if len > isize::MAX as usize { isize::MAX } else { len as isize };
 
         ClipStream {
             src,

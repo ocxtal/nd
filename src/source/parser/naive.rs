@@ -76,4 +76,55 @@ pub fn parse_hex_body_naive(is_in_tail: bool, src: &[u8], dst: &mut [u8]) -> Opt
     Some(((scan_len, parse_len), n_elems))
 }
 
+pub fn parse_dec_single(src: &[u8]) -> Option<(u64, usize)> {
+    assert!(src.len() >= 16);
+
+    let mut n = 0;
+    for (i, &x) in src.iter().enumerate() {
+        if x == b' ' {
+            return Some((n, i));
+        }
+
+        if !(b'0'..b':').contains(&x) {
+            return None;
+        }
+
+        n = n * 10 + (x - b'0') as u64;
+    }
+    None
+}
+
+// pub fn parse_dec_body_naive(is_in_tail: bool, src: &[u8], dst: &mut [u8]) -> Option<((usize, usize), usize)> {
+
+//     if !is_in_tail {
+//         loop {
+//             ;
+//         }
+//     }
+
+//     loop {
+
+//     }
+// }
+
+pub fn parse_none_single(src: &[u8]) -> Option<(u64, usize)> {
+    assert!(src.len() >= 16);
+
+    for (i, &x) in src[..16].iter().enumerate() {
+        if x == b' ' {
+            return Some((0, i));
+        }
+    }
+    None
+}
+
+pub fn parse_none_body_naive(is_in_tail: bool, src: &[u8], dst: &mut [u8]) -> Option<((usize, usize), usize)> {
+    for (i, &x) in src.iter().enumerate() {
+        if x == b'\n' {
+            return Some(((i, 0), 0));
+        }
+    }
+    None
+}
+
 // end of mod.rs

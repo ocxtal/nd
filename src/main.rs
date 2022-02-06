@@ -8,10 +8,23 @@ pub mod stream;
 use clap::{App, AppSettings, Arg, ColorChoice};
 use std::io::Read;
 
-use common::{DumpBlock, InoutFormat, ReadBlock, BLOCK_SIZE};
+use common::{parse_range, DumpBlock, InoutFormat, ReadBlock, BLOCK_SIZE};
 use drain::HexDrain;
 use source::{BinaryStream, GaplessTextStream, TextStream};
 use stream::{CatStream, ClipStream, ZipStream};
+
+fn create_source(name: &str) -> Box<dyn Read> {
+    if name == "-" {
+        return Box::new(std::io::stdin());
+    }
+
+    let path = std::path::Path::new(name);
+    let file = match std::fs::File::open(&path) {
+        Ok(file) => file,
+        Err(ret) => panic!("{:?}", ret),
+    };
+    Box::new(file)
+}
 
 static USAGE: &str = "zd [options] <input.bin>... > <output.txt>";
 
@@ -129,29 +142,22 @@ fn main() {
         .get_matches();
 
     let inputs: Vec<&str> = m.values_of("inputs").unwrap().collect();
-
     let input_format = if let Some(x) = m.value_of("in-format") {
-        InoutFormat {
-            offset: x.bytes().nth(0),
-            length: x.bytes().nth(1),
-            body: x.bytes().nth(2),
-        }
+        InoutFormat::new(x)
     } else {
-        InoutFormat {
-            offset: Some(b'b'),
-            length: None,
-            body: None,
-        }
+        InoutFormat::input_default()
     };
 
     let inputs: Vec<Box<dyn ReadBlock>> = inputs
         .iter()
         .map(|x| -> Box<dyn ReadBlock> {
             let src = create_source(x);
-            if input_format.offset == Some(b'b') {
+            if input_format.is_binary() {
                 Box::new(BinaryStream::new(src, &input_format))
+            } else if input_format.is_gapless() {
+                Box::new(TextStream::new(src, &input_format))
             } else {
-                Box::new(GaplessTextStream::new(src, &input_format))
+                Box::new(TextStream::new(src, &input_format))
             }
         })
         .collect();
@@ -162,148 +168,29 @@ fn main() {
         Box::new(CatStream::new(inputs, m.value_of_t("cat").unwrap_or(1)))
     };
 
-    let input: Box<dyn ReadBlock> = if let Some(x) = m.value_of_t("seek").ok() {
-        Box::new(ClipStream::new(input, 0, x, isize::MAX as usize - 1))
+    let (offset, len) = if let Some(r) = m.value_of("range") {
+        let r = parse_range(r).unwrap();
+        (r.start, r.len())
+    } else {
+        (0, usize::MAX)
+    };
+
+    let (offset, seek) = if let Some(seek) = m.value_of_t::<usize>("seek").ok() {
+        (offset, offset + seek)
+    } else {
+        (offset, 0)
+    };
+
+    let input: Box<dyn ReadBlock> = if seek > 0 || len != usize::MAX {
+        Box::new(ClipStream::new(input, 0, seek, len))
     } else {
         input
     };
 
-    let mut drain: Box<dyn DumpBlock> = Box::new(HexDrain::new(input, 0));
+    let mut drain: Box<dyn DumpBlock> = Box::new(HexDrain::new(input, offset));
     while let Some(len) = drain.dump_block() {
         if len == 0 {
             break;
         }
     }
-
-    // if let Some(input_format) = m.value_of("zip") {
-    //     println!("{:?}", input_format);
-    // } else {
-    //     println!("not found");
-    // }
-
-    // let opt = Opt::parse();
-    // let app = <Opt as IntoApp>::into_app().help_template("{version}");
-    // let opt = Opt::parse();
-
-    // let elems_per_line = 16;
-    // let header_width = 12;
-    // let elems_per_chunk = 2 * 1024 * 1024;
-
-    // let lines_per_chunk = (elems_per_chunk + elems_per_line - 1) / elems_per_line;
-    // let bytes_per_in_line = elems_per_line;
-    // let bytes_per_out_line = 16 + header_width + 5 * elems_per_line;
-
-    // let bytes_per_in_chunk = bytes_per_in_line * lines_per_chunk;
-    // let bytes_per_out_chunk = bytes_per_out_line * lines_per_chunk;
-
-    // let in_buf_size = bytes_per_in_chunk + 256;
-    // let out_buf_size = bytes_per_out_chunk + 256;
-
-    // let mut in_buf = Vec::new();
-    // let mut out_buf = Vec::new();
-
-    // in_buf.resize(in_buf_size, 0);
-    // out_buf.resize(out_buf_size, 0);
-
-    // let args: Vec<String> = std::env::args().collect();
-    // let mut src = create_source(&args[1]);
-    // let mut dst = std::io::stdout();
-
-    // let mut offset = 0;
-    // loop {
-    //     let len = src.read(&mut in_buf[..bytes_per_in_chunk]).unwrap();
-    //     if len == 0 {
-    //         break;
-    //     }
-
-    //     let mut p = 0;
-    //     let mut q = 0;
-    //     while q < len {
-    //         p += format_line(&mut out_buf[p..], &in_buf[q..], offset, elems_per_line);
-    //         q += elems_per_line;
-    //         offset += elems_per_line;
-    //     }
-
-    //     if (len % elems_per_line) != 0 {
-    //         patch_line(&mut out_buf[..p], len % elems_per_line, elems_per_line);
-    //     }
-
-    //     dst.write_all(&out_buf[..p]).unwrap();
-    // }
 }
-
-// fn format_line(dst: &mut [u8], src: &[u8], offset: usize, elems_per_line: usize) -> usize {
-//     assert!(src.len() >= 16);
-//     assert!(dst.len() >= 85);
-
-//     // header; p is the current offset in the dst buffer
-//     let mut p = format_hex_single(dst, offset, 6);
-//     p += format_hex_single(&mut dst[p..], elems_per_line, 1);
-
-//     dst[p] = b'|';
-//     p += 1;
-//     dst[p] = b' ';
-//     p += 1;
-
-//     let n_blks = (elems_per_line + 0x0f) >> 4;
-//     let n_rem = 0usize.wrapping_sub(elems_per_line) & 0x0f;
-
-//     // body
-//     for i in 0..n_blks {
-//         p += format_hex_body(&mut dst[p..], &src[i * 16..]);
-//     }
-//     p -= 4 * n_rem;
-
-//     dst[p] = b'|';
-//     p += 1;
-//     dst[p] = b' ';
-//     p += 1;
-
-//     // mosaic
-//     for i in 0..n_blks {
-//         p += format_mosaic(&mut dst[p..], &src[i * 16..]);
-//     }
-//     p -= n_rem;
-
-//     dst[p] = b'\n';
-//     p + 1
-// }
-
-// fn patch_line(dst: &mut [u8], valid_elements: usize, elems_per_line: usize) {
-//     debug_assert!(valid_elements < elems_per_line);
-//     debug_assert!(dst.len() > 4 * elems_per_line);
-
-//     let last_line_offset = dst.len() - 4 * elems_per_line - 3;
-//     let (_, last) = dst.split_at_mut(last_line_offset);
-
-//     let (body, mosaic) = last.split_at_mut(3 * elems_per_line);
-//     for i in valid_elements..elems_per_line {
-//         body[3 * i] = b' ';
-//         body[3 * i + 1] = b' ';
-//         mosaic[i + 2] = b' ';
-//     }
-//     // body[4 * valid_elements + 1] = b'|';
-// }
-
-fn create_source(name: &str) -> Box<dyn Read> {
-    if name == "-" {
-        return Box::new(std::io::stdin());
-    }
-
-    let path = std::path::Path::new(name);
-    let file = match std::fs::File::open(&path) {
-        Ok(file) => file,
-        Err(ret) => panic!("{:?}", ret),
-    };
-    Box::new(file)
-}
-
-// struct PatchStream {
-//     inner: TextParser,
-// }
-
-// impl PatchStream {
-//     fn new(src: Box<dyn Read>, format: &InoutFormat) {
-
-//     }
-// }
