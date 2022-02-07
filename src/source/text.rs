@@ -41,7 +41,7 @@ struct TextStreamCache {
 }
 
 impl TextStreamCache {
-    fn new() -> TextStreamCache {
+    fn new() -> Self {
         TextStreamCache {
             offset: 0..0,
             buf: Vec::new(),

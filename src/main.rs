@@ -10,7 +10,7 @@ use std::io::Read;
 
 use common::{parse_range, DumpBlock, InoutFormat, ReadBlock, BLOCK_SIZE};
 use drain::HexDrain;
-use source::{BinaryStream, GaplessTextStream, TextStream};
+use source::{BinaryStream, GaplessTextStream, PatchStream, TextStream};
 use stream::{CatStream, ClipStream, ZipStream};
 
 fn create_source(name: &str) -> Box<dyn Read> {
@@ -155,7 +155,7 @@ fn main() {
             if input_format.is_binary() {
                 Box::new(BinaryStream::new(src, &input_format))
             } else if input_format.is_gapless() {
-                Box::new(TextStream::new(src, &input_format))
+                Box::new(GaplessTextStream::new(src, &input_format))
             } else {
                 Box::new(TextStream::new(src, &input_format))
             }
@@ -181,8 +181,16 @@ fn main() {
         (offset, 0)
     };
 
-    let input: Box<dyn ReadBlock> = if seek > 0 || len != usize::MAX {
+    let input = if seek > 0 || len != usize::MAX {
         Box::new(ClipStream::new(input, 0, seek, len))
+    } else {
+        input
+    };
+
+    let input = if let Some(x) = m.value_of("patch") {
+        let format = m.value_of("patch-format").unwrap_or("xxx");
+        let format = InoutFormat::new(format);
+        Box::new(PatchStream::new(input, create_source(x), &format))
     } else {
         input
     };
