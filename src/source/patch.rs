@@ -30,6 +30,7 @@ impl PatchParser {
         let end = self.offset.end.min(eof);
 
         self.offset = start..end;
+        self.buf.truncate(self.offset.len());
     }
 
     fn fill_buf(&mut self, eof: usize) -> Option<()> {
