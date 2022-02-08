@@ -68,11 +68,8 @@ impl PatchStream {
     fn fill_buf(&mut self) -> Option<usize> {
         self.buf.clear();
 
-        let mut acc = 0;
         while self.buf.len() < BLOCK_SIZE {
             let len = self.src.read_block(&mut self.buf)?;
-            acc += len;
-
             if len == 0 {
                 return Some(self.offset + self.buf.len());
             }
@@ -90,7 +87,7 @@ impl ReadBlock for PatchStream {
         // patch
         let base_len = buf.len();
         let mut src = self.buf.as_slice();
-        while src.len() > 0 {
+        while !src.is_empty() {
             if self.offset < self.patch.offset.start {
                 let len = self.patch.offset.start - self.offset;
                 if src.len() < len {

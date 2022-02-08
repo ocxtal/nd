@@ -13,9 +13,9 @@ use core::arch::x86_64::*;
 use crate::{DumpBlock, ReadBlock, BLOCK_SIZE};
 
 fn format_hex_single_naive(dst: &mut [u8], offset: usize, bytes: usize) -> usize {
-    for i in 0..bytes {
-        let x = (offset >> 4 * (bytes - i - 1)) & 0x0f;
-        dst[i] = b"fedcba9876543210"[x];
+    for (i, x) in dst[..2 * bytes].iter_mut().enumerate() {
+        let y = (offset >> (4 * (bytes - i - 1))) & 0x0f;
+        *x = b"fedcba9876543210"[y];
     }
     dst[2 * bytes] = b' ';
 
@@ -128,7 +128,7 @@ fn test_format_hex_single() {
 
 fn format_hex_body_naive(dst: &mut [u8], src: &[u8]) -> usize {
     for (i, &x) in src[..16].iter().enumerate() {
-        dst[3 * i + 0] = b"0123456789abcdef"[(x >> 4) as usize];
+        dst[3 * i] = b"0123456789abcdef"[(x >> 4) as usize];
         dst[3 * i + 1] = b"0123456789abcdef"[(x & 0x0f) as usize];
         dst[3 * i + 2] = b' ';
     }
@@ -401,7 +401,7 @@ impl DumpBlock for HexDrain {
             }
         }
 
-        if self.in_buf.len() == 0 {
+        if self.in_buf.is_empty() {
             return Some(0);
         }
 
@@ -424,7 +424,7 @@ impl DumpBlock for HexDrain {
             self.in_buf.truncate(len);
         }
 
-        self.dst.write(&self.out_buf[..p]).unwrap();
+        self.dst.write_all(&self.out_buf[..p]).unwrap();
         self.consumed = q;
         Some(q)
     }

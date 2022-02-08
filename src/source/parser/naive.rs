@@ -19,7 +19,7 @@ pub fn parse_hex_single_naive(src: &[u8]) -> Option<(u64, usize)> {
     assert!(src.len() >= 16);
 
     let mut hex = 0;
-    for (i, &x) in (&src[..16]).iter().enumerate() {
+    for (i, &x) in src[..16].iter().enumerate() {
         if x == b' ' {
             return Some((hex, i));
         }
@@ -118,7 +118,7 @@ pub fn parse_none_single(src: &[u8]) -> Option<(u64, usize)> {
     None
 }
 
-pub fn parse_none_body_naive(is_in_tail: bool, src: &[u8], dst: &mut [u8]) -> Option<((usize, usize), usize)> {
+pub fn parse_none_body_naive(_: bool, src: &[u8], _: &mut [u8]) -> Option<((usize, usize), usize)> {
     for (i, &x) in src.iter().enumerate() {
         if x == b'\n' {
             return Some(((i, 0), 0));

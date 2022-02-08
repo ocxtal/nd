@@ -13,7 +13,7 @@ unsafe fn vld2q_u8(arr: &[u8]) -> uint8x16x2_t {
         out("v0") x0,
         out("v1") x1,
     );
-    uint8x16x2_t { 0: x0, 1: x1 }
+    uint8x16x2_t(x0, x1)
 }
 
 unsafe fn vld3q_u8(arr: &[u8]) -> uint8x16x3_t {
@@ -27,7 +27,7 @@ unsafe fn vld3q_u8(arr: &[u8]) -> uint8x16x3_t {
         out("v1") x1,
         out("v2") x2,
     );
-    uint8x16x3_t { 0: x0, 1: x1, 2: x2 }
+    uint8x16x3_t(x0, x1, x2)
 }
 
 unsafe fn find_delim_ld3q(x: uint8x16x3_t, delim: u8) -> Option<usize> {

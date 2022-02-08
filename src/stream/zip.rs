@@ -95,7 +95,7 @@ macro_rules! gather {
 
 impl ZipStream {
     pub fn new(srcs: Vec<Box<dyn ReadBlock>>, align: usize) -> Self {
-        assert!(srcs.len() > 0);
+        assert!(!srcs.is_empty());
         assert!(align.is_power_of_two() && align <= 16);
 
         let gathers = [Self::gather_w1, Self::gather_w2, Self::gather_w4, Self::gather_w8, Self::gather_w16];

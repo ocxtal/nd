@@ -53,13 +53,11 @@ impl InoutFormat {
         let map: HashMap<&str, &str> = map.iter().cloned().collect();
 
         match map.get(config) {
-            Some(x) => {
-                return InoutFormat::from_str(x);
-            }
+            Some(x) => InoutFormat::from_str(x),
             _ => {
                 panic!("invalid input / output format signature: {:?}", config);
             }
-        };
+        }
     }
 
     pub fn input_default() -> Self {
@@ -90,8 +88,8 @@ impl InoutFormat {
 pub fn parse_range(s: &str) -> Option<Range<usize>> {
     for (i, x) in s.bytes().enumerate() {
         if x == b':' {
-            let start = if s[..i].len() == 0 { 0 } else { s[..i].parse::<usize>().ok()? };
-            let end = if s[i + 1..].len() == 0 {
+            let start = if s[..i].is_empty() { 0 } else { s[..i].parse::<usize>().ok()? };
+            let end = if s[i + 1..].is_empty() {
                 usize::MAX
             } else {
                 s[i + 1..].parse::<usize>().ok()?
@@ -103,6 +101,7 @@ pub fn parse_range(s: &str) -> Option<Range<usize>> {
 }
 
 pub trait ReadBlock {
+    #[allow(clippy::ptr_arg)]
     fn read_block(&mut self, buf: &mut Vec<u8>) -> Option<usize>;
 }
 
@@ -111,6 +110,7 @@ pub trait DumpBlock {
 }
 
 pub trait DumpSlice {
+    #[allow(clippy::ptr_arg)]
     fn dump_slice(&mut self, offset: usize, bytes: &mut Vec<u8>) -> Option<usize>;
 }
 
@@ -146,10 +146,7 @@ impl ExtendUninit for Vec<u8> {
         };
         unsafe { self.set_len(self.len() + clip) };
 
-        match ret {
-            Some((ret, _)) => Some(ret),
-            None => None,
-        }
+        ret.map(|(ret, _)| ret)
     }
 }
 

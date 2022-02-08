@@ -33,7 +33,7 @@ impl ReadBlock for CatStream {
                 break;
             }
         }
-        return Some(buf.len() - base_len);
+        Some(buf.len() - base_len)
     }
 }
 

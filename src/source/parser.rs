@@ -195,6 +195,9 @@ fn test_parse_hex_body() {
     test_parse_hex_body_impl(&parse_hex_body);
 }
 
+type ParseSingle = fn(&[u8]) -> Option<(u64, usize)>;
+type ParseBody = fn(bool, &[u8], &mut [u8]) -> Option<((usize, usize), usize)>;
+
 pub struct TextParser {
     src: Box<dyn Read>,
 
@@ -205,9 +208,9 @@ pub struct TextParser {
     eof: usize,
 
     // parser for non-binary streams; bypassed for binary streams (though the functions are valid)
-    parse_offset: fn(&[u8]) -> Option<(u64, usize)>,
-    parse_length: fn(&[u8]) -> Option<(u64, usize)>,
-    parse_body: fn(bool, &[u8], &mut [u8]) -> Option<((usize, usize), usize)>,
+    parse_offset: ParseSingle,
+    parse_length: ParseSingle,
+    parse_body: ParseBody,
 }
 
 impl TextParser {
@@ -220,7 +223,7 @@ impl TextParser {
         let body = format.body as usize;
 
         let header_parsers = {
-            let mut t: [Option<fn(&[u8]) -> Option<(u64, usize)>>; 256] = [None; 256];
+            let mut t: [Option<ParseSingle>; 256] = [None; 256];
             t[b'd' as usize] = Some(parse_dec_single); // parse_dec_single
             t[b'x' as usize] = Some(parse_hex_single);
             t[b'n' as usize] = Some(parse_hex_single); // parse_none_single
@@ -228,7 +231,7 @@ impl TextParser {
         };
 
         let body_parsers = {
-            let mut t: [Option<fn(bool, &[u8], &mut [u8]) -> Option<((usize, usize), usize)>>; 256] = [None; 256];
+            let mut t: [Option<ParseBody>; 256] = [None; 256];
             t[b'a' as usize] = Some(parse_hex_body); // parse_contigous_hex_body
             t[b'd' as usize] = Some(parse_hex_body); // parse_dec_body
             t[b'x' as usize] = Some(parse_hex_body);

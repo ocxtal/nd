@@ -162,7 +162,7 @@ fn main() {
         })
         .collect();
 
-    let input: Box<dyn ReadBlock> = if let Some(x) = m.value_of_t("zip").ok() {
+    let input: Box<dyn ReadBlock> = if let Ok(x) = m.value_of_t("zip") {
         Box::new(ZipStream::new(inputs, x))
     } else {
         Box::new(CatStream::new(inputs, m.value_of_t("cat").unwrap_or(1)))
@@ -175,7 +175,7 @@ fn main() {
         (0, usize::MAX)
     };
 
-    let (offset, seek) = if let Some(seek) = m.value_of_t::<usize>("seek").ok() {
+    let (offset, seek) = if let Ok(seek) = m.value_of_t::<usize>("seek") {
         (offset, offset + seek)
     } else {
         (offset, 0)
