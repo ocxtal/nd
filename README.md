@@ -5,7 +5,7 @@ zd is a stream-oriented hex editor. The combination of four stages: stream const
 
 ## Examples
 
-Hexdump: one or more inputs:
+### Hexdump: one or more inputs:
 
 ```
 % zd quick.txt
