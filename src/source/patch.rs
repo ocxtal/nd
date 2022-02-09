@@ -30,27 +30,29 @@ impl PatchParser {
         let end = self.offset.end.min(eof);
 
         self.offset = start..end;
-        self.buf.truncate(self.offset.len());
     }
 
-    fn fill_buf(&mut self, eof: usize) -> Option<()> {
+    fn fill_buf(&mut self, eof: usize) -> Option<usize> {
         self.buf.clear();
 
         let (lines, offset, len) = self.src.read_line(&mut self.buf)?;
         if lines == 0 {
             self.offset = eof..eof;
+            // self.offset = eof..usize::MAX;
         } else {
             self.offset = offset.min(eof)..(offset + len).min(eof);
-            self.buf.truncate(self.offset.len());
+            // self.offset = offset.min(eof)..offset + len;
         }
 
-        Some(())
+        // returns the next offset
+        Some(self.offset.start)
     }
 }
 
 pub struct PatchStream {
     src: Box<dyn ReadBlock>,
     buf: Vec<u8>,
+    skip: usize,
     offset: usize,
     patch: PatchParser,
 }
@@ -60,6 +62,7 @@ impl PatchStream {
         PatchStream {
             src,
             buf: Vec::new(),
+            skip: 0,
             offset: 0,
             patch: PatchParser::new(patch, format),
         }
@@ -71,10 +74,15 @@ impl PatchStream {
         while self.buf.len() < BLOCK_SIZE {
             let len = self.src.read_block(&mut self.buf)?;
             if len == 0 {
+                self.skip = self.skip.min(self.buf.len());
                 return Some(self.offset + self.buf.len());
             }
-        }
 
+            if self.skip >= self.buf.len() {
+                self.skip -= self.buf.len();
+                self.buf.clear();
+            }
+        }
         Some(usize::MAX)
     }
 }
@@ -86,35 +94,44 @@ impl ReadBlock for PatchStream {
 
         // patch
         let base_len = buf.len();
-        let mut src = self.buf.as_slice();
+        let mut src = &self.buf[self.skip..];
         while !src.is_empty() {
-            if self.offset < self.patch.offset.start {
-                let len = self.patch.offset.start - self.offset;
-                if src.len() < len {
-                    buf.extend_from_slice(src);
-                    self.offset += src.len();
-                    break;
-                }
+            while self.offset >= self.patch.offset.start {
+                debug_assert!(self.offset == self.patch.offset.start);
 
-                let (x, y) = src.split_at(len);
-                buf.extend_from_slice(x);
-                src = y;
+                // flush the current patch
+                let len = self.patch.offset.len();
                 self.offset += len;
+                buf.extend_from_slice(&self.patch.buf);
+
+                // then load the next patch
+                let next_offset = self.patch.fill_buf(eof)?;
+                assert!(next_offset >= self.offset - len);  // patchlines must be sorted
+
+                // clip the flushed patch if the two are overlapping
+                let clip = self.offset.max(next_offset) - next_offset;
+                self.offset -= clip;
+                buf.truncate(buf.len() - clip);
+
+                // forward source
+                let len = len - clip;
+                if src.len() <= len {
+                    self.skip = len - src.len();
+                    return Some(buf.len() - base_len);
+                }
+                src = src.split_at(len).1;
             }
 
-            let len = self.patch.offset.len();
-            if src.len() < len {
-                break;
-            }
-
-            let (_, y) = src.split_at(len);
-            buf.extend_from_slice(&self.patch.buf);
-            src = y;
+            // forward the source
+            let len = (self.patch.offset.start - self.offset).min(src.len());
             self.offset += len;
 
-            self.patch.fill_buf(eof)?;
+            let (x, y) = src.split_at(len);
+            buf.extend_from_slice(x);
+            src = y;
         }
 
+        self.skip = 0;
         Some(buf.len() - base_len)
     }
 }

@@ -48,21 +48,21 @@ impl TextStreamCache {
         }
     }
 
-    fn fill_buf(&mut self, src: &mut TextParser) -> Option<usize> {
+    fn fill_buf(&mut self, src: &mut TextParser) -> Option<(usize, usize)> {
         self.buf.clear();
 
         let (lines, offset, len) = src.read_line(&mut self.buf)?;
         self.buf.resize(len, 0); // pad zero or truncate
         self.offset = offset..offset + len;
 
-        Some(lines)
+        Some((lines, offset))
     }
 }
 
 pub struct TextStream {
     inner: TextParser,
-    curr: TextStreamCache,
-    prev: TextStreamCache,
+    line: TextStreamCache,
+    offset: usize,
 }
 
 impl TextStream {
@@ -70,8 +70,8 @@ impl TextStream {
         assert!(!format.is_binary());
         TextStream {
             inner: TextParser::new(src, format),
-            curr: TextStreamCache::new(),
-            prev: TextStreamCache::new(),
+            line: TextStreamCache::new(),
+            offset: 0,
         }
     }
 }
@@ -80,31 +80,21 @@ impl ReadBlock for TextStream {
     fn read_block(&mut self, buf: &mut Vec<u8>) -> Option<usize> {
         debug_assert!(buf.len() < BLOCK_SIZE);
 
-        let mut acc = 0;
+        let base_len = buf.len();
         while buf.len() < BLOCK_SIZE {
-            let lines = self.curr.fill_buf(&mut self.inner)?;
-            let start = if lines == 0 { self.prev.offset.end } else { self.curr.offset.start };
+            buf.extend_from_slice(&self.line.buf);
+            self.offset += self.line.buf.len();
 
-            if start < self.prev.offset.start {
-                panic!("offsets must be sorted in the ascending order");
-            }
-
-            // flush the previous line
-            let flush_len = self.prev.offset.end.min(start) - self.prev.offset.start;
-            buf.extend_from_slice(&self.prev.buf[..flush_len]);
-            acc += flush_len;
-
-            // pad the flushed line if they have a gap between
-            let gap_len = start.saturating_sub(self.prev.offset.end);
-            buf.resize(buf.len() + gap_len, 0);
-            acc += gap_len;
-
-            std::mem::swap(&mut self.curr, &mut self.prev);
+            let (lines, next_offset) = self.line.fill_buf(&mut self.inner)?;
             if lines == 0 {
                 break;
             }
+
+            let clip = self.offset.max(next_offset) - next_offset;
+            self.offset -= clip;
+            buf.truncate(buf.len() - clip);
         }
-        Some(acc)
+        Some(buf.len() - base_len)
     }
 }
 
