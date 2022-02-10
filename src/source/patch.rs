@@ -106,7 +106,7 @@ impl ReadBlock for PatchStream {
 
                 // then load the next patch
                 let next_offset = self.patch.fill_buf(eof)?;
-                assert!(next_offset >= self.offset - len);  // patchlines must be sorted
+                assert!(next_offset >= self.offset - len); // patchlines must be sorted
 
                 // clip the flushed patch if the two are overlapping
                 let clip = self.offset.max(next_offset) - next_offset;

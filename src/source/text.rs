@@ -92,7 +92,7 @@ impl ReadBlock for TextStream {
 
             let clip = self.offset.max(next_offset) - next_offset;
             self.offset -= clip;
-            buf.truncate(buf.len() - clip);
+            unsafe { buf.set_len(buf.len() - clip) };
         }
         Some(buf.len() - base_len)
     }

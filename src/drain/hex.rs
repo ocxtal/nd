@@ -10,7 +10,7 @@ use core::arch::aarch64::*;
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use core::arch::x86_64::*;
 
-use crate::{DumpBlock, ReadBlock, BLOCK_SIZE};
+use crate::common::{ConsumeSegments, ExtendUninit, FetchSegments, BLOCK_SIZE};
 
 fn format_hex_single_naive(dst: &mut [u8], offset: usize, bytes: usize) -> usize {
     for (i, x) in dst[..2 * bytes].iter_mut().enumerate() {
@@ -306,41 +306,51 @@ fn test_format_mosaic() {
     test!(b"0123456789abcdef".as_slice(), "0123456789abcdef");
 }
 
-fn format_line(dst: &mut [u8], src: &[u8], offset: usize, elems_per_line: usize) -> usize {
-    assert!(src.len() >= 16);
-    assert!(dst.len() >= 85);
+unsafe fn format_line(dst: &mut [u8], src: &[u8], offset: usize, elems_per_line: usize) -> usize {
+    let mut dst = dst;
 
     // header; p is the current offset in the dst buffer
-    let mut p = format_hex_single(dst, offset, 6);
-    p += format_hex_single(&mut dst[p..], elems_per_line, 1);
+    format_hex_single(dst, offset, 6);
+    dst = dst.split_at_mut_unchecked(13).1;
 
-    dst[p] = b'|';
-    p += 1;
-    dst[p] = b' ';
-    p += 1;
+    format_hex_single(dst, elems_per_line, 1);
+    dst = dst.split_at_mut_unchecked(3).1;
 
-    let n_blks = (elems_per_line + 0x0f) >> 4;
-    let n_rem = 0usize.wrapping_sub(elems_per_line) & 0x0f;
+    let (delim, rem) = dst.split_at_mut_unchecked(2);
+    delim[0] = b'|';
+    delim[1] = b' ';
+    dst = rem;
+
+    let n_blks = elems_per_line >> 4;
+    let n_rem = elems_per_line & 0x0f;
 
     // body
     for i in 0..n_blks {
-        p += format_hex_body(&mut dst[p..], &src[i * 16..]);
+        format_hex_body(dst, &src[i * 16..]);
+        dst = dst.split_at_mut_unchecked(48).1;
     }
-    p -= 4 * n_rem;
+    if n_rem > 0 {
+        format_hex_body(dst, &src[n_blks * 16..]);
+        dst = dst.split_at_mut_unchecked(3 * n_rem).1;
+    }
 
-    dst[p] = b'|';
-    p += 1;
-    dst[p] = b' ';
-    p += 1;
+    let (delim, rem) = dst.split_at_mut_unchecked(2);
+    delim[0] = b'|';
+    delim[1] = b' ';
+    dst = rem;
 
     // mosaic
     for i in 0..n_blks {
-        p += format_mosaic(&mut dst[p..], &src[i * 16..]);
+        format_mosaic(dst, &src[i * 16..]);
+        dst = dst.split_at_mut_unchecked(16).1;
     }
-    p -= n_rem;
+    if n_rem > 0 {
+        format_mosaic(dst, &src[n_blks * 16..]);
+        dst = dst.split_at_mut_unchecked(n_rem).1;
+    }
 
-    dst[p] = b'\n';
-    p + 1
+    dst[0] = b'\n';
+    16 + 4 * elems_per_line + 4 + 1
 }
 
 fn patch_line(dst: &mut [u8], valid_elements: usize, elems_per_line: usize) {
@@ -359,74 +369,138 @@ fn patch_line(dst: &mut [u8], valid_elements: usize, elems_per_line: usize) {
     // body[4 * valid_elements + 1] = b'|';
 }
 
+// pub struct HexDrain {
+//     src: Box<dyn ReadBlock>,
+//     dst: Box<dyn Write>,
+
+//     in_buf: Vec<u8>,
+//     consumed: usize,
+
+//     out_buf: Vec<u8>,
+//     offset: usize,
+// }
+
+// impl HexDrain {
+//     pub fn new(src: Box<dyn ReadBlock>, offset: usize) -> Self {
+//         let mut out_buf = Vec::new();
+//         out_buf.resize(2 * 128 * BLOCK_SIZE, 0);
+
+//         HexDrain {
+//             src,
+//             dst: Box::new(std::io::stdout()),
+//             in_buf: Vec::new(),
+//             consumed: 0,
+//             out_buf,
+//             offset,
+//         }
+//     }
+// }
+
+// impl DumpBlock for HexDrain {
+//     fn dump_block(&mut self) -> Option<usize> {
+//         let tail = self.in_buf.len();
+//         self.in_buf.copy_within(self.consumed..tail, 0);
+//         self.in_buf.truncate(tail - self.consumed);
+
+//         let mut is_eof = false;
+//         while self.in_buf.len() < BLOCK_SIZE {
+//             let len = self.src.read_block(&mut self.in_buf)?;
+//             if len == 0 {
+//                 is_eof = true;
+//                 break;
+//             }
+//         }
+
+//         if self.in_buf.is_empty() {
+//             return Some(0);
+//         }
+
+//         let mut p = 0;
+//         let mut q = 0;
+//         for _ in 0..self.in_buf.len() / 16 {
+//             p += format_line(&mut self.out_buf[p..], &self.in_buf[q..], self.offset, 16);
+//             q += 16;
+//             self.offset += 16;
+//         }
+
+//         let len = self.in_buf.len();
+//         let rem = len & 15;
+//         if is_eof && rem > 0 {
+//             self.in_buf.resize(len + 16, 0);
+//             p += format_line(&mut self.out_buf[p..], &self.in_buf[q..], self.offset, 16);
+//             q += len & 15;
+
+//             patch_line(&mut self.out_buf[..p], len & 15, 16);
+//             self.in_buf.truncate(len);
+//         }
+
+//         self.dst.write_all(&self.out_buf[..p]).unwrap();
+//         self.consumed = q;
+//         Some(q)
+//     }
+// }
+
 pub struct HexDrain {
-    src: Box<dyn ReadBlock>,
-    dst: Box<dyn Write>,
-
-    in_buf: Vec<u8>,
-    consumed: usize,
-
-    out_buf: Vec<u8>,
+    src: Box<dyn FetchSegments>,
+    buf: Vec<u8>,
     offset: usize,
 }
 
 impl HexDrain {
-    pub fn new(src: Box<dyn ReadBlock>, offset: usize) -> Self {
-        let mut out_buf = Vec::new();
-        out_buf.resize(2 * 128 * BLOCK_SIZE, 0);
-
+    pub fn new(src: Box<dyn FetchSegments>, offset: usize) -> Self {
         HexDrain {
             src,
-            dst: Box::new(std::io::stdout()),
-            in_buf: Vec::new(),
-            consumed: 0,
-            out_buf,
+            buf: Vec::with_capacity(2 * 128 * BLOCK_SIZE),
             offset,
         }
     }
 }
 
-impl DumpBlock for HexDrain {
-    fn dump_block(&mut self) -> Option<usize> {
-        let tail = self.in_buf.len();
-        self.in_buf.copy_within(self.consumed..tail, 0);
-        self.in_buf.truncate(tail - self.consumed);
-
-        let mut is_eof = false;
-        while self.in_buf.len() < BLOCK_SIZE {
-            let len = self.src.read_block(&mut self.in_buf)?;
-            if len == 0 {
-                is_eof = true;
-                break;
+impl ConsumeSegments for HexDrain {
+    fn consume_segments(&mut self) -> Option<usize> {
+        loop {
+            let (offset, block, segments) = self.src.fetch_segments()?;
+            if block.is_empty() {
+                return Some(0);
             }
+
+            let offset = self.offset + offset;
+
+            self.buf.clear();
+            for s in segments.chunks(4) {
+                let reserve_len: usize = s.iter().map(|x| x.len).sum();
+                let reserve_len = (reserve_len + 15) & !15;
+                let reserve_len = 4 * reserve_len + 4 * 32;
+
+                self.buf.extend_uninit(reserve_len, |x: &mut [u8]| {
+                    let mut format = |p: usize, i: usize| unsafe {
+                        format_line(
+                            &mut x[p..],
+                            &block[s[i].offset..s[i].offset + s[i].len],
+                            offset + s[i].offset,
+                            s[i].len,
+                        )
+                    };
+
+                    let mut p = 0;
+                    if s.len() > 0 {
+                        p += format(p, 0);
+                    }
+                    if s.len() > 1 {
+                        p += format(p, 1);
+                    }
+                    if s.len() > 2 {
+                        p += format(p, 2);
+                    }
+                    if s.len() > 3 {
+                        p += format(p, 3);
+                    }
+                    Some((p, p))
+                });
+            }
+
+            std::io::stdout().write_all(&self.buf).ok()?;
         }
-
-        if self.in_buf.is_empty() {
-            return Some(0);
-        }
-
-        let mut p = 0;
-        let mut q = 0;
-        for _ in 0..self.in_buf.len() / 16 {
-            p += format_line(&mut self.out_buf[p..], &self.in_buf[q..], self.offset, 16);
-            q += 16;
-            self.offset += 16;
-        }
-
-        let len = self.in_buf.len();
-        let rem = len & 15;
-        if is_eof && rem > 0 {
-            self.in_buf.resize(len + 16, 0);
-            p += format_line(&mut self.out_buf[p..], &self.in_buf[q..], self.offset, 16);
-            q += len & 15;
-
-            patch_line(&mut self.out_buf[..p], len & 15, 16);
-            self.in_buf.truncate(len);
-        }
-
-        self.dst.write_all(&self.out_buf[..p]).unwrap();
-        self.consumed = q;
-        Some(q)
     }
 }
 

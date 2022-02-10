@@ -1,15 +1,18 @@
 #![feature(stdsimd)]
+#![feature(slice_split_at_unchecked)]
 
-pub mod common;
-pub mod drain;
-pub mod source;
-pub mod stream;
+mod common;
+mod drain;
+mod slicer;
+mod source;
+mod stream;
 
 use clap::{App, AppSettings, Arg, ColorChoice};
 use std::io::Read;
 
-use common::{parse_range, DumpBlock, InoutFormat, ReadBlock, BLOCK_SIZE};
+use common::{parse_range, ConsumeSegments, FetchSegments, InoutFormat, ReadBlock};
 use drain::HexDrain;
+use slicer::ConstStrideSlicer;
 use source::{BinaryStream, GaplessTextStream, PatchStream, TextStream};
 use stream::{CatStream, ClipStream, ZipStream};
 
@@ -178,7 +181,7 @@ fn main() {
     let (offset, seek) = if let Ok(seek) = m.value_of_t::<usize>("seek") {
         (offset, offset + seek)
     } else {
-        (offset, 0)
+        (offset, offset)
     };
 
     let input = if seek > 0 || len != usize::MAX {
@@ -195,10 +198,9 @@ fn main() {
         input
     };
 
-    let mut drain: Box<dyn DumpBlock> = Box::new(HexDrain::new(input, offset));
-    while let Some(len) = drain.dump_block() {
-        if len == 0 {
-            break;
-        }
-    }
+    let slicer: Box<dyn FetchSegments> = Box::new(ConstStrideSlicer::new(input, 16));
+    let mut drain: Box<dyn ConsumeSegments> = Box::new(HexDrain::new(slicer, offset));
+
+    // dump all
+    drain.consume_segments().unwrap();
 }

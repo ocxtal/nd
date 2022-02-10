@@ -105,13 +105,18 @@ pub trait ReadBlock {
     fn read_block(&mut self, buf: &mut Vec<u8>) -> Option<usize>;
 }
 
-pub trait DumpBlock {
-    fn dump_block(&mut self) -> Option<usize>;
+#[derive(Copy, Clone, Debug)]
+pub struct Segment {
+    pub offset: usize,
+    pub len: usize,
 }
 
-pub trait DumpSlice {
-    #[allow(clippy::ptr_arg)]
-    fn dump_slice(&mut self, offset: usize, bytes: &mut Vec<u8>) -> Option<usize>;
+pub trait FetchSegments {
+    fn fetch_segments(&mut self) -> Option<(usize, &[u8], &[Segment])>;
+}
+
+pub trait ConsumeSegments {
+    fn consume_segments(&mut self) -> Option<usize>;
 }
 
 pub trait ExtendUninit {
@@ -137,9 +142,12 @@ impl ExtendUninit for Vec<u8> {
             self.reserve(new_len - self.len());
         }
 
+        // reserve buffer and call the function
         let arr = self.spare_capacity_mut();
         let arr = unsafe { std::mem::transmute::<&mut [std::mem::MaybeUninit<u8>], &mut [u8]>(arr) };
         let ret = f(&mut arr[..len]);
+
+        // truncate the buffer
         let clip = match ret {
             Some((_, clip)) => clip,
             None => 0,
