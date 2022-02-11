@@ -198,9 +198,13 @@ fn main() {
         input
     };
 
-    let slicer: Box<dyn FetchSegments> = Box::new(ConstStrideSlicer::new(input, 16));
-    let mut drain: Box<dyn ConsumeSegments> = Box::new(HexDrain::new(slicer, offset));
+    let (slicer, pad): (Box<dyn FetchSegments>, _) = if let Ok(width) = m.value_of_t::<usize>("width") {
+        (Box::new(ConstStrideSlicer::new(input, width)), width)
+    } else {
+        (Box::new(ConstStrideSlicer::new(input, 64)), 0)
+    };
 
     // dump all
+    let mut drain: Box<dyn ConsumeSegments> = Box::new(HexDrain::new(slicer, offset, pad));
     drain.consume_segments().unwrap();
 }

@@ -369,89 +369,20 @@ fn patch_line(dst: &mut [u8], valid_elements: usize, elems_per_line: usize) {
     // body[4 * valid_elements + 1] = b'|';
 }
 
-// pub struct HexDrain {
-//     src: Box<dyn ReadBlock>,
-//     dst: Box<dyn Write>,
-
-//     in_buf: Vec<u8>,
-//     consumed: usize,
-
-//     out_buf: Vec<u8>,
-//     offset: usize,
-// }
-
-// impl HexDrain {
-//     pub fn new(src: Box<dyn ReadBlock>, offset: usize) -> Self {
-//         let mut out_buf = Vec::new();
-//         out_buf.resize(2 * 128 * BLOCK_SIZE, 0);
-
-//         HexDrain {
-//             src,
-//             dst: Box::new(std::io::stdout()),
-//             in_buf: Vec::new(),
-//             consumed: 0,
-//             out_buf,
-//             offset,
-//         }
-//     }
-// }
-
-// impl DumpBlock for HexDrain {
-//     fn dump_block(&mut self) -> Option<usize> {
-//         let tail = self.in_buf.len();
-//         self.in_buf.copy_within(self.consumed..tail, 0);
-//         self.in_buf.truncate(tail - self.consumed);
-
-//         let mut is_eof = false;
-//         while self.in_buf.len() < BLOCK_SIZE {
-//             let len = self.src.read_block(&mut self.in_buf)?;
-//             if len == 0 {
-//                 is_eof = true;
-//                 break;
-//             }
-//         }
-
-//         if self.in_buf.is_empty() {
-//             return Some(0);
-//         }
-
-//         let mut p = 0;
-//         let mut q = 0;
-//         for _ in 0..self.in_buf.len() / 16 {
-//             p += format_line(&mut self.out_buf[p..], &self.in_buf[q..], self.offset, 16);
-//             q += 16;
-//             self.offset += 16;
-//         }
-
-//         let len = self.in_buf.len();
-//         let rem = len & 15;
-//         if is_eof && rem > 0 {
-//             self.in_buf.resize(len + 16, 0);
-//             p += format_line(&mut self.out_buf[p..], &self.in_buf[q..], self.offset, 16);
-//             q += len & 15;
-
-//             patch_line(&mut self.out_buf[..p], len & 15, 16);
-//             self.in_buf.truncate(len);
-//         }
-
-//         self.dst.write_all(&self.out_buf[..p]).unwrap();
-//         self.consumed = q;
-//         Some(q)
-//     }
-// }
-
 pub struct HexDrain {
     src: Box<dyn FetchSegments>,
     buf: Vec<u8>,
     offset: usize,
+    pad: usize,
 }
 
 impl HexDrain {
-    pub fn new(src: Box<dyn FetchSegments>, offset: usize) -> Self {
+    pub fn new(src: Box<dyn FetchSegments>, offset: usize, pad_blank_to: usize) -> Self {
         HexDrain {
             src,
             buf: Vec::with_capacity(2 * 128 * BLOCK_SIZE),
             offset,
+            pad: pad_blank_to,
         }
     }
 }
