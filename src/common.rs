@@ -1,9 +1,7 @@
 // @file common.rs
 // @author Hajime Suzuki
-// @brief formatter implementations
 
 use std::collections::HashMap;
-use std::ops::Range;
 
 pub const BLOCK_SIZE: usize = 2 * 1024 * 1024;
 
@@ -83,21 +81,6 @@ impl InoutFormat {
     pub fn is_binary(&self) -> bool {
         self.is_gapless() && self.body == b'b'
     }
-}
-
-pub fn parse_range(s: &str) -> Option<Range<usize>> {
-    for (i, x) in s.bytes().enumerate() {
-        if x == b':' {
-            let start = if s[..i].is_empty() { 0 } else { s[..i].parse::<usize>().ok()? };
-            let end = if s[i + 1..].is_empty() {
-                usize::MAX
-            } else {
-                s[i + 1..].parse::<usize>().ok()?
-            };
-            return Some(start..end);
-        }
-    }
-    None
 }
 
 pub trait ReadBlock {

@@ -102,13 +102,6 @@ unsafe fn to_hex(x: uint8x16_t) -> (uint8x16_t, uint8x16_t, uint8x16_t) {
     (hex, is_valid, is_space)
 }
 
-#[test]
-fn test_to_hex() {
-    macro_rules! test {
-        () => {};
-    }
-}
-
 unsafe fn parse_hex_single_impl(x: uint8x16x2_t) -> Option<(u64, usize)> {
     let (x0, v0, s0) = to_hex(x.0);
     let (x1, v1, s1) = to_hex(x.1);

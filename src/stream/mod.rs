@@ -6,8 +6,8 @@ mod cat;
 mod clip;
 mod zip;
 
-pub use cat::CatStream;
-pub use clip::ClipStream;
-pub use zip::ZipStream;
+pub use self::cat::CatStream;
+pub use self::clip::ClipStream;
+pub use self::zip::ZipStream;
 
 // end of mod.rs

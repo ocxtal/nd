@@ -409,7 +409,7 @@ impl ConsumeSegments for HexDrain {
                             &mut x[p..],
                             &block[s[i].offset..s[i].offset + s[i].len],
                             offset + s[i].offset,
-                            s[i].len,
+                            s[i].len.max(self.pad),
                         )
                     };
 

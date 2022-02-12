@@ -4,6 +4,6 @@
 
 mod hex;
 
-pub use hex::HexDrain;
+pub use self::hex::HexDrain;
 
 // end of mod.rs

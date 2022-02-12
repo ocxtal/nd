@@ -7,8 +7,8 @@ mod parser;
 mod patch;
 mod text;
 
-pub use binary::BinaryStream;
-pub use patch::PatchStream;
-pub use text::{GaplessTextStream, TextStream};
+pub use self::binary::BinaryStream;
+pub use self::patch::PatchStream;
+pub use self::text::{GaplessTextStream, TextStream};
 
 // end of mod.rs

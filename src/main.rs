@@ -3,6 +3,7 @@
 
 mod common;
 mod drain;
+mod eval;
 mod slicer;
 mod source;
 mod stream;
@@ -10,9 +11,10 @@ mod stream;
 use clap::{App, AppSettings, Arg, ColorChoice};
 use std::io::Read;
 
-use common::{parse_range, ConsumeSegments, FetchSegments, InoutFormat, ReadBlock};
+use common::{ConsumeSegments, FetchSegments, InoutFormat, ReadBlock};
 use drain::HexDrain;
-use slicer::ConstStrideSlicer;
+use eval::{parse_int, parse_range};
+use slicer::{ConstStrideSlicer, HammingSlicer, RegexSlicer};
 use source::{BinaryStream, GaplessTextStream, PatchStream, TextStream};
 use stream::{CatStream, ClipStream, ZipStream};
 
@@ -165,10 +167,13 @@ fn main() {
         })
         .collect();
 
-    let input: Box<dyn ReadBlock> = if let Ok(x) = m.value_of_t("zip") {
-        Box::new(ZipStream::new(inputs, x))
+    let input: Box<dyn ReadBlock> = if let Some(word_size) = m.value_of("zip") {
+        let word_size = parse_int(word_size).unwrap() as usize;
+        Box::new(ZipStream::new(inputs, word_size))
     } else {
-        Box::new(CatStream::new(inputs, m.value_of_t("cat").unwrap_or(1)))
+        let word_size = m.value_of("cat").unwrap_or("1");
+        let word_size = parse_int(word_size).unwrap() as usize;
+        Box::new(CatStream::new(inputs, word_size))
     };
 
     let (offset, len) = if let Some(r) = m.value_of("range") {
@@ -178,7 +183,8 @@ fn main() {
         (0, usize::MAX)
     };
 
-    let (offset, seek) = if let Ok(seek) = m.value_of_t::<usize>("seek") {
+    let (offset, seek) = if let Some(seek) = m.value_of("seek") {
+        let seek = parse_int(seek).unwrap() as usize;
         (offset, offset + seek)
     } else {
         (offset, offset)
@@ -198,10 +204,17 @@ fn main() {
         input
     };
 
-    let (slicer, pad): (Box<dyn FetchSegments>, _) = if let Ok(width) = m.value_of_t::<usize>("width") {
-        (Box::new(ConstStrideSlicer::new(input, width)), width)
+    let (slicer, pad): (Box<dyn FetchSegments>, _) = if let Some(pattern) = m.value_of("match") {
+        (Box::new(HammingSlicer::new(pattern)), 0)
+    } else if let Some(pattern) = m.value_of("regex") {
+        (Box::new(RegexSlicer::new(pattern)), 0)
     } else {
-        (Box::new(ConstStrideSlicer::new(input, 64)), 0)
+        let width = if let Some(width) = m.value_of("width") {
+            parse_int(width).unwrap() as usize
+        } else {
+            16
+        };
+        (Box::new(ConstStrideSlicer::new(input, width)), width)
     };
 
     // dump all
