@@ -1,12 +1,12 @@
 // @file mod.rs
 // @author Hajime Suzuki
 
-mod stride;
 mod hamming;
 mod regex;
+mod stride;
 
-pub use self::stride::ConstStrideSlicer;
 pub use self::hamming::HammingSlicer;
 pub use self::regex::RegexSlicer;
+pub use self::stride::ConstStrideSlicer;
 
 // end of mod.rs

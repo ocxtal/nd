@@ -9,7 +9,7 @@ use std::ops::Range;
 enum Token {
     Val(i64),
     Op(char),
-    Prefix(char),  // unary op; '+', '-', '!', '~'
+    Prefix(char), // unary op; '+', '-', '!', '~'
     Paren(char),
 }
 
@@ -18,12 +18,8 @@ fn is_unary(c: char) -> bool {
 }
 
 fn latter_precedes(former: char, latter: char) -> bool {
-    let is_muldiv = |c: char| -> bool {
-        c == '*' || c == '/' || c == '%'
-    };
-    let is_right_assoc = |c: char| -> bool {
-        c == '@'
-    };
+    let is_muldiv = |c: char| -> bool { c == '*' || c == '/' || c == '%' };
+    let is_right_assoc = |c: char| -> bool { c == '@' };
 
     // FIXME: commutative binary ops precede shifts and exp
     if is_muldiv(former) {
@@ -36,7 +32,10 @@ fn latter_precedes(former: char, latter: char) -> bool {
     false
 }
 
-fn parse_op<I>(first: char, it: &mut Peekable<I>) -> Option<Token> where I: Iterator<Item = char> {
+fn parse_op<I>(first: char, it: &mut Peekable<I>) -> Option<Token>
+where
+    I: Iterator<Item = char>,
+{
     // "<<" or ">>"
     if first == '<' || first == '>' {
         if first != *it.peek()? {
@@ -67,7 +66,10 @@ fn parse_char(c: char) -> Option<i64> {
     None
 }
 
-fn parse_prefix<I>(n: u32, it: &mut Peekable<I>) -> Option<i64> where I: Iterator<Item = char> {
+fn parse_prefix<I>(n: u32, it: &mut Peekable<I>) -> Option<i64>
+where
+    I: Iterator<Item = char>,
+{
     it.next()?;
     let mut prefix_base: i64 = 1000;
 
@@ -79,8 +81,10 @@ fn parse_prefix<I>(n: u32, it: &mut Peekable<I>) -> Option<i64> where I: Iterato
     Some(prefix_base.pow(n))
 }
 
-fn parse_val<I>(first: char, it: &mut Peekable<I>) -> Option<Token> where I: Iterator<Item = char> {
-
+fn parse_val<I>(first: char, it: &mut Peekable<I>) -> Option<Token>
+where
+    I: Iterator<Item = char>,
+{
     let tolower = |c: char| {
         if ('A'..='Z').contains(&c) {
             std::char::from_u32(c as u32 - ('A' as u32) + ('a' as u32)).unwrap()
@@ -93,10 +97,26 @@ fn parse_val<I>(first: char, it: &mut Peekable<I>) -> Option<Token> where I: Ite
     let first = if first == '0' {
         // leading zeros can be ignored even if they are not radix prefix.
         match it.peek() {
-            Some(&x) if tolower(x) == 'b' => { num_base = 2; it.next()?; it.next()? },
-            Some(&x) if tolower(x) == 'o' => { num_base = 8; it.next()?; it.next()? },
-            Some(&x) if tolower(x) == 'd' => { num_base = 10; it.next()?; it.next()? },
-            Some(&x) if tolower(x) == 'x' => { num_base = 16; it.next()?; it.next()? },
+            Some(&x) if tolower(x) == 'b' => {
+                num_base = 2;
+                it.next()?;
+                it.next()?
+            }
+            Some(&x) if tolower(x) == 'o' => {
+                num_base = 8;
+                it.next()?;
+                it.next()?
+            }
+            Some(&x) if tolower(x) == 'd' => {
+                num_base = 10;
+                it.next()?;
+                it.next()?
+            }
+            Some(&x) if tolower(x) == 'x' => {
+                num_base = 16;
+                it.next()?;
+                it.next()?
+            }
             _ => first,
         }
     } else {
@@ -113,11 +133,11 @@ fn parse_val<I>(first: char, it: &mut Peekable<I>) -> Option<Token> where I: Ite
     }
 
     let scaler = match it.peek() {
-        Some(&x) if tolower(x) == 'k' => { parse_prefix(1, it)? },
-        Some(&x) if tolower(x) == 'm' => { parse_prefix(2, it)? },
-        Some(&x) if tolower(x) == 'g' => { parse_prefix(3, it)? },
-        Some(&x) if tolower(x) == 't' => { parse_prefix(4, it)? },
-        Some(&x) if tolower(x) == 'e' => { parse_prefix(5, it)? },
+        Some(&x) if tolower(x) == 'k' => parse_prefix(1, it)?,
+        Some(&x) if tolower(x) == 'm' => parse_prefix(2, it)?,
+        Some(&x) if tolower(x) == 'g' => parse_prefix(3, it)?,
+        Some(&x) if tolower(x) == 't' => parse_prefix(4, it)?,
+        Some(&x) if tolower(x) == 'e' => parse_prefix(5, it)?,
         _ => 1,
     };
 
@@ -131,16 +151,18 @@ fn tokenize(input: &str) -> Option<Vec<Token>> {
     let mut it = input.chars().peekable();
     while let Some(x) = it.next() {
         match x {
-            ' ' | '\t' | '\n' | '\r' => { continue; },
+            ' ' | '\t' | '\n' | '\r' => {
+                continue;
+            }
             '(' | ')' => {
                 tokens.push(Token::Paren(x));
-            },
+            }
             '+' | '-' | '~' | '!' | '*' | '/' | '%' | '&' | '|' | '^' | '<' | '>' => {
                 tokens.push(parse_op(x, &mut it)?);
-            },
+            }
             '0'..='9' => {
                 tokens.push(parse_val(x, &mut it)?);
-            },
+            }
             _ => {
                 eprintln!("unexpected char found: {}", x);
                 return None;
@@ -160,17 +182,17 @@ fn mark_prefices(tokens: &mut [Token]) -> Option<()> {
             // fixup unary op
             (Token::Op(_) | Token::Paren('('), Token::Op(y)) if is_unary(y) => {
                 latter[0] = Token::Prefix(y);
-            },
+            }
             // allowed combinations
-            (Token::Prefix(_), Token::Val(_)) => {},
-            (Token::Op(_), Token::Val(_)) => {},
-            (Token::Val(_), Token::Op(_)) => {},
-            (Token::Paren('('), Token::Val(_)) => {},
-            (Token::Val(_), Token::Paren(')')) => {},
-            (Token::Paren(')'), Token::Op(_)) => {},
-            (Token::Op(_), Token::Paren('(')) => {},
-            (Token::Paren('('), Token::Paren('(')) => {},
-            (Token::Paren(')'), Token::Paren(')')) => {},
+            (Token::Prefix(_), Token::Val(_)) => {}
+            (Token::Op(_), Token::Val(_)) => {}
+            (Token::Val(_), Token::Op(_)) => {}
+            (Token::Paren('('), Token::Val(_)) => {}
+            (Token::Val(_), Token::Paren(')')) => {}
+            (Token::Paren(')'), Token::Op(_)) => {}
+            (Token::Op(_), Token::Paren('(')) => {}
+            (Token::Paren('('), Token::Paren('(')) => {}
+            (Token::Paren(')'), Token::Paren(')')) => {}
             _ => {
                 eprintln!("invalid tokens");
                 return None;
@@ -191,10 +213,10 @@ fn sort_into_rpn(tokens: &[Token]) -> Option<Vec<Token>> {
         match token {
             Token::Val(val) => {
                 rpn.push(Token::Val(val));
-            },
+            }
             Token::Prefix(op) => {
                 op_stack.push(Token::Prefix(op));
-            },
+            }
             Token::Op(op) => {
                 while let Some(&Token::Op(former_op)) = op_stack.last() {
                     if latter_precedes(former_op, op) {
@@ -203,10 +225,10 @@ fn sort_into_rpn(tokens: &[Token]) -> Option<Vec<Token>> {
                     rpn.push(op_stack.pop()?);
                 }
                 op_stack.push(Token::Op(op));
-            },
+            }
             Token::Paren('(') => {
                 op_stack.push(Token::Paren('('));
-            },
+            }
             Token::Paren(')') => {
                 while let Some(op) = op_stack.pop() {
                     if let Token::Paren('(') = op {
@@ -214,11 +236,11 @@ fn sort_into_rpn(tokens: &[Token]) -> Option<Vec<Token>> {
                     }
                     rpn.push(op);
                 }
-            },
+            }
             _ => {
                 eprintln!("failed to sort");
                 return None;
-            },
+            }
         }
     }
 
@@ -234,7 +256,7 @@ fn eval_rpn(tokens: &[Token]) -> Option<i64> {
             _ => {
                 eprintln!("unknown op: {:?}", c);
                 None
-            },
+            }
         }
     };
     let apply_op = |c: char, x: i64, y: i64| -> Option<i64> {
@@ -247,12 +269,20 @@ fn eval_rpn(tokens: &[Token]) -> Option<i64> {
             '&' => Some(x & y),
             '|' => Some(x | y),
             '^' => Some(x ^ y),
-            '<' => Some(if y >= 0 { x << ((y as usize) & 0x3f) } else { x >> ((-y as usize) & 0x3f) }),
-            '>' => Some(if y >= 0 { x >> ((y as usize) & 0x3f) } else { x << ((-y as usize) & 0x3f) }),
+            '<' => Some(if y >= 0 {
+                x << ((y as usize) & 0x3f)
+            } else {
+                x >> ((-y as usize) & 0x3f)
+            }),
+            '>' => Some(if y >= 0 {
+                x >> ((y as usize) & 0x3f)
+            } else {
+                x << ((-y as usize) & 0x3f)
+            }),
             _ => {
                 eprintln!("unknown op: {:?}", c);
                 None
-            },
+            }
         }
     };
 
@@ -261,20 +291,20 @@ fn eval_rpn(tokens: &[Token]) -> Option<i64> {
         match token {
             Token::Val(val) => {
                 stack.push(val);
-            },
+            }
             Token::Prefix(op) => {
                 let x = stack.last_mut()?;
                 *x = apply_prefix(op, *x)?;
-            },
+            }
             Token::Op(op) => {
                 let y = stack.pop()?;
                 let x = stack.last_mut()?;
                 *x = apply_op(op, *x, y)?;
-            },
+            }
             _ => {
                 eprintln!("unexpected token: {:?}", token);
                 return None;
-            },
+            }
         }
     }
 

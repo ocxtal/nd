@@ -7,7 +7,7 @@ use crate::common::{FetchSegments, ReadBlock, Segment, BLOCK_SIZE};
 pub struct ConstStrideSlicer {
     src: Box<dyn ReadBlock>,
     buf: Vec<u8>,
-    consumed: usize,
+    offset: usize,
     next: usize,
     eof: usize,
     width: usize,
@@ -19,7 +19,7 @@ impl ConstStrideSlicer {
         let mut slicer = ConstStrideSlicer {
             src,
             buf: Vec::new(),
-            consumed: 0,
+            offset: 0,
             next: 0,
             eof: usize::MAX,
             width,
@@ -41,6 +41,7 @@ impl ConstStrideSlicer {
     }
 
     fn fill_buf(&mut self) -> Option<bool> {
+        // FIXME: extend segment vector when buf.len() gets longer
         while self.buf.len() < BLOCK_SIZE {
             let len = self.src.read_block(&mut self.buf)?;
             if len == 0 {
@@ -60,6 +61,7 @@ impl FetchSegments for ConstStrideSlicer {
         let tail = self.buf.len();
         self.buf.copy_within(self.next..tail, 0);
         self.buf.truncate(tail - self.next);
+        self.offset += self.next;
 
         let is_eof = self.fill_buf()?;
         let count = self.buf.len() / self.width;
@@ -71,11 +73,11 @@ impl FetchSegments for ConstStrideSlicer {
             self.segments[count].len = rem;
 
             let count = count + (rem > 0) as usize;
-            return Some((self.consumed, &self.buf, &self.segments[..count]));
+            return Some((self.offset, &self.buf, &self.segments[..count]));
         }
 
         self.next = count * self.width;
-        Some((self.consumed, &self.buf[..self.next], &self.segments[..count]))
+        Some((self.offset, &self.buf[..self.next], &self.segments[..count]))
     }
 }
 

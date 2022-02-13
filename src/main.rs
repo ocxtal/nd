@@ -209,6 +209,7 @@ fn main() {
     } else {
         16
     };
+
     let (slicer, pad): (Box<dyn FetchSegments>, _) = if let Some(pattern) = m.value_of("match") {
         (Box::new(HammingSlicer::new(pattern)), 0)
     } else if let Some(pattern) = m.value_of("regex") {

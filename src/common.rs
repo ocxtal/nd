@@ -2,6 +2,8 @@
 // @author Hajime Suzuki
 
 use std::collections::HashMap;
+use std::convert::From;
+use std::ops::Range;
 
 pub const BLOCK_SIZE: usize = 2 * 1024 * 1024;
 
@@ -92,6 +94,15 @@ pub trait ReadBlock {
 pub struct Segment {
     pub offset: usize,
     pub len: usize,
+}
+
+impl From<Range<usize>> for Segment {
+    fn from(other: Range<usize>) -> Self {
+        Segment {
+            offset: other.start,
+            len: other.len(),
+        }
+    }
 }
 
 pub trait FetchSegments {

@@ -5,15 +5,13 @@
 use crate::common::{FetchSegments, Segment};
 
 pub struct HammingSlicer {
-	offset: usize,
+    offset: usize,
 }
 
 impl HammingSlicer {
-	pub fn new(pattern: &str) -> Self {
-		HammingSlicer {
-			offset: 0,
-		}
-	}
+    pub fn new(pattern: &str) -> Self {
+        HammingSlicer { offset: 0 }
+    }
 }
 
 impl FetchSegments for HammingSlicer {
