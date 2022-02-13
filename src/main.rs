@@ -204,16 +204,16 @@ fn main() {
         input
     };
 
+    let width = if let Some(width) = m.value_of("width") {
+        parse_int(width).unwrap() as usize
+    } else {
+        16
+    };
     let (slicer, pad): (Box<dyn FetchSegments>, _) = if let Some(pattern) = m.value_of("match") {
         (Box::new(HammingSlicer::new(pattern)), 0)
     } else if let Some(pattern) = m.value_of("regex") {
-        (Box::new(RegexSlicer::new(pattern)), 0)
+        (Box::new(RegexSlicer::new(input, width, pattern)), 0)
     } else {
-        let width = if let Some(width) = m.value_of("width") {
-            parse_int(width).unwrap() as usize
-        } else {
-            16
-        };
         (Box::new(ConstStrideSlicer::new(input, width)), width)
     };
 
