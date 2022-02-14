@@ -189,6 +189,17 @@ fn main() {
         Box::new(CatStream::new(inputs, word_size))
     };
 
+    let (pad, skip) = if let Some(seek) = m.value_of("seek") {
+        let seek = parse_int(seek).unwrap();
+        if seek > 0 {
+            (0, seek as usize)
+        } else {
+            (-seek as usize, 0)
+        }
+    } else {
+        (0, 0)
+    };
+
     let (offset, len) = if let Some(r) = m.value_of("range") {
         let r = parse_range(r).unwrap();
         (r.start, r.len())
@@ -196,25 +207,15 @@ fn main() {
         (0, usize::MAX)
     };
 
-    let (offset, pad, seek) = if let Some(seek) = m.value_of("seek") {
-        let seek = parse_int(seek).unwrap();
-        if seek >= 0 {
-            (offset, 0, offset + seek as usize)
-        } else {
-            // negative value pads the head of the stream
-            let pad = -seek as usize;
-            if offset >= pad {
-                (offset, 0, offset - pad)
-            } else {
-                (offset, pad - offset, 0)
-            }
-        }
+    let (pad, adj) = (pad.max(offset) - offset, pad.max(offset) - pad);
+    let (pad, skip, len) = if len == usize::MAX {
+        (pad.min(len), skip + adj, usize::MAX)
     } else {
-        (offset, 0, offset)
+        (pad.min(len), skip + adj, pad.max(len) - pad)
     };
 
-    let input = if seek > 0 || pad > 0 || len != usize::MAX {
-        Box::new(ClipStream::new(input, pad, seek, len))
+    let input = if pad > 0 || skip > 0 || len != usize::MAX {
+        Box::new(ClipStream::new(input, pad, skip, len))
     } else {
         input
     };
