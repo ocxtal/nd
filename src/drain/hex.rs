@@ -404,13 +404,13 @@ impl HexDrain {
 
     fn consume_segments_impl(&mut self) -> Option<usize> {
         let (offset, block, segments) = self.src.fetch_segments()?;
-        if segments.is_empty() {
+        if block.is_empty() {
+            std::io::stdout().write_all(&self.buf).ok()?;
+            self.buf.clear();
             return Some(0);
         }
 
         let offset = self.offset + offset;
-        self.buf.clear();
-
         for s in segments.chunks(4) {
             let reserve_len: usize = s.iter().map(|x| x.len).sum();
             let reserve_len = (reserve_len + 15) & !15;
@@ -438,8 +438,11 @@ impl HexDrain {
             });
         }
 
-        std::io::stdout().write_all(&self.buf).ok()?;
-        Some(self.buf.len())
+        if self.buf.len() >= BLOCK_SIZE {
+            std::io::stdout().write_all(&self.buf).ok()?;
+            self.buf.clear();
+        }
+        Some(1)
     }
 }
 

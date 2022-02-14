@@ -36,7 +36,6 @@ impl BinaryDrain {
             std::io::stdout().write_all(&self.buf).ok()?;
             self.buf.clear();
         }
-
         Some(1)
     }
 }
