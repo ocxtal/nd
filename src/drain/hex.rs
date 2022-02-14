@@ -193,7 +193,7 @@ unsafe fn format_hex_body_avx2(dst: &mut [u8], src: &[u8]) -> usize {
 
     let n_blks = (len + 0x0f) >> 4;
     for _ in 0..n_blks {
-        let x = _mm_loadu_si128(src.as_ptr() as *const __m128i);
+        let x = _mm_loadu_si128(src as *const __m128i);
         let x = _mm256_cvtepu8_epi16(x);
         let x = _mm256_or_si256(_mm256_slli_epi16(x, 4), x);
         let x = _mm256_and_si256(x, mask);
@@ -205,9 +205,9 @@ unsafe fn format_hex_body_avx2(dst: &mut [u8], src: &[u8]) -> usize {
         let x = _mm256_add_epi8(x, space);
         let y = _mm256_add_epi8(y, space);
 
-        _mm_storeu_si128((&mut dst[0..]).as_mut_ptr() as *mut __m128i, _mm256_extracti128_si256(x, 0));
-        _mm_storeu_si128((&mut dst[16..]).as_mut_ptr() as *mut __m128i, _mm256_extracti128_si256(y, 0));
-        _mm_storeu_si128((&mut dst[32..]).as_mut_ptr() as *mut __m128i, _mm256_extracti128_si256(x, 1));
+        _mm_storeu_si128(dst as *mut __m128i, _mm256_extracti128_si256(x, 0));
+        _mm_storeu_si128(dst.wrapping_add(16) as *mut __m128i, _mm256_extracti128_si256(y, 0));
+        _mm_storeu_si128(dst.wrapping_add(32) as *mut __m128i, _mm256_extracti128_si256(x, 1));
 
         src = src.wrapping_add(16);
         dst = dst.wrapping_add(48);
@@ -297,12 +297,12 @@ unsafe fn format_mosaic_avx2(dst: &mut [u8], src: &[u8]) -> usize {
 
     let n_blks = (len + 0x0f) >> 4;
     for _ in 0..n_blks {
-        let x = _mm_loadu_si128(src.as_ptr() as *const __m128i);
+        let x = _mm_loadu_si128(src as *const __m128i);
         let y = _mm_add_epi8(x, _mm_set1_epi8(1));
         let is_ascii = _mm_cmpgt_epi8(y, offset);
 
         let z = _mm_blendv_epi8(dots, x, is_ascii);
-        _mm_storeu_si128(dst.as_mut_ptr() as *mut __m128i, z);
+        _mm_storeu_si128(dst as *mut __m128i, z);
 
         src = src.wrapping_add(16);
         dst = dst.wrapping_add(16);
