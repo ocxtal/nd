@@ -11,11 +11,13 @@ pub struct ConstStrideSlicer {
     next: usize,
     eof: usize,
     width: usize,
+    margin: (usize, usize),
+    merge: usize,
     segments: Vec<Segment>,
 }
 
 impl ConstStrideSlicer {
-    pub fn new(src: Box<dyn ReadBlock>, width: usize) -> Self {
+    pub fn new(src: Box<dyn ReadBlock>, width: usize, margin: (usize, usize), merge: usize) -> Self {
         let mut slicer = ConstStrideSlicer {
             src,
             buf: Vec::new(),
@@ -23,6 +25,8 @@ impl ConstStrideSlicer {
             next: 0,
             eof: usize::MAX,
             width,
+            margin,
+            merge,
             segments: Vec::new(),
         };
 
@@ -66,6 +70,11 @@ impl FetchSegments for ConstStrideSlicer {
         let is_eof = self.fill_buf()?;
         let count = self.buf.len() / self.width;
         let rem = self.buf.len() % self.width;
+
+        // add margin for vectorized dump
+        if self.buf.capacity() < self.width {
+            self.buf.reserve(self.width);
+        }
 
         if is_eof {
             self.next = self.buf.len();

@@ -11,8 +11,8 @@ mod stream;
 use clap::{App, AppSettings, Arg, ColorChoice};
 use std::io::Read;
 
-use common::{ConsumeSegments, FetchSegments, InoutFormat, ReadBlock};
-use drain::HexDrain;
+use common::{BLOCK_SIZE, ConsumeSegments, FetchSegments, InoutFormat, ReadBlock};
+use drain::{BinaryDrain, HexDrain};
 use eval::{parse_int, parse_range};
 use slicer::{ConstStrideSlicer, HammingSlicer, RegexSlicer};
 use source::{BinaryStream, GaplessTextStream, PatchStream, TextStream};
@@ -146,13 +146,26 @@ fn main() {
         ])
         .get_matches();
 
-    let inputs: Vec<&str> = m.values_of("inputs").unwrap().collect();
+    // determine input, output, and patch formats
     let input_format = if let Some(x) = m.value_of("in-format") {
         InoutFormat::new(x)
     } else {
         InoutFormat::input_default()
     };
 
+    let output_format = if let Some(x) = m.value_of("out-format") {
+        InoutFormat::new(x)
+    } else {
+        InoutFormat::output_default()
+    };
+
+    let _patch_format = if let Some(x) = m.value_of("patch-format") {
+        InoutFormat::new(x)
+    } else {
+        InoutFormat::input_default()
+    };
+
+    let inputs: Vec<&str> = m.values_of("inputs").unwrap().collect();
     let inputs: Vec<Box<dyn ReadBlock>> = inputs
         .iter()
         .map(|x| -> Box<dyn ReadBlock> {
@@ -183,15 +196,25 @@ fn main() {
         (0, usize::MAX)
     };
 
-    let (offset, seek) = if let Some(seek) = m.value_of("seek") {
-        let seek = parse_int(seek).unwrap() as usize;
-        (offset, offset + seek)
+    let (offset, pad, seek) = if let Some(seek) = m.value_of("seek") {
+        let seek = parse_int(seek).unwrap();
+        if seek >= 0 {
+            (offset, 0, offset + seek as usize)
+        } else {
+            // negative value pads the head of the stream
+            let pad = -seek as usize;
+            if offset >= pad {
+                (offset, 0, offset - pad)
+            } else {
+                (offset, pad - offset, 0)
+            }
+        }
     } else {
-        (offset, offset)
+        (offset, 0, offset)
     };
 
-    let input = if seek > 0 || len != usize::MAX {
-        Box::new(ClipStream::new(input, 0, seek, len))
+    let input = if seek > 0 || pad > 0 || len != usize::MAX {
+        Box::new(ClipStream::new(input, pad, seek, len))
     } else {
         input
     };
@@ -207,7 +230,7 @@ fn main() {
     let width = if let Some(width) = m.value_of("width") {
         parse_int(width).unwrap() as usize
     } else {
-        16
+        if output_format.is_binary() { BLOCK_SIZE } else { 16 }
     };
 
     let (slicer, pad): (Box<dyn FetchSegments>, _) = if let Some(pattern) = m.value_of("match") {
@@ -215,10 +238,15 @@ fn main() {
     } else if let Some(pattern) = m.value_of("regex") {
         (Box::new(RegexSlicer::new(input, width, pattern)), 0)
     } else {
-        (Box::new(ConstStrideSlicer::new(input, width)), width)
+        (Box::new(ConstStrideSlicer::new(input, width, (0, 0), 0)), width)
     };
 
     // dump all
-    let mut drain: Box<dyn ConsumeSegments> = Box::new(HexDrain::new(slicer, offset, pad));
-    drain.consume_segments().unwrap();
+    let mut output: Box<dyn ConsumeSegments> = if output_format.is_binary() {
+        Box::new(BinaryDrain::new(slicer))
+    } else {
+        Box::new(HexDrain::new(slicer, offset, pad))
+    };
+
+    output.consume_segments().unwrap();
 }

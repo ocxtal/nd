@@ -127,13 +127,13 @@ fn test_format_hex_single() {
 }
 
 fn format_hex_body_naive(dst: &mut [u8], src: &[u8]) -> usize {
-    for (i, &x) in src[..16].iter().enumerate() {
+    for (i, &x) in src.iter().enumerate() {
         dst[3 * i] = b"0123456789abcdef"[(x >> 4) as usize];
         dst[3 * i + 1] = b"0123456789abcdef"[(x & 0x0f) as usize];
         dst[3 * i + 2] = b' ';
     }
 
-    48
+    3 * src.len()
 }
 
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
@@ -142,19 +142,29 @@ unsafe fn format_hex_body_neon(dst: &mut [u8], src: &[u8]) -> usize {
     let space = vdupq_n_u8(b' ');
     let mask = vdupq_n_u8(0x0f);
 
-    let x = vld1q_u8(src.as_ptr());
-    let l = vqtbl1q_u8(table, vandq_u8(x, mask));
-    let h = vqtbl1q_u8(table, vandq_u8(vshrq_n_u8(x, 4), mask));
+    let len = src.len();
+    let mut src = src.as_ptr();
+    let mut dst = dst.as_mut_ptr();
 
-    std::arch::asm!(
-        "st3 {{ v0.16b, v1.16b, v2.16b }}, [{ptr}]",
-        ptr = in(reg) dst.as_mut_ptr(),
-        in("v0") h,
-        in("v1") l,
-        in("v2") space,
-    );
+    let n_blks = (len + 0x0f) >> 4;
+    for _ in 0..n_blks {
+        let x = vld1q_u8(src);
+        let l = vqtbl1q_u8(table, vandq_u8(x, mask));
+        let h = vqtbl1q_u8(table, vshrq_n_u8(x, 4));
 
-    48
+        std::arch::asm!(
+            "st3 {{ v0.16b, v1.16b, v2.16b }}, [{ptr}]",
+            ptr = in(reg) dst,
+            in("v0") h,
+            in("v1") l,
+            in("v2") space,
+        );
+
+        src = src.wrapping_add(16);
+        dst = dst.wrapping_add(48);
+    }
+
+    3 * len
 }
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
@@ -177,32 +187,42 @@ unsafe fn format_hex_body_avx2(dst: &mut [u8], src: &[u8]) -> usize {
     let index_1 = _mm256_loadu_si256(index_1.as_ptr() as *const __m256i);
     let index_2 = _mm256_loadu_si256(index_2.as_ptr() as *const __m256i);
 
-    let x = _mm_loadu_si128(src.as_ptr() as *const __m128i);
-    let x = _mm256_cvtepu8_epi16(x);
-    let x = _mm256_or_si256(_mm256_slli_epi16(x, 4), x);
-    let x = _mm256_and_si256(x, mask);
-    let x = _mm256_shuffle_epi8(table, x);
-    let y = _mm256_permute4x64_epi64(x, 0xe9);
-    let x = _mm256_shuffle_epi8(x, index_1);
-    let y = _mm256_shuffle_epi8(y, index_2);
+    let len = src.len();
+    let mut src = src.as_ptr();
+    let mut dst = dst.as_mut_ptr();
 
-    let x = _mm256_add_epi8(x, space);
-    let y = _mm256_add_epi8(y, space);
+    let n_blks = (len + 0x0f) >> 4;
+    for _ in 0..n_blks {
+        let x = _mm_loadu_si128(src.as_ptr() as *const __m128i);
+        let x = _mm256_cvtepu8_epi16(x);
+        let x = _mm256_or_si256(_mm256_slli_epi16(x, 4), x);
+        let x = _mm256_and_si256(x, mask);
+        let x = _mm256_shuffle_epi8(table, x);
+        let y = _mm256_permute4x64_epi64(x, 0xe9);
+        let x = _mm256_shuffle_epi8(x, index_1);
+        let y = _mm256_shuffle_epi8(y, index_2);
 
-    _mm_storeu_si128((&mut dst[0..]).as_mut_ptr() as *mut __m128i, _mm256_extracti128_si256(x, 0));
-    _mm_storeu_si128((&mut dst[16..]).as_mut_ptr() as *mut __m128i, _mm256_extracti128_si256(y, 0));
-    _mm_storeu_si128((&mut dst[32..]).as_mut_ptr() as *mut __m128i, _mm256_extracti128_si256(x, 1));
+        let x = _mm256_add_epi8(x, space);
+        let y = _mm256_add_epi8(y, space);
 
-    48
+        _mm_storeu_si128((&mut dst[0..]).as_mut_ptr() as *mut __m128i, _mm256_extracti128_si256(x, 0));
+        _mm_storeu_si128((&mut dst[16..]).as_mut_ptr() as *mut __m128i, _mm256_extracti128_si256(y, 0));
+        _mm_storeu_si128((&mut dst[32..]).as_mut_ptr() as *mut __m128i, _mm256_extracti128_si256(x, 1));
+
+        src = src.wrapping_add(16);
+        dst = dst.wrapping_add(48);
+    }
+
+    3 * len
 }
 
 #[allow(unreachable_code)]
-fn format_hex_body(dst: &mut [u8], src: &[u8]) -> usize {
+unsafe fn format_hex_body(dst: &mut [u8], src: &[u8]) -> usize {
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    return unsafe { format_hex_body_neon(dst, src) };
+    return format_hex_body_neon(dst, src);
 
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-    return unsafe { format_hex_body_avx2(dst, src) };
+    return format_hex_body_avx2(dst, src);
 
     // no optimized implementation available
     format_hex_body_naive(dst, src)
@@ -213,7 +233,7 @@ fn test_format_hex_body() {
     macro_rules! test {
         ( $src: expr, $expected_str: expr ) => {{
             let mut buf = [0u8; 256 * 256];
-            let bytes = format_hex_body(&mut buf, &$src);
+            let bytes = unsafe { format_hex_body(&mut buf, &$src) };
 
             let expected_bytes = $expected_str.len();
             assert_eq!(bytes, expected_bytes);
@@ -234,11 +254,11 @@ fn test_format_hex_body() {
 }
 
 fn format_mosaic_naive(dst: &mut [u8], src: &[u8]) -> usize {
-    for (x, y) in src[..16].iter().zip(dst[..16].iter_mut()) {
+    for (x, y) in src.iter().zip(dst.iter_mut()) {
         *y = if *x < b' ' || *x >= 127 { b'.' } else { *x };
     }
 
-    16
+    src.len()
 }
 
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
@@ -246,14 +266,24 @@ unsafe fn format_mosaic_neon(dst: &mut [u8], src: &[u8]) -> usize {
     let offset = vdupq_n_u8(b' ');
     let dots = vdupq_n_u8(b'.');
 
-    let x = vld1q_u8(src.as_ptr());
-    let y = vaddq_u8(x, vdupq_n_u8(1));
-    let is_ascii = vcgtq_s8(vreinterpretq_s8_u8(y), vreinterpretq_s8_u8(offset));
+    let len = src.len();
+    let mut src = src.as_ptr();
+    let mut dst = dst.as_mut_ptr();
 
-    let z = vbslq_u8(is_ascii, x, dots);
-    vst1q_u8(dst.as_mut_ptr(), z);
+    let n_blks = (len + 0x0f) >> 4;
+    for _ in 0..n_blks {
+        let x = vld1q_u8(src);
+        let y = vaddq_u8(x, vdupq_n_u8(1));
+        let is_ascii = vcgtq_s8(vreinterpretq_s8_u8(y), vreinterpretq_s8_u8(offset));
 
-    16
+        let z = vbslq_u8(is_ascii, x, dots);
+        vst1q_u8(dst, z);
+
+        src = src.wrapping_add(16);
+        dst = dst.wrapping_add(16);
+    }
+
+    len
 }
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
@@ -261,14 +291,24 @@ unsafe fn format_mosaic_avx2(dst: &mut [u8], src: &[u8]) -> usize {
     let offset = _mm_set1_epi8(b' ' as i8);
     let dots = _mm_set1_epi8(b'.' as i8);
 
-    let x = _mm_loadu_si128(src.as_ptr() as *const __m128i);
-    let y = _mm_add_epi8(x, _mm_set1_epi8(1));
-    let is_ascii = _mm_cmpgt_epi8(y, offset);
+    let len = src.len();
+    let mut src = src.as_ptr();
+    let mut dst = dst.as_mut_ptr();
 
-    let z = _mm_blendv_epi8(dots, x, is_ascii);
-    _mm_storeu_si128(dst.as_mut_ptr() as *mut __m128i, z);
+    let n_blks = (len + 0x0f) >> 4;
+    for _ in 0..n_blks {
+        let x = _mm_loadu_si128(src.as_ptr() as *const __m128i);
+        let y = _mm_add_epi8(x, _mm_set1_epi8(1));
+        let is_ascii = _mm_cmpgt_epi8(y, offset);
 
-    16
+        let z = _mm_blendv_epi8(dots, x, is_ascii);
+        _mm_storeu_si128(dst.as_mut_ptr() as *mut __m128i, z);
+
+        src = src.wrapping_add(16);
+        dst = dst.wrapping_add(16);
+    }
+
+    len
 }
 
 #[allow(unreachable_code)]
@@ -306,33 +346,21 @@ fn test_format_mosaic() {
     test!(b"0123456789abcdef".as_slice(), "0123456789abcdef");
 }
 
-unsafe fn format_line(dst: &mut [u8], src: &[u8], offset: usize, elems_per_line: usize) -> usize {
+unsafe fn format_line(dst: &mut [u8], src: &[u8], offset: usize, width: usize) -> usize {
     let mut dst = dst;
 
     // header; p is the current offset in the dst buffer
-    format_hex_single(dst, offset, 6);
-    dst = dst.split_at_mut_unchecked(13).1;
-
-    format_hex_single(dst, elems_per_line, 1);
-    dst = dst.split_at_mut_unchecked(3).1;
-
-    let (delim, rem) = dst.split_at_mut_unchecked(2);
-    delim[0] = b'|';
-    delim[1] = b' ';
+    let (header, rem) = dst.split_at_mut_unchecked(18);
+    format_hex_single(header, offset, 6);
+    format_hex_single(&mut header[13..], src.len(), 1);
+    header[16] = b'|';
+    header[17] = b' ';
     dst = rem;
 
-    let n_blks = elems_per_line >> 4;
-    let n_rem = elems_per_line & 0x0f;
-
     // body
-    for i in 0..n_blks {
-        format_hex_body(dst, &src[i * 16..]);
-        dst = dst.split_at_mut_unchecked(48).1;
-    }
-    if n_rem > 0 {
-        format_hex_body(dst, &src[n_blks * 16..]);
-        dst = dst.split_at_mut_unchecked(3 * n_rem).1;
-    }
+    let (body, rem) = dst.split_at_mut_unchecked(3 * width);
+    format_hex_body(body, src);
+    dst = rem;
 
     let (delim, rem) = dst.split_at_mut_unchecked(2);
     delim[0] = b'|';
@@ -340,98 +368,89 @@ unsafe fn format_line(dst: &mut [u8], src: &[u8], offset: usize, elems_per_line:
     dst = rem;
 
     // mosaic
-    for i in 0..n_blks {
-        format_mosaic(dst, &src[i * 16..]);
-        dst = dst.split_at_mut_unchecked(16).1;
-    }
-    if n_rem > 0 {
-        format_mosaic(dst, &src[n_blks * 16..]);
-        dst = dst.split_at_mut_unchecked(n_rem).1;
-    }
-
+    let (mosaic, rem) = dst.split_at_mut_unchecked(width);
+    format_mosaic(mosaic, src);
+    dst = rem;
     dst[0] = b'\n';
-    16 + 4 * elems_per_line + 4 + 1
-}
 
-fn patch_line(dst: &mut [u8], valid_elements: usize, elems_per_line: usize) {
-    debug_assert!(valid_elements < elems_per_line);
-    debug_assert!(dst.len() > 4 * elems_per_line);
-
-    let last_line_offset = dst.len() - 4 * elems_per_line - 3;
-    let (_, last) = dst.split_at_mut(last_line_offset);
-
-    let (body, mosaic) = last.split_at_mut(3 * elems_per_line);
-    for i in valid_elements..elems_per_line {
-        body[3 * i] = b' ';
-        body[3 * i + 1] = b' ';
-        mosaic[i + 2] = b' ';
+    if src.len() < width {  // unlikely
+        for i in src.len()..width {
+            body[3 * i] = b' ';
+            body[3 * i + 1] = b' ';
+            body[3 * i + 2] = b' ';
+            mosaic[i] = b' ';
+        }
     }
-    // body[4 * valid_elements + 1] = b'|';
+
+    21 + 4 * width
 }
 
 pub struct HexDrain {
     src: Box<dyn FetchSegments>,
     buf: Vec<u8>,
     offset: usize,
-    pad: usize,
+    width: usize,
 }
 
 impl HexDrain {
-    pub fn new(src: Box<dyn FetchSegments>, offset: usize, pad_blank_to: usize) -> Self {
+    pub fn new(src: Box<dyn FetchSegments>, offset: usize, width: usize) -> Self {
         HexDrain {
             src,
             buf: Vec::with_capacity(2 * 128 * BLOCK_SIZE),
             offset,
-            pad: pad_blank_to,
+            width,
         }
+    }
+
+    fn consume_segments_impl(&mut self) -> Option<usize> {
+        let (offset, block, segments) = self.src.fetch_segments()?;
+        if segments.is_empty() {
+            return Some(0);
+        }
+
+        let offset = self.offset + offset;
+        self.buf.clear();
+
+        for s in segments.chunks(4) {
+            let reserve_len: usize = s.iter().map(|x| x.len).sum();
+            let reserve_len = (reserve_len + 15) & !15;
+            let reserve_len = 4 * reserve_len + 4 * 32;
+
+            self.buf.extend_uninit(reserve_len, |x: &mut [u8]| {
+                let mut format = |p: usize, i: usize| unsafe {
+                    format_line(&mut x[p..], &block[s[i].as_range()], offset + s[i].offset, s[i].len.max(self.width))
+                };
+
+                let mut p = 0;
+                if s.len() > 0 {
+                    p += format(p, 0);
+                }
+                if s.len() > 1 {
+                    p += format(p, 1);
+                }
+                if s.len() > 2 {
+                    p += format(p, 2);
+                }
+                if s.len() > 3 {
+                    p += format(p, 3);
+                }
+                Some((p, p))
+            });
+        }
+
+        std::io::stdout().write_all(&self.buf).ok()?;
+        Some(self.buf.len())
     }
 }
 
 impl ConsumeSegments for HexDrain {
     fn consume_segments(&mut self) -> Option<usize> {
-        loop {
-            let (offset, block, segments) = self.src.fetch_segments()?;
-            if block.is_empty() {
+        while let Some(len) = self.consume_segments_impl() {
+            if len == 0 {
                 return Some(0);
             }
-
-            let offset = self.offset + offset;
-
-            self.buf.clear();
-            for s in segments.chunks(4) {
-                let reserve_len: usize = s.iter().map(|x| x.len).sum();
-                let reserve_len = (reserve_len + 15) & !15;
-                let reserve_len = 4 * reserve_len + 4 * 32;
-
-                self.buf.extend_uninit(reserve_len, |x: &mut [u8]| {
-                    let mut format = |p: usize, i: usize| unsafe {
-                        format_line(
-                            &mut x[p..],
-                            &block[s[i].offset..s[i].offset + s[i].len],
-                            offset + s[i].offset,
-                            s[i].len.max(self.pad),
-                        )
-                    };
-
-                    let mut p = 0;
-                    if s.len() > 0 {
-                        p += format(p, 0);
-                    }
-                    if s.len() > 1 {
-                        p += format(p, 1);
-                    }
-                    if s.len() > 2 {
-                        p += format(p, 2);
-                    }
-                    if s.len() > 3 {
-                        p += format(p, 3);
-                    }
-                    Some((p, p))
-                });
-            }
-
-            std::io::stdout().write_all(&self.buf).ok()?;
         }
+        None
     }
 }
 

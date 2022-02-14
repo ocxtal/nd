@@ -32,7 +32,7 @@ impl RegexSlicer {
 
     fn fill_buf(&mut self) -> Option<bool> {
         let block_size = BLOCK_SIZE.max(2 * self.width);
-        while self.buf.len() < BLOCK_SIZE {
+        while self.buf.len() < block_size {
             let len = self.src.read_block(&mut self.buf)?;
             if len == 0 {
                 return Some(true);

@@ -96,6 +96,12 @@ pub struct Segment {
     pub len: usize,
 }
 
+impl Segment {
+    pub fn as_range(&self) -> Range<usize> {
+        self.offset..self.offset + self.len
+    }
+}
+
 impl From<Range<usize>> for Segment {
     fn from(other: Range<usize>) -> Self {
         Segment {
