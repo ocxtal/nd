@@ -17,7 +17,7 @@ pub struct ConstStrideSlicer {
 }
 
 impl ConstStrideSlicer {
-    pub fn new(src: Box<dyn ReadBlock>, width: usize, margin: (usize, usize), merge: usize) -> Self {
+    pub fn new(src: Box<dyn ReadBlock>, width: usize, margin: (isize, isize), merge: isize) -> Self {
         let mut slicer = ConstStrideSlicer {
             src,
             buf: Vec::new(),
@@ -30,7 +30,7 @@ impl ConstStrideSlicer {
             segments: Vec::new(),
         };
 
-        slicer.extend_segments(2 * BLOCK_SIZE / width);
+        slicer.init_segments();
         slicer
     }
 
@@ -42,6 +42,19 @@ impl ConstStrideSlicer {
                 len: self.width,
             });
         }
+    }
+
+    fn init_segments(&mut self) {
+        let upto = 2 * BLOCK_SIZE / self.width;
+
+        let overlap = self.margin.0 + self.margin.1;
+        let thresh = -self.merge;
+        if overlap >= thresh {}
+
+        self.segments.push(Segment {
+            offset: 0,
+            len: self.width + self.margin.1,
+        });
     }
 
     fn fill_buf(&mut self) -> Option<bool> {

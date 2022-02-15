@@ -43,9 +43,9 @@ impl BinaryDrain {
 impl ConsumeSegments for BinaryDrain {
     fn consume_segments(&mut self) -> Option<usize> {
         while let Some(x) = self.consume_segments_impl() {
-        	if x == 0 {
-        		return Some(0);
-        	}
+            if x == 0 {
+                return Some(0);
+            }
         }
         None
     }

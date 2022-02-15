@@ -373,7 +373,8 @@ unsafe fn format_line(dst: &mut [u8], src: &[u8], offset: usize, width: usize) -
     dst = rem;
     dst[0] = b'\n';
 
-    if src.len() < width {  // unlikely
+    if src.len() < width {
+        // unlikely
         for i in src.len()..width {
             body[3 * i] = b' ';
             body[3 * i + 1] = b' ';
@@ -396,7 +397,7 @@ impl HexDrain {
     pub fn new(src: Box<dyn FetchSegments>, offset: usize, width: usize) -> Self {
         HexDrain {
             src,
-            buf: Vec::with_capacity(2 * 128 * BLOCK_SIZE),
+            buf: Vec::with_capacity(6 * BLOCK_SIZE),
             offset,
             width,
         }
@@ -454,6 +455,46 @@ impl ConsumeSegments for HexDrain {
             }
         }
         None
+    }
+}
+
+pub struct SingleLineHexDrain {
+    src: Box<dyn FetchSegments>,
+    buf: Vec<u8>,
+}
+
+impl HexDrain {
+    pub fn new(src: Box<dyn FetchSegments>, offset: usize) -> Self {
+        let drain = SingleLineHexDrain {
+            src,
+            buf: Vec::with_capacity(6 * BLOCK_SIZE),
+        };
+
+        drain.print_header(offset);
+        drain
+    }
+
+    fn print_header(&mut self, offset: usize) -> Option<usize> {
+        let len = self.buf.extend_uninit(18, |x: &mut [u8]| {
+            format_hex_single(x, offset, 6);
+            format_hex_single(&mut x[13..], src.len(), 1);
+            x[16] = b'|';
+            x[17] = b' ';
+            18
+        });
+
+        std::io::stdout().write_all(&self.buf[..len]).ok()
+    }
+}
+
+impl ConsumeSegments for HexDrain {
+    fn consume_segments(&mut self) -> Option<usize> {
+        let (offset, block, _) = self.src.fetch_segments()?;
+        if block.is_empty() {
+            return Some(0);
+        }
+
+        Some(1)
     }
 }
 

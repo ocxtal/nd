@@ -11,7 +11,7 @@ mod stream;
 use clap::{App, AppSettings, Arg, ColorChoice};
 use std::io::Read;
 
-use common::{BLOCK_SIZE, ConsumeSegments, FetchSegments, InoutFormat, ReadBlock};
+use common::{ConsumeSegments, FetchSegments, InoutFormat, ReadBlock, BLOCK_SIZE};
 use drain::{BinaryDrain, HexDrain};
 use eval::{parse_int, parse_range};
 use slicer::{ConstStrideSlicer, HammingSlicer, RegexSlicer};
@@ -231,7 +231,11 @@ fn main() {
     let width = if let Some(width) = m.value_of("width") {
         parse_int(width).unwrap() as usize
     } else {
-        if output_format.is_binary() { BLOCK_SIZE } else { 16 }
+        if output_format.is_binary() {
+            BLOCK_SIZE
+        } else {
+            16
+        }
     };
 
     let (slicer, pad): (Box<dyn FetchSegments>, _) = if let Some(pattern) = m.value_of("match") {
