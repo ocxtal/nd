@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
-use crate::common::{ExtendUninit, ReadBlock, BLOCK_SIZE};
+use crate::common::{ReadBlock, ReserveAndFill, BLOCK_SIZE};
 
 struct ZipStreamCache {
     src: Box<dyn ReadBlock>,
@@ -71,7 +71,7 @@ macro_rules! gather {
                 *ptr = src.buf[src.consumed..].as_ptr();
             }
 
-            buf.extend_uninit(self.srcs.len() * bulk_len, |arr: &mut [u8]| {
+            buf.reserve_and_fill(self.srcs.len() * bulk_len, |arr: &mut [u8]| {
                 let mut dst = arr.as_mut_ptr();
                 for _ in 0..bulk_len / $w {
                     for ptr in self.ptrs.iter_mut() {

@@ -48,12 +48,6 @@ impl FetchSegments for RegexSlicer {
             return Some((self.eof, &self.buf[..0], &self.matches[..0]));
         }
 
-        let tail = self.buf.len();
-        self.buf.copy_within(self.next..tail, 0);
-        self.buf.truncate(tail - self.next);
-        self.offset += self.next;
-        self.matches.clear();
-
         let to_segment = |m: Match, offset: usize| -> Segment {
             Segment {
                 offset: offset + m.start(),
@@ -74,18 +68,36 @@ impl FetchSegments for RegexSlicer {
                     .map(|x| to_segment(x, start)),
             );
         }
-        self.next = (count - 1) * self.width;
 
+        let mut count = (count - 1) * self.width;
         if is_eof {
-            self.next = self.buf.len();
+            count = self.buf.len();
             self.eof = self.buf.len();
 
             let start = n_bulk * self.width;
-            self.matches
-                .extend(self.re.find_iter(&self.buf[start..self.buf.len()]).map(|x| to_segment(x, start)));
+            let chunk = &self.buf[start..self.buf.len()];
+            self.matches.extend(self.re.find_iter(chunk).map(|x| to_segment(x, start)));
         }
 
-        Some((self.offset, &self.buf[..self.next], &self.matches))
+        Some((self.offset, &self.buf[..count], &self.matches))
+    }
+
+    fn forward_segments(&mut self, count: usize) -> Option<()> {
+        if count == 0 {
+            return Some(());
+        }
+
+        let bytes = self.matches[count - 1].tail();
+        let tail = self.matches.len();
+        for (i, j) in (count..tail).enumerate() {
+            self.matches[i] = self.matches[j].unwind(bytes);
+        }
+
+        let tail = self.buf.len();
+        self.buf.copy_within(bytes..tail, 0);
+        self.offset += bytes;
+
+        Some(())
     }
 }
 

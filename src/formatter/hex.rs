@@ -2,15 +2,13 @@
 // @author Hajime Suzuki
 // @brief hex formatter
 
-use std::io::Write;
-
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 use core::arch::aarch64::*;
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use core::arch::x86_64::*;
 
-use crate::common::{ConsumeSegments, ExtendUninit, FetchSegments, BLOCK_SIZE};
+use crate::common::{FetchSegments, ReserveAndFill, Segment, BLOCK_SIZE};
 
 fn format_hex_single_naive(dst: &mut [u8], offset: usize, bytes: usize) -> usize {
     for (i, x) in dst[..2 * bytes].iter_mut().enumerate() {
@@ -386,115 +384,77 @@ unsafe fn format_line(dst: &mut [u8], src: &[u8], offset: usize, width: usize) -
     21 + 4 * width
 }
 
-pub struct HexDrain {
+pub struct HexFormatter {
     src: Box<dyn FetchSegments>,
     buf: Vec<u8>,
     offset: usize,
+    segments: Vec<Segment>,
+    base: usize,
     width: usize,
 }
 
-impl HexDrain {
-    pub fn new(src: Box<dyn FetchSegments>, offset: usize, width: usize) -> Self {
-        HexDrain {
+impl HexFormatter {
+    pub fn new(src: Box<dyn FetchSegments>, base: usize, width: usize) -> Self {
+        HexFormatter {
             src,
             buf: Vec::with_capacity(6 * BLOCK_SIZE),
-            offset,
+            offset: 0,
+            segments: Vec::with_capacity(BLOCK_SIZE),
+            base,
             width,
         }
     }
+}
 
-    fn consume_segments_impl(&mut self) -> Option<usize> {
+impl FetchSegments for HexFormatter {
+    fn fetch_segments(&mut self) -> Option<(usize, &[u8], &[Segment])> {
         let (offset, block, segments) = self.src.fetch_segments()?;
+        eprintln!("hex: {:?}, {:?}, {:?}", offset, block.len(), segments.len());
         if block.is_empty() {
-            std::io::stdout().write_all(&self.buf).ok()?;
-            self.buf.clear();
-            return Some(0);
+            return Some((0, &self.buf[..0], &self.segments[..0]));
         }
 
-        let offset = self.offset + offset;
-        for s in segments.chunks(4) {
-            let reserve_len: usize = s.iter().map(|x| x.len).sum();
-            let reserve_len = (reserve_len + 15) & !15;
-            let reserve_len = 4 * reserve_len + 4 * 32;
-
-            self.buf.extend_uninit(reserve_len, |x: &mut [u8]| {
-                let mut format = |p: usize, i: usize| unsafe {
-                    format_line(&mut x[p..], &block[s[i].as_range()], offset + s[i].offset, s[i].len.max(self.width))
-                };
-
-                let mut p = 0;
-                if s.len() > 0 {
-                    p += format(p, 0);
-                }
-                if s.len() > 1 {
-                    p += format(p, 1);
-                }
-                if s.len() > 2 {
-                    p += format(p, 2);
-                }
-                if s.len() > 3 {
-                    p += format(p, 3);
-                }
-                Some((p, p))
-            });
-        }
-
-        if self.buf.len() >= BLOCK_SIZE {
-            std::io::stdout().write_all(&self.buf).ok()?;
-            self.buf.clear();
-        }
-        Some(1)
-    }
-}
-
-impl ConsumeSegments for HexDrain {
-    fn consume_segments(&mut self) -> Option<usize> {
-        while let Some(len) = self.consume_segments_impl() {
-            if len == 0 {
-                return Some(0);
-            }
-        }
-        None
-    }
-}
-
-pub struct SingleLineHexDrain {
-    src: Box<dyn FetchSegments>,
-    buf: Vec<u8>,
-}
-
-impl HexDrain {
-    pub fn new(src: Box<dyn FetchSegments>, offset: usize) -> Self {
-        let drain = SingleLineHexDrain {
-            src,
-            buf: Vec::with_capacity(6 * BLOCK_SIZE),
+        let mut offset = if let Some(segment) = self.segments.last() {
+            segment.offset
+        } else {
+            0
         };
+        let base = self.base + offset;
 
-        drain.print_header(offset);
-        drain
-    }
+        for s in segments {
+            let src = &block[s.as_range()];
+            let base = base + s.offset;
+            let width = s.len.max(self.width);
 
-    fn print_header(&mut self, offset: usize) -> Option<usize> {
-        let len = self.buf.extend_uninit(18, |x: &mut [u8]| {
-            format_hex_single(x, offset, 6);
-            format_hex_single(&mut x[13..], src.len(), 1);
-            x[16] = b'|';
-            x[17] = b' ';
-            18
-        });
+            let reserve = 4 * ((s.len + 15) & !15) + 4 * 32;
+            let len = self.buf.reserve_and_fill(reserve, |dst: &mut [u8]| {
+                let len = unsafe { format_line(dst, src, base, width) };
+                Some((len, len))
+            })?;
 
-        std::io::stdout().write_all(&self.buf[..len]).ok()
-    }
-}
-
-impl ConsumeSegments for HexDrain {
-    fn consume_segments(&mut self) -> Option<usize> {
-        let (offset, block, _) = self.src.fetch_segments()?;
-        if block.is_empty() {
-            return Some(0);
+            self.segments.push(Segment { offset, len });
+            offset += len;
         }
 
-        Some(1)
+        Some((self.offset, &self.buf, &self.segments))
+    }
+
+    fn forward_segments(&mut self, count: usize) -> Option<()> {
+        if count == 0 {
+            return Some(());
+        }
+
+        let bytes = self.segments[count - 1].tail();
+        let tail = self.segments.len();
+        for (i, j) in (count..tail).enumerate() {
+            self.segments[i] = self.segments[j].unwind(bytes);
+        }
+
+        let tail = self.buf.len();
+        self.buf.copy_within(bytes..tail, 0);
+        self.offset += bytes;
+
+        Some(())
     }
 }
 

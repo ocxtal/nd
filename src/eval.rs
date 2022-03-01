@@ -19,17 +19,55 @@ fn is_unary(c: char) -> bool {
 
 fn latter_precedes(former: char, latter: char) -> bool {
     let is_muldiv = |c: char| -> bool { c == '*' || c == '/' || c == '%' };
-    let is_right_assoc = |c: char| -> bool { c == '@' };
+    let is_addsub = |c: char| -> bool { c == '+' || c == '-' };
+    let is_shift = |c: char| -> bool { c == '<' || c == '>' };
+    let is_pow = |c: char| -> bool { c == '@' };
 
-    // FIXME: commutative binary ops precede shifts and exp
-    if is_muldiv(former) {
-        return false;
-    } else if is_muldiv(latter) {
-        return true;
-    } else if is_right_assoc(latter) {
-        return true;
+    if is_muldiv(former) || is_muldiv(latter) {
+        return !is_muldiv(former);
+    } else if is_addsub(former) || is_addsub(latter) {
+        return !is_addsub(former);
+    } else if is_shift(former) || is_shift(latter) {
+        return !is_shift(former);
     }
-    false
+    is_pow(former) && is_pow(latter)
+}
+
+#[test]
+fn test_precedence() {
+    assert_eq!(latter_precedes('*', '*'), false);
+    assert_eq!(latter_precedes('*', '/'), false);
+    assert_eq!(latter_precedes('*', '%'), false);
+    assert_eq!(latter_precedes('/', '*'), false);
+    assert_eq!(latter_precedes('%', '*'), false);
+
+    assert_eq!(latter_precedes('*', '+'), false);
+    assert_eq!(latter_precedes('*', '+'), false);
+    assert_eq!(latter_precedes('*', '+'), false);
+    assert_eq!(latter_precedes('/', '+'), false);
+    assert_eq!(latter_precedes('%', '+'), false);
+
+    assert_eq!(latter_precedes('+', '*'), true);
+    assert_eq!(latter_precedes('+', '*'), true);
+    assert_eq!(latter_precedes('+', '*'), true);
+    assert_eq!(latter_precedes('+', '/'), true);
+    assert_eq!(latter_precedes('+', '%'), true);
+
+    assert_eq!(latter_precedes('+', '+'), false);
+    assert_eq!(latter_precedes('-', '+'), false);
+    assert_eq!(latter_precedes('+', '-'), false);
+
+    assert_eq!(latter_precedes('*', '<'), false);
+    assert_eq!(latter_precedes('<', '*'), true);
+    assert_eq!(latter_precedes('+', '<'), false);
+    assert_eq!(latter_precedes('<', '+'), true);
+    assert_eq!(latter_precedes('<', '>'), false);
+
+    assert_eq!(latter_precedes('*', '@'), false);
+    assert_eq!(latter_precedes('@', '*'), true);
+    assert_eq!(latter_precedes('+', '@'), false);
+    assert_eq!(latter_precedes('@', '+'), true);
+    assert_eq!(latter_precedes('@', '@'), true);
 }
 
 fn parse_op<I>(first: char, it: &mut Peekable<I>) -> Option<Token>
@@ -50,7 +88,7 @@ where
         it.next()?;
         return Some(Token::Op('@'));
     }
-    return Some(Token::Op(first));
+    Some(Token::Op(first))
 }
 
 fn parse_char(c: char) -> Option<i64> {
@@ -93,34 +131,17 @@ where
         }
     };
 
-    let mut num_base = 10;
-    let first = if first == '0' {
-        // leading zeros can be ignored even if they are not radix prefix.
-        match it.peek() {
-            Some(&x) if tolower(x) == 'b' => {
-                num_base = 2;
-                it.next()?;
-                it.next()?
-            }
-            Some(&x) if tolower(x) == 'o' => {
-                num_base = 8;
-                it.next()?;
-                it.next()?
-            }
-            Some(&x) if tolower(x) == 'd' => {
-                num_base = 10;
-                it.next()?;
-                it.next()?
-            }
-            Some(&x) if tolower(x) == 'x' => {
-                num_base = 16;
-                it.next()?;
-                it.next()?
-            }
-            _ => first,
-        }
+    #[rustfmt::skip]
+    let (first, num_base) = if first != '0' {
+        (first, 10)
     } else {
-        first
+            match it.peek() {
+            Some(&x) if tolower(x) == 'b' => { it.next()?; (it.next()?, 2) }
+            Some(&x) if tolower(x) == 'o' => { it.next()?; (it.next()?, 8) }
+            Some(&x) if tolower(x) == 'd' => { it.next()?; (it.next()?, 10) }
+            Some(&x) if tolower(x) == 'x' => { it.next()?; (it.next()?, 16) }
+            _ => (first, 10),
+        }
     };
 
     let mut val = parse_char(first)?;
@@ -145,8 +166,7 @@ where
 }
 
 fn tokenize(input: &str) -> Option<Vec<Token>> {
-    let mut tokens = Vec::new();
-    tokens.push(Token::Paren('('));
+    let mut tokens = vec![Token::Paren('(')];
 
     let mut it = input.chars().peekable();
     while let Some(x) = it.next() {
@@ -184,7 +204,7 @@ fn mark_prefices(tokens: &mut [Token]) -> Option<()> {
                 latter[0] = Token::Prefix(y);
             }
             // allowed combinations
-            (Token::Prefix(_), Token::Val(_)) => {}
+            (Token::Prefix(_), Token::Val(_) | Token::Paren('(')) => {}
             (Token::Op(_), Token::Val(_)) => {}
             (Token::Val(_), Token::Op(_)) => {}
             (Token::Paren('('), Token::Val(_)) => {}
@@ -229,19 +249,21 @@ fn sort_into_rpn(tokens: &[Token]) -> Option<Vec<Token>> {
             Token::Paren('(') => {
                 op_stack.push(Token::Paren('('));
             }
-            Token::Paren(')') => {
-                while let Some(op) = op_stack.pop() {
-                    if let Token::Paren('(') = op {
-                        break;
-                    }
-                    rpn.push(op);
+            Token::Paren(')') => loop {
+                let op = op_stack.pop()?;
+                if let Token::Paren('(') = op {
+                    break;
                 }
-            }
+                rpn.push(op);
+            },
             _ => {
-                eprintln!("failed to sort");
                 return None;
             }
         }
+    }
+
+    if !op_stack.is_empty() {
+        return None;
     }
 
     Some(rpn)
@@ -279,6 +301,7 @@ fn eval_rpn(tokens: &[Token]) -> Option<i64> {
             } else {
                 x << ((-y as usize) & 0x3f)
             }),
+            '@' => Some(if y >= 0 { x.pow(y as u32) } else { 0 }), // FIXME
             _ => {
                 eprintln!("unknown op: {:?}", c);
                 None
@@ -367,6 +390,14 @@ fn test_parse() {
     assert_eq!(parse_int("(4 - 1)"), Some(3));
     assert_eq!(parse_int("2 * (4 - 1)"), Some(6));
     assert_eq!(parse_int("(4 - 1) * 2"), Some(6));
+    assert_eq!(parse_int("-(4 - 1) * 2"), Some(-6));
+
+    assert_eq!(parse_int("(*4 - 1) * 2"), None);
+    assert_eq!(parse_int("(4 - 1+) * 2"), None);
+    assert_eq!(parse_int("(4 -* 1) * 2"), None);
+    assert_eq!(parse_int("(4 - 1 * 2"), None);
+    assert_eq!(parse_int("4 - 1) * 2"), None);
+    assert_eq!(parse_int("(4 - 1)) * 2"), None);
 
     assert_eq!(parse_int("4+-2"), Some(2));
     assert_eq!(parse_int("4+ -2"), Some(2));
@@ -386,6 +417,23 @@ fn test_parse() {
 
     assert_eq!(parse_int("3 * 4 - 1"), Some(11));
     assert_eq!(parse_int("4 - 1 * 5"), Some(-1));
+
+    assert_eq!(parse_int("3 << 2 - 1"), Some(6));
+    assert_eq!(parse_int("3 - 2 << 1"), Some(2));
+
+    assert_eq!(parse_int("4 - 2 ** 3"), Some(8));
+    assert_eq!(parse_int("3 ** 2 - 1"), Some(3));
+    assert_eq!(parse_int("2 ** 3 ** 2"), Some(512));
+
+    assert_eq!(parse_int("3 ** (0 - 2)"), Some(0));
+    assert_eq!(parse_int("3**-2"), Some(0));
+    assert_eq!(parse_int("-12**2"), Some(-144));
+    assert_eq!(parse_int("(-12)**2"), Some(144));
+
+    assert_eq!(parse_int("4 : 3"), None);
+    assert_eq!(parse_int("4 + 3;"), None);
+    assert_eq!(parse_int("4 - `3"), None);
+    assert_eq!(parse_int("4,3"), None);
 }
 
 pub fn parse_range(s: &str) -> Option<Range<usize>> {

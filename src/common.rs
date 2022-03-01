@@ -6,6 +6,7 @@ use std::convert::From;
 use std::ops::Range;
 
 pub const BLOCK_SIZE: usize = 2 * 1024 * 1024;
+pub const CHUNK_SIZE: usize = 32 * 1024;
 
 #[derive(Copy, Clone, Debug)]
 pub struct InoutFormat {
@@ -90,15 +91,37 @@ pub trait ReadBlock {
     fn read_block(&mut self, buf: &mut Vec<u8>) -> Option<usize>;
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct Segment {
     pub offset: usize,
     pub len: usize,
 }
 
 impl Segment {
+    pub fn tail(&self) -> usize {
+        self.offset + self.len
+    }
+
     pub fn as_range(&self) -> Range<usize> {
-        self.offset..self.offset + self.len
+        self.offset..self.tail()
+    }
+
+    pub fn unwind(&self, adj: usize) -> Self {
+        debug_assert!(adj >= self.offset);
+        Segment {
+            offset: self.offset - adj,
+            len: self.len,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn is_right_open(&self) -> bool {
+        self.len == usize::MAX
+    }
+
+    #[allow(dead_code)]
+    pub fn is_left_open(&self) -> bool {
+        self.offset == usize::MAX
     }
 }
 
@@ -112,22 +135,24 @@ impl From<Range<usize>> for Segment {
 }
 
 pub trait FetchSegments {
+    // chunked iterator
     fn fetch_segments(&mut self) -> Option<(usize, &[u8], &[Segment])>;
+    fn forward_segments(&mut self, count: usize) -> Option<()>;
 }
 
 pub trait ConsumeSegments {
     fn consume_segments(&mut self) -> Option<usize>;
 }
 
-pub trait ExtendUninit {
-    fn extend_uninit<T, F>(&mut self, len: usize, f: F) -> Option<T>
+pub trait ReserveAndFill {
+    fn reserve_and_fill<T, F>(&mut self, len: usize, f: F) -> Option<T>
     where
         T: Sized,
         F: FnMut(&mut [u8]) -> Option<(T, usize)>;
 }
 
-impl ExtendUninit for Vec<u8> {
-    fn extend_uninit<T, F>(&mut self, len: usize, f: F) -> Option<T>
+impl ReserveAndFill for Vec<u8> {
+    fn reserve_and_fill<T, F>(&mut self, len: usize, f: F) -> Option<T>
     where
         T: Sized,
         F: FnMut(&mut [u8]) -> Option<(T, usize)>,

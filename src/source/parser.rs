@@ -14,7 +14,7 @@ mod x86_64;
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use x86_64::*;
 
-use crate::common::{ExtendUninit, InoutFormat, BLOCK_SIZE};
+use crate::common::{InoutFormat, ReserveAndFill, BLOCK_SIZE};
 use std::io::Read;
 
 mod naive;
@@ -294,7 +294,7 @@ impl TextParser {
 
         let mut is_in_tail = false;
         while self.consumed < self.eof {
-            let (scanned, parsed) = buf.extend_uninit(4 * 16, |arr: &mut [u8]| {
+            let (scanned, parsed) = buf.reserve_and_fill(4 * 16, |arr: &mut [u8]| {
                 (self.parse_body)(is_in_tail, &self.buf[self.consumed..], arr)
             })?;
 

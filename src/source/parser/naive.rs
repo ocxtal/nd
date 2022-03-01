@@ -94,37 +94,24 @@ pub fn parse_dec_single(src: &[u8]) -> Option<(u64, usize)> {
     None
 }
 
-// pub fn parse_dec_body_naive(is_in_tail: bool, src: &[u8], dst: &mut [u8]) -> Option<((usize, usize), usize)> {
+// pub fn parse_none_single(src: &[u8]) -> Option<(u64, usize)> {
+//     assert!(src.len() >= 16);
 
-//     if !is_in_tail {
-//         loop {
-//             ;
+//     for (i, &x) in src[..16].iter().enumerate() {
+//         if x == b' ' {
+//             return Some((0, i));
 //         }
 //     }
-
-//     loop {
-
-//     }
+//     None
 // }
 
-pub fn parse_none_single(src: &[u8]) -> Option<(u64, usize)> {
-    assert!(src.len() >= 16);
-
-    for (i, &x) in src[..16].iter().enumerate() {
-        if x == b' ' {
-            return Some((0, i));
-        }
-    }
-    None
-}
-
-pub fn parse_none_body_naive(_: bool, src: &[u8], _: &mut [u8]) -> Option<((usize, usize), usize)> {
-    for (i, &x) in src.iter().enumerate() {
-        if x == b'\n' {
-            return Some(((i, 0), 0));
-        }
-    }
-    None
-}
+// pub fn parse_none_body_naive(_: bool, src: &[u8], _: &mut [u8]) -> Option<((usize, usize), usize)> {
+//     for (i, &x) in src.iter().enumerate() {
+//         if x == b'\n' {
+//             return Some(((i, 0), 0));
+//         }
+//     }
+//     None
+// }
 
 // end of mod.rs
