@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 
 use crate::common::{ConsumeSegments, FetchSegments};
-use std::io::Write;
+use std::io::{Result, Write};
 
 pub struct TransparentDrain {
     src: Box<dyn FetchSegments>,
@@ -15,32 +15,28 @@ impl TransparentDrain {
         TransparentDrain { src, dst, offset: 0 }
     }
 
-    fn consume_segments_impl(&mut self) -> Option<usize> {
-        let (offset, block, segments) = self.src.fetch_segments()?;
-        eprintln!("trans: {:?}, {:?}, {:?}", offset, block.len(), segments.len());
+    fn consume_segments_impl(&mut self) -> Result<usize> {
+        let (block, segments) = self.src.fill_segment_buf()?;
+        eprintln!("trans: {:?}, {:?}, {:?}", self.offset, block.len(), segments.len());
         if block.is_empty() {
-            return Some(0);
+            return Ok(0);
         }
 
-        let skip = self.offset - offset;
-        self.dst.write_all(&block[skip..]).ok()?;
-        self.offset = offset + block.len();
+        self.dst.write_all(block).unwrap();
+        self.offset += self.src.consume(block.len())?;
 
-        let forward_count = segments.len();
-        self.src.forward_segments(forward_count)?;
-
-        Some(1)
+        Ok(1)
     }
 }
 
 impl ConsumeSegments for TransparentDrain {
-    fn consume_segments(&mut self) -> Option<usize> {
-        while let Some(len) = self.consume_segments_impl() {
+    fn consume_segments(&mut self) -> Result<usize> {
+        loop {
+            let len = self.consume_segments_impl()?;
             if len == 0 {
-                return Some(0);
+                return Ok(0);
             }
         }
-        None
     }
 }
 

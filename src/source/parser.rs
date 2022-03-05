@@ -14,8 +14,8 @@ mod x86_64;
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use x86_64::*;
 
-use crate::common::{InoutFormat, ReserveAndFill, BLOCK_SIZE};
-use std::io::Read;
+use crate::common::{FillUninit, InoutFormat, ToResult};
+use std::io::{BufRead, Result};
 
 mod naive;
 use naive::*;
@@ -199,13 +199,7 @@ type ParseSingle = fn(&[u8]) -> Option<(u64, usize)>;
 type ParseBody = fn(bool, &[u8], &mut [u8]) -> Option<((usize, usize), usize)>;
 
 pub struct TextParser {
-    src: Box<dyn Read>,
-
-    // buffered reader
-    buf: Vec<u8>,
-    loaded: usize,
-    consumed: usize,
-    eof: usize,
+    src: Box<dyn BufRead>,
 
     // parser for non-binary streams; bypassed for binary streams (though the functions are valid)
     parse_offset: ParseSingle,
@@ -216,7 +210,7 @@ pub struct TextParser {
 impl TextParser {
     const MIN_MARGIN: usize = 256;
 
-    pub fn new(src: Box<dyn Read>, format: &InoutFormat) -> Self {
+    pub fn new(src: Box<dyn BufRead>, format: &InoutFormat) -> Self {
         assert!(!format.is_binary());
         let offset = format.offset as usize;
         let length = format.length as usize;
@@ -239,95 +233,93 @@ impl TextParser {
             t
         };
 
-        let mut buf = Vec::new();
-        buf.resize(4 * 1024 * 1024, 0);
         TextParser {
             src,
-            buf,
-            loaded: 0,
-            consumed: 0,
-            eof: usize::MAX,
             parse_offset: header_parsers[offset].expect("unrecognized parser key for header.offset"),
             parse_length: header_parsers[length].expect("unrecognized parser key for header.length"),
             parse_body: body_parsers[body].expect("unrecognized parser key for body"),
         }
     }
 
-    fn fill_buf(&mut self) -> Option<usize> {
-        if self.eof != usize::MAX {
-            return Some(0);
-        }
+    fn read_head(&mut self, stream: &[u8]) -> Option<(usize, usize, usize)> {
+        let mut p = 0;
 
-        self.buf.copy_within(self.consumed..self.loaded, 0);
-        self.loaded -= self.consumed;
-        self.consumed -= self.consumed;
+        let (offset, fwd) = (self.parse_offset)(&stream[p..])?;
+        p += fwd + 1;
 
-        let base = self.loaded;
-        while self.loaded < BLOCK_SIZE {
-            let len = self.src.read(&mut self.buf[self.loaded..]);
-            let len = len.ok()?;
-            self.loaded += len;
+        let (length, fwd) = (self.parse_length)(&stream[p..])?;
+        p += fwd + 1;
 
-            if len == 0 {
-                self.eof = self.loaded;
-                self.buf.truncate(self.loaded);
-                self.buf.resize(self.buf.len() + Self::MIN_MARGIN, b'\n');
-                break;
-            }
-        }
-        Some(self.loaded - base)
-    }
-
-    fn read_line_core(&mut self, buf: &mut Vec<u8>) -> Option<(usize, usize, usize)> {
-        assert!(self.buf[self.consumed..].len() >= Self::MIN_MARGIN);
-
-        let (offset, fwd) = (self.parse_offset)(&self.buf[self.consumed..])?;
-        self.consumed += fwd + 1;
-
-        let (length, fwd) = (self.parse_length)(&self.buf[self.consumed..])?;
-        self.consumed += fwd + 1;
-
-        if self.buf[self.consumed] != b'|' || self.buf[self.consumed + 1] != b' ' {
+        if stream[p] != b'|' || stream[p + 1] != b' ' {
             return None;
         }
-        self.consumed += 2;
-
-        let mut is_in_tail = false;
-        while self.consumed < self.eof {
-            let (scanned, parsed) = buf.reserve_and_fill(4 * 16, |arr: &mut [u8]| {
-                (self.parse_body)(is_in_tail, &self.buf[self.consumed..], arr)
-            })?;
-
-            self.consumed += scanned;
-            if scanned < 4 * 48 {
-                break;
-            }
-
-            is_in_tail = parsed < 4 * 48;
-            if self.loaded <= self.consumed + 4 * 48 {
-                self.fill_buf();
-            }
-        }
-
-        if self.consumed < self.eof {
-            if self.buf[self.consumed] != b'\n' {
-                return None;
-            }
-            self.consumed += 1;
-        }
-        Some((1, offset as usize, length as usize))
+        p += 2;
+        Some((p, offset as usize, length as usize))
     }
 
-    pub fn read_line(&mut self, buf: &mut Vec<u8>) -> Option<(usize, usize, usize)> {
-        if self.consumed >= self.eof {
-            return Some((0, 0, 0));
+    fn read_body(&mut self, stream: &[u8], is_in_tail: bool, buf: &mut Vec<u8>) -> Option<(usize, bool, bool)> {
+        let mut p = 0;
+        let mut is_in_tail = is_in_tail;
+
+        while (&stream[p..]).len() > 4 * 48 {
+            let (scanned, parsed) = buf.fill_uninit_on_option_with_ret(4 * 16, |arr: &mut [u8]| {
+                (self.parse_body)(is_in_tail, &stream[p..], arr)
+            })?.0;
+
+            if scanned < 4 * 48 {
+                return Some((p, is_in_tail, true));
+            }
+            is_in_tail = parsed < 4 * 48;
+        }
+        Some((p, is_in_tail, false))
+    }
+
+    fn read_line_continued(&mut self, offset: usize, span: usize, is_in_tail: bool, buf: &mut Vec<u8>) -> Result<(usize, usize, usize)> {
+        let stream = self.src.fill_buf()?;
+        if stream.len() == 0 {
+            return Ok((1, offset, span));
         }
 
-        if self.loaded < self.consumed + Self::MIN_MARGIN {
-            self.fill_buf()?;
+        let mut is_in_tail = is_in_tail;
+        let mut p = 0;
+        while p < stream.len() {
+            let (fwd, delim_found, eol_found) = self.read_body(&stream[p..], is_in_tail, buf).to_result()?;
+            p += fwd;
+            is_in_tail = delim_found;
+
+            if eol_found {
+                self.src.consume(p);
+                return Ok((1, offset, stream.len()));
+            }
         }
 
-        self.read_line_core(buf)
+        self.src.consume(p);
+        self.read_line_continued(offset, span, is_in_tail, buf)
+    }
+
+    pub fn read_line(&mut self, buf: &mut Vec<u8>) -> Result<(usize, usize, usize)> {
+        let stream = self.src.fill_buf()?;
+        if stream.len() == 0 {
+            return Ok((0, 0, 0));
+        }
+
+        let (fwd, offset, span) = self.read_head(stream).to_result()?;
+
+        let mut is_in_tail = false;
+        let mut p = fwd;
+        while p < stream.len() {
+            let (fwd, delim_found, eol_found) = self.read_body(&stream[p..], is_in_tail, buf).to_result()?;
+            p += fwd;
+            is_in_tail = delim_found;
+
+            if eol_found {
+                self.src.consume(p);
+                return Ok((1, offset, span));
+            }
+        }
+
+        self.src.consume(p);
+        self.read_line_continued(offset, span, is_in_tail, buf)
     }
 }
 

@@ -3,98 +3,129 @@
 // @date 2022/2/4
 
 use super::parser::TextParser;
-use crate::common::{InoutFormat, ReadBlock, BLOCK_SIZE};
-use std::io::Read;
-use std::ops::Range;
+use crate::common::{InoutFormat, StreamBuf, BLOCK_SIZE};
+use std::io::{BufRead, Read, Result};
 
 pub struct GaplessTextStream {
     inner: TextParser,
+    buf: StreamBuf,
 }
 
 impl GaplessTextStream {
-    pub fn new(src: Box<dyn Read>, format: &InoutFormat) -> Self {
+    pub fn new(src: Box<dyn BufRead>, align: usize, format: &InoutFormat) -> Self {
         assert!(!format.is_binary());
+        assert!(format.is_gapless());
+
         GaplessTextStream {
             inner: TextParser::new(src, format),
+            buf: StreamBuf::new_with_align(align),
         }
     }
 }
 
-impl ReadBlock for GaplessTextStream {
-    fn read_block(&mut self, buf: &mut Vec<u8>) -> Option<usize> {
-        debug_assert!(buf.len() < BLOCK_SIZE);
+impl Read for GaplessTextStream {
+    fn read(&mut self, _: &mut [u8]) -> Result<usize> {
+        Ok(0)
+    }
+}
 
-        let base_len = buf.len();
-        while buf.len() < BLOCK_SIZE {
-            let (lines, _, _) = self.inner.read_line(buf)?;
-            if lines == 0 {
-                break;
-            }
-        }
-        Some(buf.len() - base_len)
+impl BufRead for GaplessTextStream {
+    fn fill_buf(&mut self) -> Result<&[u8]> {
+        self.buf.fill_buf(|buf| {
+            self.inner.read_line(buf)?;
+            Ok(())
+        })
+    }
+
+    fn consume(&mut self, amount: usize) {
+        self.buf.consume(amount);
     }
 }
 
 struct TextStreamCache {
-    offset: Range<usize>,
+    offset: usize,
+    span: usize,
     buf: Vec<u8>,
 }
 
 impl TextStreamCache {
     fn new() -> Self {
         TextStreamCache {
-            offset: 0..0,
+            offset: 0,
+            span: 0,
             buf: Vec::new(),
         }
     }
 
-    fn fill_buf(&mut self, src: &mut TextParser) -> Option<(usize, usize)> {
+    fn fill_buf(&mut self, src: &mut TextParser) -> Result<(usize, usize)> {
         self.buf.clear();
 
-        let (lines, offset, len) = src.read_line(&mut self.buf)?;
-        self.buf.resize(len, 0); // pad zero or truncate
-        self.offset = offset..offset + len;
+        let (lines, offset, span) = src.read_line(&mut self.buf)?;
+        self.offset = offset;
+        self.span = span;
 
-        Some((lines, offset))
+        Ok((lines, offset))
     }
 }
 
 pub struct TextStream {
     inner: TextParser,
     line: TextStreamCache,
+    buf: StreamBuf,
     offset: usize,
 }
 
 impl TextStream {
-    pub fn new(src: Box<dyn Read>, format: &InoutFormat) -> Self {
+    pub fn new(src: Box<dyn BufRead>, align: usize, format: &InoutFormat) -> Self {
         assert!(!format.is_binary());
+        assert!(!format.is_gapless());
+
         TextStream {
             inner: TextParser::new(src, format),
             line: TextStreamCache::new(),
+            buf: StreamBuf::new_with_align(align),
             offset: 0,
         }
     }
 }
 
-impl ReadBlock for TextStream {
-    fn read_block(&mut self, buf: &mut Vec<u8>) -> Option<usize> {
-        debug_assert!(buf.len() < BLOCK_SIZE);
+impl Read for TextStream {
+    fn read(&mut self, _: &mut [u8]) -> Result<usize> {
+        Ok(0)
+    }
+}
 
-        let base_len = buf.len();
-        while buf.len() < BLOCK_SIZE {
+impl BufRead for TextStream {
+    fn fill_buf(&mut self) -> Result<&[u8]> {
+        self.buf.fill_buf(|buf| {
+            let next_offset = std::cmp::min(self.offset + BLOCK_SIZE, self.line.offset);
+            let fwd_len = next_offset - self.offset;
+            self.offset += fwd_len;
+
+            buf.resize(buf.len() + fwd_len, 0);
+            if fwd_len == BLOCK_SIZE {
+                return Ok(());
+            }
+
+            // patch
             buf.extend_from_slice(&self.line.buf);
-            self.offset += self.line.buf.len();
+            self.offset += self.line.span;
 
             let (lines, next_offset) = self.line.fill_buf(&mut self.inner)?;
             if lines == 0 {
-                break;
+                return Ok(());
             }
 
-            let clip = self.offset.max(next_offset) - next_offset;
-            self.offset -= clip;
-            unsafe { buf.set_len(buf.len() - clip) };
-        }
-        Some(buf.len() - base_len)
+            let overlap = std::cmp::max(self.offset, next_offset) - next_offset;
+            buf.truncate(buf.len() - overlap);
+            self.offset -= overlap;
+
+            Ok(())
+        })
+    }
+
+    fn consume(&mut self, amount: usize) {
+        self.buf.consume(amount);
     }
 }
 

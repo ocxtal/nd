@@ -14,37 +14,37 @@ impl BinaryDrain {
         BinaryDrain { src, buf: Vec::new() }
     }
 
-    fn consume_segments_impl(&mut self) -> Option<usize> {
-        let (_, block, segments) = self.src.fetch_segments()?;
+    fn consume_segments_impl(&mut self) -> Result<usize> {
+        let (_, block, segments) = self.src.fill_segment_buf()?;
         if block.is_empty() {
-            std::io::stdout().write_all(&self.buf).ok()?;
+            std::io::stdout().write_all(&self.buf)?;
             self.buf.clear();
             return Some(0);
         }
 
         for seg in segments {
             if seg.len >= BLOCK_SIZE {
-                std::io::stdout().write_all(&self.buf).ok()?;
+                std::io::stdout().write_all(&self.buf)?;
                 self.buf.clear();
-                std::io::stdout().write_all(&block[seg.as_range()]).ok()?;
+                std::io::stdout().write_all(&block[seg.as_range()])?;
                 continue;
             }
             self.buf.extend_from_slice(&block[seg.as_range()]);
         }
 
         if self.buf.len() >= BLOCK_SIZE {
-            std::io::stdout().write_all(&self.buf).ok()?;
+            std::io::stdout().write_all(&self.buf)?;
             self.buf.clear();
         }
-        Some(1)
+        Ok(1)
     }
 }
 
 impl ConsumeSegments for BinaryDrain {
-    fn consume_segments(&mut self) -> Option<usize> {
-        while let Some(x) = self.consume_segments_impl() {
+    fn consume_segments(&mut self) -> Result<usize> {
+        while let Ok(x) = self.consume_segments_impl() {
             if x == 0 {
-                return Some(0);
+                return Ok(0);
             }
         }
         None

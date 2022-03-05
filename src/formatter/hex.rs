@@ -2,13 +2,15 @@
 // @author Hajime Suzuki
 // @brief hex formatter
 
+use std::io::Result;
+
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 use core::arch::aarch64::*;
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use core::arch::x86_64::*;
 
-use crate::common::{FetchSegments, ReserveAndFill, Segment, BLOCK_SIZE};
+use crate::common::{FetchSegments, FillUninit, Segment, BLOCK_SIZE};
 
 fn format_hex_single_naive(dst: &mut [u8], offset: usize, bytes: usize) -> usize {
     for (i, x) in dst[..2 * bytes].iter_mut().enumerate() {
@@ -407,54 +409,50 @@ impl HexFormatter {
 }
 
 impl FetchSegments for HexFormatter {
-    fn fetch_segments(&mut self) -> Option<(usize, &[u8], &[Segment])> {
-        let (offset, block, segments) = self.src.fetch_segments()?;
-        eprintln!("hex: {:?}, {:?}, {:?}", offset, block.len(), segments.len());
+    fn fill_segment_buf(&mut self) -> Result<(&[u8], &[Segment])> {
+        let (block, segments) = self.src.fill_segment_buf()?;
         if block.is_empty() {
-            return Some((0, &self.buf[..0], &self.segments[..0]));
+            return Ok((&self.buf[..0], &self.segments[..0]));
         }
 
-        let mut offset = if let Some(segment) = self.segments.last() {
-            segment.offset
-        } else {
-            0
-        };
-        let base = self.base + offset;
-
+        let base = self.base + self.offset;
         for s in segments {
             let src = &block[s.as_range()];
-            let base = base + s.offset;
+            let base = base + s.pos;
             let width = s.len.max(self.width);
 
+            let pos = self.buf.len();
+
             let reserve = 4 * ((s.len + 15) & !15) + 4 * 32;
-            let len = self.buf.reserve_and_fill(reserve, |dst: &mut [u8]| {
+            let len = self.buf.fill_uninit(reserve, |dst: &mut [u8]| {
                 let len = unsafe { format_line(dst, src, base, width) };
-                Some((len, len))
+                Ok(len)
             })?;
 
-            self.segments.push(Segment { offset, len });
-            offset += len;
+            self.segments.push(Segment { pos, len });
         }
+        self.offset += self.src.consume(block.len())?;
 
-        Some((self.offset, &self.buf, &self.segments))
+        Ok((&self.buf, &self.segments))
     }
 
-    fn forward_segments(&mut self, count: usize) -> Option<()> {
-        if count == 0 {
-            return Some(());
+    fn consume(&mut self, bytes: usize) -> Result<usize> {
+        if bytes == 0 {
+            return Ok(0);
         }
 
-        let bytes = self.segments[count - 1].tail();
+        // unwind segments
         let tail = self.segments.len();
-        for (i, j) in (count..tail).enumerate() {
+        for (i, j) in (bytes..tail).enumerate() {
             self.segments[i] = self.segments[j].unwind(bytes);
         }
 
-        let tail = self.buf.len();
-        self.buf.copy_within(bytes..tail, 0);
-        self.offset += bytes;
+        // unwind buf, forward offset
+        let range = bytes..self.buf.len();
+        self.buf.copy_within(range.clone(), 0);
+        self.buf.truncate(range.len());
 
-        Some(())
+        Ok(bytes)
     }
 }
 

@@ -2,30 +2,40 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
-use crate::common::{InoutFormat, ReadBlock, ReserveAndFill, BLOCK_SIZE};
-use std::io::Read;
+use crate::common::{FillUninit, InoutFormat, StreamBuf, BLOCK_SIZE};
+use std::io::{BufRead, Read, Result};
 
 pub struct BinaryStream {
     src: Box<dyn Read>,
+    buf: StreamBuf,
 }
 
 impl BinaryStream {
-    pub fn new(src: Box<dyn Read>, format: &InoutFormat) -> Self {
+    pub fn new(src: Box<dyn Read>, align: usize, format: &InoutFormat) -> Self {
         assert!(format.is_binary());
-        BinaryStream { src }
+        BinaryStream {
+            src,
+            buf: StreamBuf::new_with_align(align),
+        }
     }
 }
 
-impl ReadBlock for BinaryStream {
-    fn read_block(&mut self, buf: &mut Vec<u8>) -> Option<usize> {
-        debug_assert!(buf.len() < BLOCK_SIZE);
+impl Read for BinaryStream {
+    fn read(&mut self, _: &mut [u8]) -> Result<usize> {
+        Ok(0)
+    }
+}
 
-        let len = buf.reserve_and_fill(BLOCK_SIZE, |arr: &mut [u8]| {
-            let len = self.src.read(arr).ok()?;
-            Some((len, len))
-        })?;
+impl BufRead for BinaryStream {
+    fn fill_buf(&mut self) -> Result<&[u8]> {
+        self.buf.fill_buf(|buf| {
+            buf.fill_uninit(BLOCK_SIZE, |arr| self.src.read(arr))?;
+            Ok(())
+        })
+    }
 
-        Some(len)
+    fn consume(&mut self, amount: usize) {
+        self.buf.consume(amount);
     }
 }
 

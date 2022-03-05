@@ -2,17 +2,17 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
-use crate::common::{ReadBlock, BLOCK_SIZE};
+use std::io::{BufRead, Read, Result};
 
 pub struct ClipStream {
-    src: Box<dyn ReadBlock>,
-    pad: usize,
+    src: Box<dyn BufRead>,
+    pad: isize,
     offset: isize,
     tail: isize,
 }
 
 impl ClipStream {
-    pub fn new(src: Box<dyn ReadBlock>, pad: usize, skip: usize, len: usize) -> Self {
+    pub fn new(src: Box<dyn BufRead>, pad: usize, skip: usize, len: usize) -> Self {
         assert!(skip < isize::MAX as usize);
 
         // FIXME: better handling of infinite stream
@@ -20,59 +20,47 @@ impl ClipStream {
 
         ClipStream {
             src,
-            pad,
+            pad: pad as isize,
             offset: -(skip as isize),
             tail: len as isize,
         }
     }
 }
 
-impl ReadBlock for ClipStream {
-    fn read_block(&mut self, buf: &mut Vec<u8>) -> Option<usize> {
-        if self.pad > 0 {
-            let len = self.pad.min(BLOCK_SIZE - buf.len());
-            buf.resize(buf.len() + len, 0);
-            self.pad -= len;
-            return Some(len);
+impl Read for ClipStream {
+    fn read(&mut self, _: &mut [u8]) -> Result<usize> {
+        Ok(0)
+    }
+}
+
+impl BufRead for ClipStream {
+    fn fill_buf(&mut self) -> Result<&[u8]> {
+        while self.offset < self.pad {
+            let stream = self.src.fill_buf()?;
+            if stream.len() == 0 {
+                return Ok(stream);
+            }
+
+            let consume_len = std::cmp::min(self.pad - self.offset, stream.len() as isize);
+            debug_assert!(consume_len >= 0);
+
+            self.src.consume(consume_len as usize);
+            self.offset += consume_len;
         }
 
-        if self.offset >= self.tail {
-            return Some(0);
+        let stream = self.src.fill_buf()?;
+        if self.offset + stream.len() as isize >= self.tail {
+            debug_assert!(self.offset <= self.tail);
+
+            let (stream, _) = stream.split_at((self.tail - self.offset) as usize);
+            return Ok(stream);
         }
+        Ok(stream)
+    }
 
-        let base_len = buf.len();
-        while buf.len() < BLOCK_SIZE {
-            let len = self.src.read_block(buf)?;
-            debug_assert!(len < isize::MAX as usize);
-
-            if len == 0 {
-                break;
-            }
-
-            self.offset += len as isize;
-            if self.offset <= 0 {
-                // still in the head skip. drop the current read
-                buf.truncate(buf.len() - len);
-                continue;
-            }
-
-            if self.offset < len as isize {
-                let clipped_len = self.offset as usize;
-                let tail = buf.len();
-                let src = tail - clipped_len;
-                let dst = tail - len;
-
-                buf.copy_within(src..tail, dst);
-                buf.truncate(dst + clipped_len);
-            }
-
-            if self.offset >= self.tail {
-                let drop_len = (self.offset - self.tail) as usize;
-                buf.truncate(buf.len() - drop_len);
-                break;
-            }
-        }
-        Some(buf.len() - base_len)
+    fn consume(&mut self, amount: usize) {
+        self.offset += amount as isize;
+        self.src.consume(amount);
     }
 }
 

@@ -2,16 +2,18 @@
 // @author Hajime Suzuki
 
 use crate::common::{ConsumeSegments, FetchSegments, BLOCK_SIZE};
-use std::io::{Read, Write};
+use std::io::{Read, Result, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::mpsc::{channel, Sender};
 use std::thread::JoinHandle;
 
-fn create_pipe(args: &str) -> (Child, ChildStdin, ChildStdout) {
+fn create_pipe(args: &str, offset: usize, line: usize) -> (Child, ChildStdin, ChildStdout) {
     let mut child = Command::new("bash")
         .args(&["-c", args])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
+        .env("n", &format!("{:?}", offset))
+        .env("l", &format!("{:?}", line))
         .spawn()
         .unwrap();
 
@@ -23,20 +25,24 @@ fn create_pipe(args: &str) -> (Child, ChildStdin, ChildStdout) {
 
 pub struct ScatterDrain {
     src: Box<dyn FetchSegments>,
+    offset: usize,
+    lines: usize,
     command: String,
-    sender: Sender<Option<(Child, ChildStdin, ChildStdout)>>,
+    sender: Sender<Option<(Child, ChildStdout)>>,
     drain: Option<JoinHandle<()>>,
 }
 
 impl ScatterDrain {
     pub fn new(src: Box<dyn FetchSegments>, dst: Box<dyn Write + Send>, command: &str) -> Self {
         let command = command.to_string();
+        let (sender, reciever) = channel::<Option<(Child, ChildStdout)>>();
 
-        let (sender, reciever) = channel::<Option<(Child, ChildStdin, ChildStdout)>>();
         let drain = std::thread::spawn(move || {
             let mut dst = dst;
-            let mut buf = Vec::with_capacity(2 * BLOCK_SIZE);
-            while let Some((_, _, output)) = reciever.recv().unwrap() {
+            let mut buf = Vec::new();
+            buf.resize(2 * BLOCK_SIZE, 0);
+
+            while let Some((_, output)) = reciever.recv().unwrap() {
                 let mut output = output;
                 while let Ok(len) = output.read(&mut buf) {
                     if len == 0 {
@@ -50,35 +56,46 @@ impl ScatterDrain {
 
         ScatterDrain {
             src,
+            offset: 0,
+            lines: 0,
             command,
             sender,
             drain,
         }
     }
-}
 
-impl ConsumeSegments for ScatterDrain {
-    fn consume_segments(&mut self) -> Option<usize> {
-        let (_, block, segments) = self.src.fetch_segments()?;
+    fn consume_segments_impl(&mut self) -> Result<usize> {
+        let (block, segments) = self.src.fill_segment_buf()?;
         if block.is_empty() {
             self.sender.send(None).unwrap();
 
             let drain = self.drain.take().unwrap();
             drain.join().unwrap();
-            return Some(0);
+            return Ok(0);
         }
 
-        for s in segments {
-            let (child, input, output) = create_pipe(&self.command);
+        for (i, s) in segments.iter().enumerate() {
+            let (child, input, output) = create_pipe(&self.command, self.offset + s.pos, self.lines + i);
             let mut input = input;
-            input.write_all(&block[s.as_range()]).ok()?;
-            self.sender.send(Some((child, input, output))).unwrap();
+            input.write_all(&block[s.as_range()]).unwrap();
+            self.sender.send(Some((child, output))).unwrap();
         }
 
-        let count = segments.len();
-        self.src.forward_segments(count);
+        self.offset += self.src.consume(block.len())?;
+        self.lines += segments.len();
 
-        Some(1)
+        Ok(1)
+    }
+}
+
+impl ConsumeSegments for ScatterDrain {
+    fn consume_segments(&mut self) -> Result<usize> {
+        loop {
+            let len = self.consume_segments_impl()?;
+            if len == 0 {
+                return Ok(0);
+            }
+        }
     }
 }
 

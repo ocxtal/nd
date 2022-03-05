@@ -2,17 +2,15 @@
 // @author Hajime Suzuki
 // @brief constant-stride slicer
 
-use crate::common::{FetchSegments, ReadBlock, Segment, BLOCK_SIZE, CHUNK_SIZE};
+use crate::common::{EofReader, FetchSegments, Segment, StreamBuf, BLOCK_SIZE};
+use std::io::{BufRead, Result};
 
 struct ConstStrideSegments {
     segments: Vec<Segment>, // precalculated segment array
-
-    // states
-    n_clipped: Option<usize>,
-    consumed: usize,
-    in_use: usize,
-
-    // parameters
+    flush_threshold: usize,
+    prev_phase: usize,
+    phase: usize,
+    max_consume: usize,
     margin: (usize, usize),
     pitch: usize,
     len: usize,
@@ -22,218 +20,169 @@ impl ConstStrideSegments {
     fn new(margin: (usize, usize), pitch: usize, len: usize) -> Self {
         assert!(margin.0 < len && margin.1 < len);
 
-        let mut segments = Self::build_array(margin.0, 0, pitch, len);
-        let n_clipped = if segments.is_empty() { None } else { Some(segments.len()) };
+        let first_segment_tail = len - margin.0;
+        let segments = vec![Segment {
+            pos: 0,
+            len: first_segment_tail,
+        }];
 
-        Self::extend_array(&mut segments, 2 * BLOCK_SIZE, pitch, len);
+        let (flush_threshold, prev_phase) = if margin.0 == 0 { (0, 0) } else { (first_segment_tail, pitch) };
 
         ConstStrideSegments {
             segments,
-            n_clipped,
-            consumed: 0,
-            in_use: 0,
+            flush_threshold,
+            prev_phase,
+            phase: 0,
+            max_consume: 0,
             margin,
             pitch,
             len,
         }
     }
 
-    fn min_fill_bytes(&self) -> usize {
-        self.pitch.max(2 * self.len)
-    }
-
-    fn build_array(margin: usize, upto: usize, pitch: usize, len: usize) -> Vec<Segment> {
-        let mut segments = Vec::new();
-
-        let upto = upto as isize;
-        let mut offset = -(margin as isize);
-
-        while offset < upto {
-            segments.push(Segment {
-                offset: offset.max(0) as usize,
-                len,
-            });
-            offset += pitch as isize;
-        }
-        segments
-    }
-
-    fn extend_array(segments: &mut Vec<Segment>, upto: usize, pitch: usize, len: usize) {
-        debug_assert!(!segments.is_empty());
-
-        let mut offset = if let Some(segment) = segments.last() {
-            segment.offset + pitch
+    fn get_next_tail(&mut self) -> usize {
+        if let Some(x) = self.segments.pop() {
+            x.tail()
         } else {
-            0
-        };
-        while offset < upto {
-            segments.push(Segment { offset, len });
-            offset += pitch;
+            self.phase + self.len
         }
     }
 
-    fn forward(&mut self, count: usize) -> Option<usize> {
-        assert!(self.consumed + count <= self.segments.len());
+    fn count_segments(&self, len: usize) -> usize {
+        (len + self.pitch - 1) / self.pitch
+    }
 
-        // clear the current lending state
-        self.in_use = 0;
+    fn calc_max_fwd(&self, n_active: usize) -> usize {
+        assert!(self.segments.len() >= n_active && n_active > 0);
 
-        if count == 0 {
-            // nothing changes
-            return Some(0);
+        (self.segments[n_active - 1].tail() + self.pitch).saturating_sub(self.len)
+    }
+
+    fn slice_segments_with_clip<'a, 'b>(&'a mut self, stream: &'b [u8]) -> Result<(&'b [u8], &'a [Segment])> {
+        let mut next_tail = self.get_next_tail();
+        while next_tail < stream.len() + self.margin.1 {
+            let pos = next_tail.saturating_sub(self.len);
+            let len = std::cmp::min(next_tail, stream.len()) - pos;
+            self.segments.push(Segment { pos, len });
+
+            next_tail += self.pitch;
         }
-        self.consumed += count;
-        assert!(self.consumed > 0 && self.consumed <= self.segments.len());
 
-        if let Some(n_clipped) = self.n_clipped {
-            if self.consumed < n_clipped {
-                // keep the all elements if it's still in the head margin
-                return Some(0);
+        self.max_consume = self.calc_max_fwd(stream.len());
+        Ok((stream, &self.segments))
+    }
+
+    fn slice_segments<'a, 'b>(&'a mut self, stream: &'b [u8]) -> Result<(&'b [u8], &'a [Segment])> {
+        let mut next_tail = self.get_next_tail();
+
+        if next_tail >= stream.len() {
+            let n_extra = self.count_segments(next_tail - stream.len());
+            if n_extra >= self.segments.len() {
+                self.segments.clear();
+                self.prev_phase = self.pitch;
+                self.max_consume = self.phase;
+                return Ok((stream, &self.segments));
             }
 
-            // it gets out of the head margin
-            let bytes = self.segments[self.consumed - 1].tail();
-
-            // clear and reconstruct the segment array
-            self.n_clipped = None;
-            self.consumed = 0;
-            self.segments.clear();
-            Self::extend_array(&mut self.segments, 2 * BLOCK_SIZE, self.pitch, self.len);
-
-            return Some(bytes);
+            let n_active = self.segments.len() - n_extra;
+            self.max_consume = self.calc_max_fwd(n_active);
+            return Ok((stream, &self.segments[..n_active]));
         }
 
-        Some(self.segments[self.consumed - 1].tail())
+        while next_tail < stream.len() {
+            self.segments.push(Segment {
+                pos: next_tail - self.len,
+                len: self.len,
+            });
+            next_tail += self.pitch;
+        }
+        self.max_consume = self.calc_max_fwd(self.segments.len());
+        Ok((stream, &self.segments))
     }
 
-    fn patch_segments(&mut self, bytes: usize, count: usize) -> usize {
-        let clip = self.segments[self.consumed].offset as usize + bytes;
-        let mut count = count;
-        let mut array = &mut self.segments[self.consumed..];
-        assert!(array.len() >= count);
+    fn fill_segment_buf<'a, 'b>(&'a mut self, is_eof: bool, stream: &'b [u8]) -> Result<(&'b [u8], &'a [Segment])> {
+        if self.flush_threshold > 0 {
+            // is still in the head
+            if is_eof {
+                // EOF found in the head, reconstruct the array
+                self.segments.truncate(1);
+                return self.slice_segments_with_clip(stream);
+            }
 
-        while count > 0 && array[count - 1].tail() <= clip + self.margin.1 {
-            count -= 1;
+            // or we just need to extend it...
+            return self.slice_segments(stream);
         }
 
-        while count > 0 && array[count - 1].tail() <= clip {
-            debug_assert!(array[count - 1].offset < clip);
-
-            array[count - 1].len = clip - array[count - 1].offset;
-            count -= 1;
+        if !is_eof && self.phase == self.prev_phase {
+            // reuse the previous segments as the relative positions in the stream is the same
+            return self.slice_segments(stream);
         }
-        count
+
+        // previous segments can't be reused due to phase shift or EOF.
+        self.segments.clear();
+        if is_eof {
+            return self.slice_segments_with_clip(stream);
+        }
+        self.slice_segments(stream)
     }
 
-    fn slice(&mut self, is_eof: bool, bytes: usize) -> Option<(&[Segment], usize)> {
-        assert!(self.in_use == 0);
+    fn consume(&mut self, bytes: usize) -> Result<usize> {
+        // maximum consume length is clipped by the start pos of the next segment
+        let bytes = std::cmp::min(bytes, self.max_consume);
 
-        if bytes < self.len {
-            return Some((&self.segments[..0], 0));
+        if bytes <= self.flush_threshold {
+            // still in the head or no bytes consumed
+            return Ok(0);
         }
 
-        // extend precalculated segment array if it's not enough
-        let count = (bytes - self.len) / self.pitch + 1;
-        if self.segments.len() < self.consumed + count {
-            let upto = (self.consumed + count + 1).next_power_of_two();
-            Self::extend_array(&mut self.segments, upto, self.pitch, self.len);
-        }
-        assert!(self.consumed + count <= self.segments.len());
-
-        // patch the tail margin if eof
-        self.in_use = if is_eof { self.patch_segments(bytes, count) } else { count };
-
-        if self.in_use == 0 {
-            return Some((&self.segments[..0], 0));
+        self.flush_threshold = 0;
+        self.prev_phase = self.phase;
+        if bytes > 16 * self.pitch {
+            // try make the next phase aligned to the previous
+            let bytes = (bytes / self.pitch) * self.pitch;
+            return Ok(bytes);
         }
 
-        let segments = &self.segments[self.consumed..self.consumed + self.in_use];
-        let bytes = self.pitch * (self.in_use - 1) + self.len;
-        Some((segments, bytes))
+        // #consumed bytes is too less or the pitch is too large.
+        let shift = bytes % self.pitch;
+        self.phase = if shift > self.phase {
+            self.phase + self.pitch - shift
+        } else {
+            self.phase - shift
+        };
+        Ok(bytes)
     }
 }
 
 pub struct ConstStrideSlicer {
-    src: Box<dyn ReadBlock>,
-    buf: Vec<u8>,
-    offset: usize,
-    consumed: usize,
-    eof: usize,
+    src: EofReader<Box<dyn BufRead>>,
+    buf: StreamBuf,
     segments: ConstStrideSegments,
 }
 
 impl ConstStrideSlicer {
-    pub fn new(src: Box<dyn ReadBlock>, margin: (usize, usize), pitch: usize, len: usize) -> Self {
+    pub fn new(src: Box<dyn BufRead>, margin: (usize, usize), pitch: usize, len: usize) -> Self {
         ConstStrideSlicer {
-            src,
-            buf: Vec::new(),
-            offset: 0, // global offset of the stream
-            consumed: 0,
-            eof: usize::MAX, // #elements available in buf
+            src: EofReader::new(src),
+            buf: StreamBuf::new(),
             segments: ConstStrideSegments::new(margin, pitch, len),
         }
-    }
-
-    fn fill_buf(&mut self) -> Option<(bool, usize)> {
-        let base_len = self.buf.len();
-
-        // buf.len() > BLOCK_SIZE indicates the consumer needs more bytes to transition its state
-        let upto = base_len + self.segments.min_fill_bytes();
-        let upto = (upto + 1).next_power_of_two().max(BLOCK_SIZE);
-
-        let mut read_block = || -> Option<bool> {
-            while self.buf.len() < upto {
-                let len = self.src.read_block(&mut self.buf)?;
-                if len == 0 {
-                    return Some(true);
-                }
-            }
-            Some(false)
-        };
-
-        let is_eof = read_block()?;
-        if is_eof {
-            self.eof = self.buf.len();
-        }
-
-        self.buf.reserve(64); // add margin for vectorized dump (FIXME: magic number)
-        Some((is_eof, self.buf.len() - base_len))
     }
 }
 
 impl FetchSegments for ConstStrideSlicer {
-    fn fetch_segments(&mut self) -> Option<(usize, &[u8], &[Segment])> {
-        eprintln!("fetch: {:?}, {:?}, {:?}", self.consumed, self.eof, self.offset);
-        if self.consumed >= self.eof {
-            let (segments, _) = self.segments.slice(true, 0)?;
-            debug_assert!(segments.is_empty());
+    fn fill_segment_buf(&mut self) -> Result<(&[u8], &[Segment])> {
+        let block_size = std::cmp::max(self.segments.len, BLOCK_SIZE);
+        let (is_eof, stream) = self.src.fill_buf(block_size)?;
 
-            let buf = &self.buf[..0];
-            return Some((self.eof, buf, segments));
-        }
-
-        let (is_eof, loaded) = self.fill_buf()?;
-        eprintln!("{:?}, {:?}", is_eof, loaded);
-        let (segments, sliced) = self.segments.slice(is_eof, loaded)?;
-        eprintln!("{:?}, {:?}", segments.len(), sliced);
-
-        let buf = &self.buf[self.consumed..self.consumed + sliced];
-        Some((self.offset, buf, segments))
+        self.segments.fill_segment_buf(is_eof, stream)
     }
 
-    fn forward_segments(&mut self, count: usize) -> Option<()> {
-        let len = self.segments.forward(count)?;
-        self.offset += len;
-        self.consumed += len;
+    fn consume(&mut self, bytes: usize) -> Result<usize> {
+        let bytes = self.segments.consume(bytes)?;
+        self.src.consume(bytes);
 
-        let tail = self.buf.len();
-        if self.consumed + CHUNK_SIZE < tail {
-            return Some(());
-        }
-
-        self.buf.copy_within(self.consumed..tail, 0);
-        self.consumed = 0;
-        Some(())
+        Ok(bytes)
     }
 }
 

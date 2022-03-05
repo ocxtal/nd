@@ -10,9 +10,9 @@ mod source;
 mod stream;
 
 use clap::{App, AppSettings, Arg, ColorChoice};
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 
-use common::{ConsumeSegments, FetchSegments, InoutFormat, ReadBlock, BLOCK_SIZE};
+use common::{ConsumeSegments, FetchSegments, InoutFormat, BLOCK_SIZE};
 use drain::{PatchDrain, ScatterDrain, TransparentDrain};
 use eval::{parse_int, parse_range};
 use formatter::HexFormatter;
@@ -67,6 +67,8 @@ OPTIONS:
     -m, --match PATTERN[:K] slice out every matches that have <= K different bits from the pattern
     -g, --regex PATTERN     slice out every matches with regular expression
     -r, --slice FILE        slice out [pos, pos + len) ranges loaded from the file
+    -k, --walk W:EXPR,...   evaluate the expressions on the stream and split it at the obtained indices
+                            (repeated until the end; W-byte word on eval and 1-byte word on split)
 
     -e, --margin N:M        extend slices left and right by N and M bytes [0:0]
     -u, --union N           iteratively merge two slices with an overlap >= N bytes [-inf]
@@ -80,6 +82,7 @@ OPTIONS:
     -j, --offset N:M        add N and M respectively to offset and length when formatting [0:0]
     -d, --scatter CMD       invoke shell command on each formatted slice []
     -o, --patch-back CMD    pipe formatted slices to command then patch back to the original stream []
+    -q, --expr EXPR,...     evaluate the expressions on the chunked slices []
 
   Miscellaneous
 
@@ -143,31 +146,38 @@ fn main() {
     let patch_format = if let Some(x) = m.value_of("patch-format") {
         InoutFormat::new(x)
     } else {
-        InoutFormat::input_default()
+        InoutFormat::output_default()
+    };
+
+    let word_size = if let Some(word_size) = m.value_of("zip") {
+        parse_int(word_size).unwrap() as usize
+    } else {
+        let word_size = m.value_of("cat").unwrap_or("1");
+        parse_int(word_size).unwrap() as usize
     };
 
     let inputs: Vec<&str> = m.values_of("inputs").unwrap().collect();
-    let inputs: Vec<Box<dyn ReadBlock>> = inputs
+    let inputs: Vec<Box<dyn BufRead>> = inputs
         .iter()
-        .map(|x| -> Box<dyn ReadBlock> {
+        .map(|x| -> Box<dyn BufRead> {
             let src = create_source(x);
             if input_format.is_binary() {
-                Box::new(BinaryStream::new(src, &input_format))
-            } else if input_format.is_gapless() {
-                Box::new(GaplessTextStream::new(src, &input_format))
+                Box::new(BinaryStream::new(src, word_size, &input_format))
             } else {
-                Box::new(TextStream::new(src, &input_format))
+                let src = Box::new(BufReader::new(src));
+                if input_format.is_gapless() {
+                    Box::new(GaplessTextStream::new(src, word_size, &input_format))
+                } else {
+                    Box::new(TextStream::new(src, word_size, &input_format))
+                }
             }
         })
         .collect();
 
-    let input: Box<dyn ReadBlock> = if let Some(word_size) = m.value_of("zip") {
-        let word_size = parse_int(word_size).unwrap() as usize;
+    let input: Box<dyn BufRead> = if let Some(_) = m.value_of("zip") {
         Box::new(ZipStream::new(inputs, word_size))
     } else {
-        let word_size = m.value_of("cat").unwrap_or("1");
-        let word_size = parse_int(word_size).unwrap() as usize;
-        Box::new(CatStream::new(inputs, word_size))
+        Box::new(CatStream::new(inputs))
     };
 
     let (pad, skip) = if let Some(seek) = m.value_of("seek") {
@@ -202,9 +212,10 @@ fn main() {
     };
 
     let input = if let Some(x) = m.value_of("patch") {
+        let src = Box::new(BufReader::new(create_source(x)));
         let format = m.value_of("patch-format").unwrap_or("xxx");
         let format = InoutFormat::new(format);
-        Box::new(PatchStream::new(input, create_source(x), &format))
+        Box::new(PatchStream::new(input, src, &format))
     } else {
         input
     };
@@ -227,13 +238,13 @@ fn main() {
     let merge = if let Some(merge) = m.value_of("union") {
         parse_int(merge).unwrap() as isize
     } else {
-        -isize::MAX
+        isize::MAX
     };
 
     let intersection = if let Some(intersection) = m.value_of("intersection") {
         parse_int(intersection).unwrap() as isize
     } else {
-        -isize::MAX
+        isize::MAX
     };
 
     let (disp, pitch, len) = if margin.0 + margin.1 >= merge {
@@ -275,13 +286,13 @@ fn main() {
         )
     };
 
-    let slicer = if merge != -isize::MAX {
+    let slicer = if merge != isize::MAX {
         Box::new(SliceMerger::new(slicer, margin, merge, intersection, width))
     } else {
         slicer
     };
 
-    eprintln!("{:?}, {:?}, {:?}", disp, len, min_width);
+    eprintln!("c: {:?}, {:?}, {:?}", disp, len, min_width);
 
     // dump all
     let formatter: Box<dyn FetchSegments> = if output_format.is_binary() {

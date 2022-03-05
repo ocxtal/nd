@@ -2,27 +2,35 @@
 // @author Hajime Suzuki
 // @brief Hamming-distance matcher and slicer
 
-use crate::common::{FetchSegments, ReadBlock, Segment};
+use crate::common::{FetchSegments, Segment};
+use std::io::{BufRead, Result};
 
 #[allow(dead_code)]
 pub struct HammingSlicer {
-    src: Box<dyn ReadBlock>,
+    src: Box<dyn BufRead>,
+    segments: Vec<Segment>,
     offset: usize,
 }
 
 impl HammingSlicer {
-    pub fn new(src: Box<dyn ReadBlock>, _pattern: &str) -> Self {
-        HammingSlicer { src, offset: 0 }
+    pub fn new(src: Box<dyn BufRead>, _pattern: &str) -> Self {
+        HammingSlicer {
+            src,
+            segments: Vec::new(),
+            offset: 0,
+        }
     }
 }
 
 impl FetchSegments for HammingSlicer {
-    fn fetch_segments(&mut self) -> Option<(usize, &[u8], &[Segment])> {
-        None
+    fn fill_segment_buf(&mut self) -> Result<(&[u8], &[Segment])> {
+        let stream = self.src.fill_buf()?;
+        Ok((stream, &self.segments))
     }
 
-    fn forward_segments(&mut self, _count: usize) -> Option<()> {
-        None
+    fn consume(&mut self, bytes: usize) -> Result<usize> {
+        self.src.consume(bytes);
+        Ok(bytes)
     }
 }
 

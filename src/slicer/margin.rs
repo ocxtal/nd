@@ -1,11 +1,12 @@
 // @file margin.rs
 // @author Hajime Suzuki
 
-use crate::common::{FetchSegments, ReadBlock, Segment, BLOCK_SIZE};
+use crate::common::{FetchSegments, Segment};
+use std::io::Result;
 
 pub struct MarginSlicer {
 	src: Box<dyn FetchSegments>,
-	slices: Vec<Segment>,
+	segments: Vec<Segment>,
 	margin: (usize, usize),
 }
 
@@ -13,24 +14,27 @@ impl MarginSlicer {
 	pub fn new(src: Box<dyn FetchSegments>, margin: (isize, isize), merge: isize) -> Self {
 		MarginSlicer {
 			src,
-			slices: Vec::new(),
+			segments: Vec::new(),
 			margin,
 		}
 	}
 
 	fn dump_slices(&mut self) -> Option<usize> {
-		;
 	}
 }
 
 impl FetchSegments for ConstStrideSlicer {
-    fn fetch_segments(&mut self) -> Option<(usize, &[u8], &[Segment])> {
-    	let (offset, block, segments) = self.src.fetch_segments()?;
+    fn fill_segment_buf(&mut self) -> Result<(&[u8], &[Segment])> {
+    	let (offset, block, segments) = self.src.fill_segment_buf()?;
     	if block.is_empty() {
     		self.dump_slices()?;
     	}
+    }
 
-
+    fn consume(&mut self, bytes: usize) -> Result<usize> {
+    	// TODO: clip length
+    	self.src.consume(bytes);
+    	Ok(bytes)
     }
 }
 

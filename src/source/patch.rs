@@ -3,136 +3,146 @@
 // @date 2022/2/5
 
 use super::parser::TextParser;
-use crate::common::{InoutFormat, ReadBlock, BLOCK_SIZE};
-use std::io::Read;
-use std::ops::Range;
+use crate::common::{InoutFormat, StreamBuf};
+use std::io::{BufRead, Read, Result};
 
-struct PatchParser {
-    src: TextParser,
-    offset: Range<usize>,
+struct PatchStreamCache {
+    offset: usize,
+    span: usize,
     buf: Vec<u8>,
 }
 
-impl PatchParser {
-    fn new(src: Box<dyn Read>, format: &InoutFormat) -> Self {
-        let mut parser = PatchParser {
-            src: TextParser::new(src, format),
-            offset: 0..0,
+impl PatchStreamCache {
+    fn new() -> Self {
+        PatchStreamCache {
+            offset: 0,
+            span: 0,
             buf: Vec::new(),
-        };
-
-        parser.fill_buf(usize::MAX).unwrap();
-        parser
+        }
     }
 
-    fn update_offset(&mut self, eof: usize) {
-        let start = self.offset.start.min(eof);
-        let end = self.offset.end.min(eof);
-
-        self.offset = start..end;
-    }
-
-    fn fill_buf(&mut self, eof: usize) -> Option<usize> {
-        self.buf.clear();
-
-        let (lines, offset, len) = self.src.read_line(&mut self.buf)?;
-        if lines == 0 {
-            self.offset = eof..eof;
-            // self.offset = eof..usize::MAX;
-        } else {
-            self.offset = offset.min(eof)..(offset + len).min(eof);
-            // self.offset = offset.min(eof)..offset + len;
+    fn fill_buf(&mut self, src: &mut TextParser) -> Result<usize> {
+        // offset is set usize::MAX once the source reached EOF
+        if self.offset == usize::MAX {
+            return Ok(usize::MAX);
         }
 
-        // returns the next offset
-        Some(self.offset.start)
+        // flush the current buffer, then read the next line
+        self.buf.clear();
+
+        let (lines, offset, span) = src.read_line(&mut self.buf)?;
+        self.offset = offset;
+        self.span = span;
+
+        // lines == 0 indicates EOF; we use a patch at usize::MAX..usize::MAX as the tail sentinel
+        if lines == 0 {
+            self.offset = usize::MAX;
+            self.span = 0;
+        }
+        Ok(self.offset)
     }
 }
 
 pub struct PatchStream {
-    src: Box<dyn ReadBlock>,
-    buf: Vec<u8>,
+    stream_src: Box<dyn BufRead>,
+    patch_src: TextParser,
+    patch_line: PatchStreamCache,
+    buf: StreamBuf,
     skip: usize,
     offset: usize,
-    patch: PatchParser,
 }
 
 impl PatchStream {
-    pub fn new(src: Box<dyn ReadBlock>, patch: Box<dyn Read>, format: &InoutFormat) -> Self {
+    pub fn new(stream_src: Box<dyn BufRead>, patch: Box<dyn BufRead>, format: &InoutFormat) -> Self {
         PatchStream {
-            src,
-            buf: Vec::new(),
+            stream_src,
+            patch_src: TextParser::new(patch, format),
+            patch_line: PatchStreamCache::new(),
+            buf: StreamBuf::new(),
             skip: 0,
             offset: 0,
-            patch: PatchParser::new(patch, format),
         }
     }
 
-    fn fill_buf(&mut self) -> Option<usize> {
-        self.buf.clear();
-
-        while self.buf.len() < BLOCK_SIZE {
-            let len = self.src.read_block(&mut self.buf)?;
-            if len == 0 {
-                self.skip = self.skip.min(self.buf.len());
-                return Some(self.offset + self.buf.len());
+    fn fill_buf_with_skip(&mut self) -> Result<&[u8]> {
+        while self.skip > 0 {
+            let stream = self.stream_src.fill_buf()?;
+            if stream.len() == 0 {
+                return Ok(stream);
             }
 
-            if self.skip >= self.buf.len() {
-                self.skip -= self.buf.len();
-                self.buf.clear();
-            }
+            let consume_len = std::cmp::min(self.skip, stream.len());
+            self.stream_src.consume(consume_len);
+            self.skip -= consume_len;
         }
-        Some(usize::MAX)
+
+        self.stream_src.fill_buf()
     }
 }
 
-impl ReadBlock for PatchStream {
-    fn read_block(&mut self, buf: &mut Vec<u8>) -> Option<usize> {
-        let eof = self.fill_buf()?;
-        self.patch.update_offset(eof);
+impl Read for PatchStream {
+    fn read(&mut self, _: &mut [u8]) -> Result<usize> {
+        Ok(0)
+    }
+}
 
-        // patch
-        let base_len = buf.len();
-        let mut src = &self.buf[self.skip..];
-        while !src.is_empty() {
-            while self.offset >= self.patch.offset.start {
-                debug_assert!(self.offset == self.patch.offset.start);
+impl BufRead for PatchStream {
+    fn fill_buf(&mut self) -> Result<&[u8]> {
+        self.buf.fill_buf(|buf| {
+            let mut stream = self.fill_buf_with_skip()?;
+            let consume_len = stream.len();
 
-                // flush the current patch
-                let len = self.patch.offset.len();
-                self.offset += len;
-                buf.extend_from_slice(&self.patch.buf);
+            while stream.len() > 0 {
+                // region where the original stream is preserved
+                let next_offset = std::cmp::min(self.offset + stream.len(), self.patch_line.offset);
+                let fwd_len = next_offset - self.offset;
+                self.offset += fwd_len;
 
-                // then load the next patch
-                let next_offset = self.patch.fill_buf(eof)?;
-                assert!(next_offset >= self.offset - len); // patchlines must be sorted
-
-                // clip the flushed patch if the two are overlapping
-                let clip = self.offset.max(next_offset) - next_offset;
-                self.offset -= clip;
-                buf.truncate(buf.len() - clip);
-
-                // forward source
-                let len = len - clip;
-                if src.len() <= len {
-                    self.skip = len - src.len();
-                    return Some(buf.len() - base_len);
+                let (fwd, rem) = stream.split_at(fwd_len);
+                buf.extend_from_slice(fwd);
+                if rem.len() == 0 {
+                    break;
                 }
-                src = src.split_at(len).1;
+
+                // region that is overwritten by patch
+                let mut acc = 0;
+                while acc < rem.len() {
+                    buf.extend_from_slice(&self.patch_line.buf);
+                    acc += self.patch_line.span;
+
+                    // read the next patch, compute the overlap between two patches
+                    let next_offset = self.patch_line.fill_buf(&mut self.patch_src)?;
+                    let overlap = std::cmp::max(self.offset + acc, next_offset) - next_offset;
+                    if overlap == 0 {
+                        break;
+                    }
+
+                    acc -= overlap;
+                    buf.truncate(buf.len() - overlap);
+                }
+
+                // if the patched stream becomes longer than the remainder of the original stream,
+                // set the skip for the next fill_buf
+                if acc > rem.len() {
+                    self.offset += rem.len();
+                    self.skip = acc - rem.len();
+                    break;
+                }
+
+                // otherwise forward the original stream
+                self.offset += acc;
+
+                let (_, rem) = rem.split_at(acc);
+                stream = rem;
             }
 
-            // forward the source
-            let len = (self.patch.offset.start - self.offset).min(src.len());
-            self.offset += len;
+            self.stream_src.consume(consume_len);
+            Ok(())
+        })
+    }
 
-            let (x, y) = src.split_at(len);
-            buf.extend_from_slice(x);
-            src = y;
-        }
-
-        self.skip = 0;
-        Some(buf.len() - base_len)
+    fn consume(&mut self, amount: usize) {
+        self.buf.consume(amount);
     }
 }
 

@@ -2,38 +2,90 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
-use crate::common::{ReadBlock, BLOCK_SIZE};
+use crate::common::{EofReader, StreamBuf, BLOCK_SIZE};
+use std::io::{BufRead, Read, Result};
 
 pub struct CatStream {
-    srcs: Vec<Box<dyn ReadBlock>>,
+    srcs: Vec<EofReader<Box<dyn BufRead>>>,
     index: usize,
-    align: usize,
+    rem: usize,
+    cache: StreamBuf,
+    dummy: [u8; 0],
 }
 
 impl CatStream {
-    pub fn new(srcs: Vec<Box<dyn ReadBlock>>, align: usize) -> Self {
-        CatStream { srcs, index: 0, align }
+    pub fn new(srcs: Vec<Box<dyn BufRead>>) -> Self {
+        CatStream {
+            srcs: srcs.into_iter().map(|x| EofReader::new(x)).collect(),
+            index: 0,
+            rem: 0,
+            cache: StreamBuf::new(),
+            dummy: [0; 0],
+        }
+    }
+
+    fn accumulate_into_cache(&mut self, is_eof: bool, stream: &[u8]) -> Result<&[u8]> { 
+        self.cache.extend_from_slice(stream);
+
+        let mut is_eof = is_eof;
+        self.rem = stream.len();    // keep the last stream length
+
+        return self.cache.fill_buf(|buf| {
+            // consume previous stream
+            self.srcs[self.index].consume(self.rem);
+
+            self.index += is_eof as usize;
+            if self.index >= self.srcs.len() {
+                return Ok(());
+            }
+
+            let (is_eof_next, stream) = self.srcs[self.index].fill_buf(BLOCK_SIZE)?;
+            buf.extend_from_slice(stream);
+
+            is_eof = is_eof_next;
+            self.rem = stream.len();
+
+            Ok(())
+        });
+        // note: the last stream is not consumed
     }
 }
 
-impl ReadBlock for CatStream {
-    fn read_block(&mut self, buf: &mut Vec<u8>) -> Option<usize> {
-        debug_assert!(buf.len() < BLOCK_SIZE);
+impl Read for CatStream {
+    fn read(&mut self, _: &mut [u8]) -> Result<usize> {
+        Ok(0)
+    }
+}
 
-        let base_len = buf.len();
-        while buf.len() < BLOCK_SIZE && self.index < self.srcs.len() {
-            let len = self.srcs[self.index].read_block(buf)?;
-            if len == 0 {
-                let aligned = ((buf.len() + self.align - 1) / self.align) * self.align;
-                buf.resize(aligned, 0);
-                self.index += 1;
-            }
-
-            if buf.len() > BLOCK_SIZE {
-                break;
-            }
+impl BufRead for CatStream {
+    fn fill_buf(&mut self) -> Result<&[u8]> {
+        if self.index >= self.srcs.len() {
+            return Ok(self.dummy.as_slice());
         }
-        Some(buf.len() - base_len)
+
+        let (is_eof, stream) = self.srcs[self.index].fill_buf(BLOCK_SIZE)?;
+        if self.cache.len() > 0 || is_eof {
+            self.accumulate_into_cache(is_eof, &stream[self.rem..]);
+        }
+
+        self.rem = 0;
+        Ok(stream)
+    }
+
+    fn consume(&mut self, amount: usize) {
+        // first update the remainder length
+        if self.cache.len() == 0 {
+            // is not cached, just forward to the source
+            self.srcs[self.index].consume(amount);
+            return;
+        }
+
+        // cached
+        let in_cache = std::cmp::min(self.cache.len(), amount);
+        self.cache.consume(in_cache);
+
+        self.rem -= amount - in_cache;
+        self.srcs[self.index].consume(amount - in_cache);
     }
 }
 
