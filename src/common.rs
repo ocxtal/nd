@@ -1,9 +1,10 @@
 // @file common.rs
 // @author Hajime Suzuki
 
+// use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::convert::From;
-use std::io::{BufRead, Error, ErrorKind, Result};
+use std::io::{Error, ErrorKind, Result};
 use std::ops::Range;
 
 pub const BLOCK_SIZE: usize = 2 * 1024 * 1024;
@@ -94,17 +95,19 @@ pub trait Stream {
     fn consume(&mut self, amount: usize);
 }
 
+impl<T: Stream + ?Sized> Stream for Box<T>
+
 impl Stream for Box<dyn Stream> {
     fn fill_buf(&mut self) -> Result<usize> {
-        self.fill_buf()
+        self.borrow().fill_buf()
     }
 
     fn as_slice(&self) -> &[u8] {
-        self.as_slice()
+        self.borrow().as_slice()
     }
 
     fn consume(&mut self, amount: usize) {
-        self.consume(amount);
+        self.borrow().consume(amount);
     }
 }
 
@@ -142,14 +145,14 @@ impl StreamBuf {
         self.buf.extend_from_slice(stream)
     }
 
-    pub fn make_aligned(&mut self) -> Result<&[u8]> {
+    pub fn make_aligned(&mut self) -> Result<usize> {
         debug_assert!(self.buf.len() < self.cap);
 
         let tail = self.offset + self.buf.len();
         let rounded = (tail + self.align - 1) / self.align * self.align;
         self.buf.resize(rounded - self.offset, 0);
 
-        return Ok(&self.buf[self.pos..]);
+        return Ok(self.buf.len() - self.pos);
     }
 
     pub fn fill_buf<F>(&mut self, f: F) -> Result<usize>

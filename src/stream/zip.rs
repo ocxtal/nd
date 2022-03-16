@@ -18,12 +18,11 @@ macro_rules! fill_buf_impl {
             // bulk_len is the minimum valid slice length among the source buffers
             let mut bulk_len = usize::MAX;
             for (src, ptr) in self.srcs.iter_mut().zip(self.ptrs.iter_mut()) {
-                let stream = src.fill_buf()?;
+                let len = src.fill_buf()?;
+                bulk_len = std::cmp::min(bulk_len, len);
 
                 // initialize the pointer cache (used in the loop below)
-                *ptr = stream.as_ptr();
-
-                bulk_len = std::cmp::min(bulk_len, stream.len());
+                *ptr = src.as_slice().as_ptr();
             }
 
             debug_assert!((bulk_len & ($w - 1)) == 0);
@@ -43,6 +42,7 @@ macro_rules! fill_buf_impl {
                     }
                     Ok(self.srcs.len() * bulk_len)
                 })?;
+                Ok(())
             })?;
 
             for src in &mut self.srcs {

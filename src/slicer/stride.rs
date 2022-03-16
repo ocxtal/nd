@@ -86,7 +86,7 @@ impl ConstStrideSegments {
 
                 self.last_count = 0;
                 self.last_len = self.phase;
-                return Ok((len, &self.segments));
+                return Ok((len, 0));
             }
 
             self.last_count = self.segments.len() - n_extra;

@@ -44,7 +44,7 @@ impl PatchFeeder {
         Ok((self.offset, self.span))
     }
 
-    fn feed_until(&mut self, rem_len: usize, buf: &mut Vec<u8>) -> usize {
+    fn feed_until(&mut self, rem_len: usize, buf: &mut Vec<u8>) -> Result<usize> {
         let mut acc = 0;
         while acc < rem_len {
             buf.extend_from_slice(&self.buf);
@@ -60,7 +60,7 @@ impl PatchFeeder {
             acc -= overlap;
             buf.truncate(buf.len() - overlap);
         }
-        acc
+        Ok(acc)
     }
 }
 
@@ -100,7 +100,7 @@ impl PatchStream {
 }
 
 impl Stream for PatchStream {
-    fn fill_buf(&mut self) -> Result<&[u8]> {
+    fn fill_buf(&mut self) -> Result<usize> {
         self.buf.fill_buf(|buf| {
             let len = self.fill_buf_with_skip()?;
             let mut stream = self.src.as_slice();
@@ -118,7 +118,7 @@ impl Stream for PatchStream {
                 }
 
                 // region that is overwritten by patch
-                let patch_span = self.patch.feed_until(rem.len(), buf);
+                let patch_span = self.patch.feed_until(rem.len(), buf)?;
 
                 // if the patched stream becomes longer than the remainder of the original stream,
                 // set the skip for the next fill_buf
@@ -138,6 +138,10 @@ impl Stream for PatchStream {
             self.src.consume(len);
             Ok(())
         })
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        self.buf.as_slice()
     }
 
     fn consume(&mut self, amount: usize) {

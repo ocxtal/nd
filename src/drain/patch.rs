@@ -3,7 +3,7 @@
 
 use crate::common::{ConsumeSegments, SegmentStream, FillUninit, InoutFormat, Segment, Stream, StreamBuf, BLOCK_SIZE};
 use crate::source::PatchStream;
-use std::io::{Result, Seek, SeekFrom, Write};
+use std::io::{Read, Result, Seek, SeekFrom, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -38,43 +38,47 @@ impl CacheStream {
             offset: 0,
         }
     }
-
-    fn fill_segment_buf(&mut self) -> Result<(usize, usize)> {
-        let (stream_len, segment_count) = self.src.fill_segment_buf()?;
-
-        let mut prev_stream_len = 0;
-        while self.skip + BLOCK_SIZE < stream_len {
-            if stream_len <= self.skip {
-                self.src.consume(0)?;
-                continue;
-            }
-
-            return Ok((stream_len, segment_count));
-        }
-    }
 }
 
 impl SegmentStream for CacheStream {
     fn fill_segment_buf(&mut self) -> Result<(usize, usize)> {
-        let (stream_len, segment_count) = self.fill_segment_buf()?;
+        let (mut len, mut count) = self.src.fill_segment_buf()?;
+        let mut prev_len = 0;
 
-        if let Ok(mut cache) = self.cache.lock() {
-            cache.write_all(&block[self.skip..]).unwrap();
+        while len > prev_len {
+            if self.skip + BLOCK_SIZE >= len {
+                return Ok((len, count));
+            }
+            self.src.consume(0)?;
+
+            let (next_len, next_count) = self.src.fill_segment_buf()?;
+            (prev_len, len, count) = (len, next_len, next_count);
         }
-        self.skip = 0;
 
-        Ok((block, segments))
+        Ok((len, count))
+    }
+
+    fn as_slices(&self) -> (&[u8], &[Segment]) {
+        self.src.as_slices()
     }
 
     fn consume(&mut self, request: usize) -> Result<usize> {
+        let (stream, _) = self.src.as_slices();
+        debug_assert!(stream.len() >= self.skip + request);
+
+        if let Ok(mut cache) = self.cache.lock() {
+            cache.write_all(&stream[self.skip..self.skip + request]).unwrap();
+        }
+
         let consumed = self.src.consume(request)?;
         self.skip = request - consumed;
+
         Ok(consumed)
     }
 }
 
 impl Stream for CacheStreamReader {
-    fn fill_buf(&mut self) -> Result<> {
+    fn fill_buf(&mut self) -> Result<usize> {
         self.buf.fill_buf(|buf| {
             if let Ok(mut cache) = self.cache.lock() {
                 cache.seek(SeekFrom::Start(self.offset as u64)).unwrap();
@@ -196,7 +200,7 @@ impl PatchDrain {
         debug_assert!(!self.buf.is_empty());
 
         while self.buf.len() < BLOCK_SIZE {
-            let (stream_len, segment_count) = self.src.fill_segment_buf()?;
+            let (stream_len, _) = self.src.fill_segment_buf()?;
             if stream_len == 0 {
                 self.pipe.write_all(&self.buf).unwrap();
                 self.pipe.close();

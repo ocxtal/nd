@@ -82,7 +82,7 @@ impl SegmentStream for RegexSlicer {
         }
 
         // determine how many bytes to consume...
-        let drop_count = self.matches.partition_point(&bytes, |x| x.pos < bytes);
+        let drop_count = self.matches.partition_point(|x| x.pos < bytes);
         self.matches.copy_within(drop_count.., 0);
 
         for m in &mut self.matches {

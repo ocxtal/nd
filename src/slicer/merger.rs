@@ -26,8 +26,12 @@ impl SliceMerger {
 }
 
 impl SegmentStream for SliceMerger {
-    fn fill_segment_buf(&mut self) -> Result<(&[u8], &[Segment])> {
+    fn fill_segment_buf(&mut self) -> Result<(usize, usize)> {
         self.src.fill_segment_buf()
+    }
+
+    fn as_slices(&self) -> (&[u8], &[Segment]) {
+        self.src.as_slices()
     }
 
     fn consume(&mut self, bytes: usize) -> Result<usize> {

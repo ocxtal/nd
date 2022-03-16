@@ -10,9 +10,9 @@ mod source;
 mod stream;
 
 use clap::{App, AppSettings, Arg, ColorChoice};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{Read, Write};
 
-use common::{ConsumeSegments, SegmentStream, InoutFormat, BLOCK_SIZE};
+use common::{ConsumeSegments, SegmentStream, Stream, InoutFormat, BLOCK_SIZE};
 use drain::{PatchDrain, ScatterDrain, TransparentDrain};
 use eval::{parse_int, parse_range};
 use formatter::HexFormatter;
@@ -157,14 +157,14 @@ fn main() {
     };
 
     let inputs: Vec<&str> = m.values_of("inputs").unwrap().collect();
-    let inputs: Vec<Box<dyn BufRead>> = inputs
+    let inputs: Vec<Box<dyn Stream>> = inputs
         .iter()
-        .map(|x| -> Box<dyn BufRead> {
+        .map(|x| -> Box<dyn Stream> {
             let src = create_source(x);
+            let src = Box::new(BinaryStream::new(src, word_size, &InoutFormat::input_default()));
             if input_format.is_binary() {
-                Box::new(BinaryStream::new(src, word_size, &input_format))
+                src
             } else {
-                let src = Box::new(BufReader::new(src));
                 if input_format.is_gapless() {
                     Box::new(GaplessTextStream::new(src, word_size, &input_format))
                 } else {
@@ -174,7 +174,7 @@ fn main() {
         })
         .collect();
 
-    let input: Box<dyn BufRead> = if let Some(_) = m.value_of("zip") {
+    let input: Box<dyn Stream> = if let Some(_) = m.value_of("zip") {
         Box::new(ZipStream::new(inputs, word_size))
     } else {
         Box::new(CatStream::new(inputs))
@@ -205,14 +205,15 @@ fn main() {
         (pad.min(len), skip + adj, pad.max(len) - pad)
     };
 
-    let input = if pad > 0 || skip > 0 || len != usize::MAX {
-        Box::new(ClipStream::new(input, pad, skip, len))
+    let input = if skip > 0 || len != usize::MAX {
+        Box::new(ClipStream::new(input, skip, len))
     } else {
         input
     };
 
     let input = if let Some(x) = m.value_of("patch") {
-        let src = Box::new(BufReader::new(create_source(x)));
+        let src = create_source(x);
+        let src = Box::new(BinaryStream::new(src, word_size, &InoutFormat::input_default()));
         let format = m.value_of("patch-format").unwrap_or("xxx");
         let format = InoutFormat::new(format);
         Box::new(PatchStream::new(input, src, &format))

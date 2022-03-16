@@ -8,8 +8,7 @@ use std::io::Result;
 pub struct ClipStream {
     src: Box<dyn Stream>,
     skip: usize,
-    offset: usize,
-    tail: usize,
+    rem: usize,
 }
 
 impl ClipStream {
@@ -17,8 +16,7 @@ impl ClipStream {
         ClipStream {
             src,
             skip,
-            offset: 0,
-            tail: len,
+            rem: len,
         }
     }
 }
@@ -31,31 +29,30 @@ impl Stream for ClipStream {
                 return Ok(len);
             }
 
-            let consume_len = std::cmp::min(self.skip, len as isize);
-            self.src.consume(consume_len as usize);
+            let consume_len = std::cmp::min(self.skip, len);
+            self.src.consume(consume_len);
             self.skip -= consume_len;
         }
 
         let len = self.src.fill_buf()?;
-        if self.offset + len > self.tail {
-            debug_assert!(self.offset <= self.tail);
-            return Ok(self.tail - self.offset);
+        if self.rem < len {
+            return Ok(self.rem);
         }
         Ok(len)
     }
 
     fn as_slice(&self) -> &[u8] {
         let stream = self.src.as_slice();
-        if self.offset + stream.len() > self.tail {
-            return &stream[..self.tail - self.offset];
+        if self.rem < stream.len() {
+            return &stream[..self.rem];
         }
         stream
     }
 
     fn consume(&mut self, amount: usize) {
-        debug_assert!(self.skip == 0);
+        debug_assert!(self.rem >= amount);
 
-        self.offset += amount as isize;
+        self.rem -= amount;
         self.src.consume(amount);
     }
 }

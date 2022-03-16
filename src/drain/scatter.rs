@@ -65,8 +65,8 @@ impl ScatterDrain {
     }
 
     fn consume_segments_impl(&mut self) -> Result<usize> {
-        let (block, segments) = self.src.fill_segment_buf()?;
-        if block.is_empty() {
+        let (stream_len, segment_count) = self.src.fill_segment_buf()?;
+        if stream_len == 0 {
             self.sender.send(None).unwrap();
 
             let drain = self.drain.take().unwrap();
@@ -74,15 +74,17 @@ impl ScatterDrain {
             return Ok(0);
         }
 
+        let (stream, segments) = self.src.as_slices();
         for (i, s) in segments.iter().enumerate() {
             let (child, input, output) = create_pipe(&self.command, self.offset + s.pos, self.lines + i);
             let mut input = input;
-            input.write_all(&block[s.as_range()]).unwrap();
+
+            input.write_all(&stream[s.as_range()]).unwrap();
             self.sender.send(Some((child, output))).unwrap();
         }
 
-        self.offset += self.src.consume(block.len())?;
-        self.lines += segments.len();
+        self.offset += self.src.consume(stream_len)?;
+        self.lines += segment_count;
 
         Ok(1)
     }

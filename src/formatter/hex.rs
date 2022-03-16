@@ -409,15 +409,17 @@ impl HexFormatter {
 }
 
 impl SegmentStream for HexFormatter {
-    fn fill_segment_buf(&mut self) -> Result<(&[u8], &[Segment])> {
-        let (block, segments) = self.src.fill_segment_buf()?;
-        if block.is_empty() {
-            return Ok((&self.buf[..0], &self.segments[..0]));
+    fn fill_segment_buf(&mut self) -> Result<(usize, usize)> {
+        let (stream_len, segment_count) = self.src.fill_segment_buf()?;
+        if stream_len == 0 {
+            return Ok((0, 0));
         }
+
+        let (stream, segments) = self.src.as_slices();
 
         let base = self.base + self.offset;
         for s in segments {
-            let src = &block[s.as_range()];
+            let src = &stream[s.as_range()];
             let base = base + s.pos;
             let width = s.len.max(self.width);
 
@@ -431,9 +433,13 @@ impl SegmentStream for HexFormatter {
 
             self.segments.push(Segment { pos, len });
         }
-        self.offset += self.src.consume(block.len())?;
 
-        Ok((&self.buf, &self.segments))
+        self.offset += self.src.consume(stream_len)?;
+        Ok((stream_len, segment_count))
+    }
+
+    fn as_slices(&self) -> (&[u8], &[Segment]) {
+        (self.buf.as_slice(), &self.segments)
     }
 
     fn consume(&mut self, bytes: usize) -> Result<usize> {
