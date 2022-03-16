@@ -2,81 +2,86 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
-use crate::common::{EofReader, StreamBuf, BLOCK_SIZE};
-use std::io::{BufRead, Read, Result};
+use crate::common::{EofStream, Stream, StreamBuf, BLOCK_SIZE};
+use std::io::Result;
 
 pub struct CatStream {
-    srcs: Vec<EofReader<Box<dyn BufRead>>>,
-    index: usize,
+    srcs: Vec<EofStream<Box<dyn Stream>>>,
+    i: usize,
     rem: usize,
     cache: StreamBuf,
     dummy: [u8; 0],
 }
 
 impl CatStream {
-    pub fn new(srcs: Vec<Box<dyn BufRead>>) -> Self {
+    pub fn new(srcs: Vec<Box<dyn Stream>>) -> Self {
         CatStream {
-            srcs: srcs.into_iter().map(|x| EofReader::new(x)).collect(),
-            index: 0,
+            srcs: srcs.into_iter().map(|x| EofStream::new(x)).collect(),
+            i: 0,
             rem: 0,
             cache: StreamBuf::new(),
             dummy: [0; 0],
         }
     }
 
-    fn accumulate_into_cache(&mut self, is_eof: bool, stream: &[u8]) -> Result<&[u8]> { 
-        self.cache.extend_from_slice(stream);
+    fn accumulate_into_cache(&mut self, is_eof: bool) -> Result<usize> {
+        let stream = self.srcs[self.i].as_slice();
+        self.cache.extend_from_slice(&stream[self.rem..]);
 
         let mut is_eof = is_eof;
-        self.rem = stream.len();    // keep the last stream length
+        self.rem = stream.len() - self.rem; // keep the last stream length
 
-        return self.cache.fill_buf(|buf| {
-            // consume previous stream
-            self.srcs[self.index].consume(self.rem);
+        self.cache.fill_buf(|buf| {
+            // consume the last stream
+            self.srcs[self.i].consume(self.rem);
 
-            self.index += is_eof as usize;
-            if self.index >= self.srcs.len() {
+            self.i += is_eof as usize;
+            if self.i >= self.srcs.len() {
+                self.rem = usize::MAX;
                 return Ok(());
             }
 
-            let (is_eof_next, stream) = self.srcs[self.index].fill_buf(BLOCK_SIZE)?;
-            buf.extend_from_slice(stream);
+            let (is_eof_next, len) = self.srcs[self.i].fill_buf(BLOCK_SIZE)?;
+            buf.extend_from_slice(self.srcs[self.i].as_slice());
 
             is_eof = is_eof_next;
-            self.rem = stream.len();
+            self.rem = len;
 
             Ok(())
-        });
+        })
         // note: the last stream is not consumed
     }
 }
 
-impl Read for CatStream {
-    fn read(&mut self, _: &mut [u8]) -> Result<usize> {
-        Ok(0)
-    }
-}
-
-impl BufRead for CatStream {
-    fn fill_buf(&mut self) -> Result<&[u8]> {
-        if self.index >= self.srcs.len() {
-            return Ok(self.dummy.as_slice());
+impl Stream for CatStream {
+    fn fill_buf(&mut self) -> Result<usize> {
+        if self.i >= self.srcs.len() {
+            debug_assert!(self.rem == usize::MAX);
+            return Ok(0);
         }
 
-        let (is_eof, stream) = self.srcs[self.index].fill_buf(BLOCK_SIZE)?;
+        let (is_eof, len) = self.srcs[self.i].fill_buf(BLOCK_SIZE)?;
         if self.cache.len() > 0 || is_eof {
-            self.accumulate_into_cache(is_eof, &stream[self.rem..]);
+            self.accumulate_into_cache(is_eof);
         }
 
         self.rem = 0;
-        Ok(stream)
+        Ok(len)
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        if self.cache.len() == 0 {
+            self.srcs[self.i].as_slice()
+        } else {
+            self.cache.as_slice()
+        }
     }
 
     fn consume(&mut self, amount: usize) {
         // first update the remainder length
         if self.cache.len() == 0 {
             // is not cached, just forward to the source
-            self.srcs[self.index].consume(amount);
+            self.srcs[self.i].consume(amount);
             return;
         }
 
@@ -85,7 +90,7 @@ impl BufRead for CatStream {
         self.cache.consume(in_cache);
 
         self.rem -= amount - in_cache;
-        self.srcs[self.index].consume(amount - in_cache);
+        self.srcs[self.i].consume(amount - in_cache);
     }
 }
 

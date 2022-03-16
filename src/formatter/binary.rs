@@ -1,16 +1,16 @@
 // @file binary.rs
 // @author Hajime Suzuki
 
-use crate::common::{ConsumeSegments, FetchSegments, BLOCK_SIZE};
+use crate::common::{ConsumeSegments, SegmentStream, BLOCK_SIZE};
 use std::io::Write;
 
 pub struct BinaryDrain {
-    src: Box<dyn FetchSegments>,
+    src: Box<dyn SegmentStream>,
     buf: Vec<u8>,
 }
 
 impl BinaryDrain {
-    pub fn new(src: Box<dyn FetchSegments>) -> Self {
+    pub fn new(src: Box<dyn SegmentStream>) -> Self {
         BinaryDrain { src, buf: Vec::new() }
     }
 

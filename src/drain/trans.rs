@@ -1,17 +1,17 @@
 // @file trans.rs
 // @author Hajime Suzuki
 
-use crate::common::{ConsumeSegments, FetchSegments};
+use crate::common::{ConsumeSegments, SegmentStream};
 use std::io::{Result, Write};
 
 pub struct TransparentDrain {
-    src: Box<dyn FetchSegments>,
+    src: Box<dyn SegmentStream>,
     dst: Box<dyn Write>,
     offset: usize,
 }
 
 impl TransparentDrain {
-    pub fn new(src: Box<dyn FetchSegments>, dst: Box<dyn Write + Send>) -> Self {
+    pub fn new(src: Box<dyn SegmentStream>, dst: Box<dyn Write + Send>) -> Self {
         TransparentDrain { src, dst, offset: 0 }
     }
 

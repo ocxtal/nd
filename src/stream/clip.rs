@@ -2,63 +2,59 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
-use std::io::{BufRead, Read, Result};
+use crate::common::Stream;
+use std::io::Result;
 
 pub struct ClipStream {
-    src: Box<dyn BufRead>,
-    pad: isize,
-    offset: isize,
-    tail: isize,
+    src: Box<dyn Stream>,
+    skip: usize,
+    offset: usize,
+    tail: usize,
 }
 
 impl ClipStream {
-    pub fn new(src: Box<dyn BufRead>, pad: usize, skip: usize, len: usize) -> Self {
-        assert!(skip < isize::MAX as usize);
-
-        // FIXME: better handling of infinite stream
-        let len = if len > isize::MAX as usize { isize::MAX } else { len as isize };
-
+    pub fn new(src: Box<dyn Stream>, skip: usize, len: usize) -> Self {
         ClipStream {
             src,
-            pad: pad as isize,
-            offset: -(skip as isize),
-            tail: len as isize,
+            skip,
+            offset: 0,
+            tail: len,
         }
     }
 }
 
-impl Read for ClipStream {
-    fn read(&mut self, _: &mut [u8]) -> Result<usize> {
-        Ok(0)
-    }
-}
-
-impl BufRead for ClipStream {
-    fn fill_buf(&mut self) -> Result<&[u8]> {
-        while self.offset < self.pad {
-            let stream = self.src.fill_buf()?;
-            if stream.len() == 0 {
-                return Ok(stream);
+impl Stream for ClipStream {
+    fn fill_buf(&mut self) -> Result<usize> {
+        while self.skip > 0 {
+            let len = self.src.fill_buf()?;
+            if len == 0 {
+                return Ok(len);
             }
 
-            let consume_len = std::cmp::min(self.pad - self.offset, stream.len() as isize);
-            debug_assert!(consume_len >= 0);
-
+            let consume_len = std::cmp::min(self.skip, len as isize);
             self.src.consume(consume_len as usize);
-            self.offset += consume_len;
+            self.skip -= consume_len;
         }
 
-        let stream = self.src.fill_buf()?;
-        if self.offset + stream.len() as isize >= self.tail {
+        let len = self.src.fill_buf()?;
+        if self.offset + len > self.tail {
             debug_assert!(self.offset <= self.tail);
-
-            let (stream, _) = stream.split_at((self.tail - self.offset) as usize);
-            return Ok(stream);
+            return Ok(self.tail - self.offset);
         }
-        Ok(stream)
+        Ok(len)
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        let stream = self.src.as_slice();
+        if self.offset + stream.len() > self.tail {
+            return &stream[..self.tail - self.offset];
+        }
+        stream
     }
 
     fn consume(&mut self, amount: usize) {
+        debug_assert!(self.skip == 0);
+
         self.offset += amount as isize;
         self.src.consume(amount);
     }

@@ -10,7 +10,7 @@ use core::arch::aarch64::*;
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use core::arch::x86_64::*;
 
-use crate::common::{FetchSegments, FillUninit, Segment, BLOCK_SIZE};
+use crate::common::{SegmentStream, FillUninit, Segment, BLOCK_SIZE};
 
 fn format_hex_single_naive(dst: &mut [u8], offset: usize, bytes: usize) -> usize {
     for (i, x) in dst[..2 * bytes].iter_mut().enumerate() {
@@ -387,7 +387,7 @@ unsafe fn format_line(dst: &mut [u8], src: &[u8], offset: usize, width: usize) -
 }
 
 pub struct HexFormatter {
-    src: Box<dyn FetchSegments>,
+    src: Box<dyn SegmentStream>,
     buf: Vec<u8>,
     offset: usize,
     segments: Vec<Segment>,
@@ -396,7 +396,7 @@ pub struct HexFormatter {
 }
 
 impl HexFormatter {
-    pub fn new(src: Box<dyn FetchSegments>, base: usize, width: usize) -> Self {
+    pub fn new(src: Box<dyn SegmentStream>, base: usize, width: usize) -> Self {
         HexFormatter {
             src,
             buf: Vec::with_capacity(6 * BLOCK_SIZE),
@@ -408,7 +408,7 @@ impl HexFormatter {
     }
 }
 
-impl FetchSegments for HexFormatter {
+impl SegmentStream for HexFormatter {
     fn fill_segment_buf(&mut self) -> Result<(&[u8], &[Segment])> {
         let (block, segments) = self.src.fill_segment_buf()?;
         if block.is_empty() {

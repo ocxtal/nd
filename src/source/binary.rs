@@ -2,8 +2,8 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
-use crate::common::{FillUninit, InoutFormat, StreamBuf, BLOCK_SIZE};
-use std::io::{BufRead, Read, Result};
+use crate::common::{FillUninit, InoutFormat, Stream, StreamBuf, BLOCK_SIZE};
+use std::io::{Read, Result};
 
 pub struct BinaryStream {
     src: Box<dyn Read>,
@@ -20,18 +20,16 @@ impl BinaryStream {
     }
 }
 
-impl Read for BinaryStream {
-    fn read(&mut self, _: &mut [u8]) -> Result<usize> {
-        Ok(0)
-    }
-}
-
-impl BufRead for BinaryStream {
-    fn fill_buf(&mut self) -> Result<&[u8]> {
+impl Stream for BinaryStream {
+    fn fill_buf(&mut self) -> Result<usize> {
         self.buf.fill_buf(|buf| {
             buf.fill_uninit(BLOCK_SIZE, |arr| self.src.read(arr))?;
             Ok(())
         })
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        self.buf.as_slice()
     }
 
     fn consume(&mut self, amount: usize) {

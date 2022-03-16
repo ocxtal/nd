@@ -3,34 +3,36 @@
 // @date 2022/2/5
 
 use super::parser::TextParser;
-use crate::common::{InoutFormat, StreamBuf};
-use std::io::{BufRead, Read, Result};
+use crate::common::{InoutFormat, Stream, StreamBuf};
+use std::io::Result;
 
-struct PatchStreamCache {
+struct PatchFeeder {
+    src: TextParser,
     offset: usize,
     span: usize,
     buf: Vec<u8>,
 }
 
-impl PatchStreamCache {
-    fn new() -> Self {
-        PatchStreamCache {
+impl PatchFeeder {
+    fn new(src: TextParser) -> Self {
+        PatchFeeder {
+            src,
             offset: 0,
             span: 0,
             buf: Vec::new(),
         }
     }
 
-    fn fill_buf(&mut self, src: &mut TextParser) -> Result<usize> {
+    fn fill_buf(&mut self) -> Result<(usize, usize)> {
         // offset is set usize::MAX once the source reached EOF
         if self.offset == usize::MAX {
-            return Ok(usize::MAX);
+            return Ok((usize::MAX, 0));
         }
 
         // flush the current buffer, then read the next line
         self.buf.clear();
 
-        let (lines, offset, span) = src.read_line(&mut self.buf)?;
+        let (lines, offset, span) = self.src.read_line(&mut self.buf)?;
         self.offset = offset;
         self.span = span;
 
@@ -39,62 +41,73 @@ impl PatchStreamCache {
             self.offset = usize::MAX;
             self.span = 0;
         }
-        Ok(self.offset)
+        Ok((self.offset, self.span))
+    }
+
+    fn feed_until(&mut self, rem_len: usize, buf: &mut Vec<u8>) -> usize {
+        let mut acc = 0;
+        while acc < rem_len {
+            buf.extend_from_slice(&self.buf);
+            acc += self.span;
+
+            // read the next patch, compute the overlap between two patches
+            let (next_offset, _) = self.fill_buf()?;
+            let overlap = std::cmp::max(self.offset + acc, next_offset) - next_offset;
+            if overlap == 0 {
+                break;
+            }
+
+            acc -= overlap;
+            buf.truncate(buf.len() - overlap);
+        }
+        acc
     }
 }
 
 pub struct PatchStream {
-    stream_src: Box<dyn BufRead>,
-    patch_src: TextParser,
-    patch_line: PatchStreamCache,
+    src: Box<dyn Stream>,
+    patch: PatchFeeder,
     buf: StreamBuf,
     skip: usize,
     offset: usize,
 }
 
 impl PatchStream {
-    pub fn new(stream_src: Box<dyn BufRead>, patch: Box<dyn BufRead>, format: &InoutFormat) -> Self {
+    pub fn new(src: Box<dyn Stream>, patch: Box<dyn Stream>, format: &InoutFormat) -> Self {
         PatchStream {
-            stream_src,
-            patch_src: TextParser::new(patch, format),
-            patch_line: PatchStreamCache::new(),
+            src,
+            patch: PatchFeeder::new(TextParser::new(patch, format)),
             buf: StreamBuf::new(),
             skip: 0,
             offset: 0,
         }
     }
 
-    fn fill_buf_with_skip(&mut self) -> Result<&[u8]> {
+    fn fill_buf_with_skip(&mut self) -> Result<usize> {
         while self.skip > 0 {
-            let stream = self.stream_src.fill_buf()?;
-            if stream.len() == 0 {
-                return Ok(stream);
+            let len = self.src.fill_buf()?;
+            if len == 0 {
+                return Ok(len);
             }
 
-            let consume_len = std::cmp::min(self.skip, stream.len());
-            self.stream_src.consume(consume_len);
+            let consume_len = std::cmp::min(self.skip, len);
+            self.src.consume(consume_len);
             self.skip -= consume_len;
         }
 
-        self.stream_src.fill_buf()
+        self.src.fill_buf()
     }
 }
 
-impl Read for PatchStream {
-    fn read(&mut self, _: &mut [u8]) -> Result<usize> {
-        Ok(0)
-    }
-}
-
-impl BufRead for PatchStream {
+impl Stream for PatchStream {
     fn fill_buf(&mut self) -> Result<&[u8]> {
         self.buf.fill_buf(|buf| {
-            let mut stream = self.fill_buf_with_skip()?;
-            let consume_len = stream.len();
+            let len = self.fill_buf_with_skip()?;
+            let mut stream = self.src.as_slice();
 
             while stream.len() > 0 {
-                // region where the original stream is preserved
-                let next_offset = std::cmp::min(self.offset + stream.len(), self.patch_line.offset);
+                // region where we keep the original stream
+                let next_offset = std::cmp::min(self.offset + stream.len(), self.patch.offset);
                 let fwd_len = next_offset - self.offset;
                 self.offset += fwd_len;
 
@@ -105,38 +118,24 @@ impl BufRead for PatchStream {
                 }
 
                 // region that is overwritten by patch
-                let mut acc = 0;
-                while acc < rem.len() {
-                    buf.extend_from_slice(&self.patch_line.buf);
-                    acc += self.patch_line.span;
-
-                    // read the next patch, compute the overlap between two patches
-                    let next_offset = self.patch_line.fill_buf(&mut self.patch_src)?;
-                    let overlap = std::cmp::max(self.offset + acc, next_offset) - next_offset;
-                    if overlap == 0 {
-                        break;
-                    }
-
-                    acc -= overlap;
-                    buf.truncate(buf.len() - overlap);
-                }
+                let patch_span = self.patch.feed_until(rem.len(), buf);
 
                 // if the patched stream becomes longer than the remainder of the original stream,
                 // set the skip for the next fill_buf
-                if acc > rem.len() {
+                if patch_span > rem.len() {
                     self.offset += rem.len();
-                    self.skip = acc - rem.len();
+                    self.skip = patch_span - rem.len();
                     break;
                 }
 
                 // otherwise forward the original stream
-                self.offset += acc;
+                self.offset += patch_span;
 
-                let (_, rem) = rem.split_at(acc);
+                let (_, rem) = rem.split_at(patch_span);
                 stream = rem;
             }
 
-            self.stream_src.consume(consume_len);
+            self.src.consume(len);
             Ok(())
         })
     }

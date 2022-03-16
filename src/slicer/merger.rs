@@ -1,12 +1,12 @@
 // @file merger.rs
 // @author Hajime Suzuki
 
-use crate::common::{FetchSegments, Segment};
+use crate::common::{SegmentStream, Segment};
 use std::io::Result;
 
 #[allow(dead_code)]
 pub struct SliceMerger {
-    src: Box<dyn FetchSegments>,
+    src: Box<dyn SegmentStream>,
     segments: Vec<Segment>,
     offset: usize,
     margin: (isize, isize),
@@ -14,7 +14,7 @@ pub struct SliceMerger {
 }
 
 impl SliceMerger {
-    pub fn new(src: Box<dyn FetchSegments>, margin: (isize, isize), merge: isize, _intersection: isize, _width: isize) -> Self {
+    pub fn new(src: Box<dyn SegmentStream>, margin: (isize, isize), merge: isize, _intersection: isize, _width: isize) -> Self {
         SliceMerger {
             src,
             segments: Vec::new(),
@@ -25,7 +25,7 @@ impl SliceMerger {
     }
 }
 
-impl FetchSegments for SliceMerger {
+impl SegmentStream for SliceMerger {
     fn fill_segment_buf(&mut self) -> Result<(&[u8], &[Segment])> {
         self.src.fill_segment_buf()
     }

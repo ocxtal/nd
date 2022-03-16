@@ -3,8 +3,8 @@
 // @date 2022/2/4
 
 use super::parser::TextParser;
-use crate::common::{InoutFormat, StreamBuf, BLOCK_SIZE};
-use std::io::{BufRead, Read, Result};
+use crate::common::{InoutFormat, Stream, StreamBuf, BLOCK_SIZE};
+use std::io::Result;
 
 pub struct GaplessTextStream {
     inner: TextParser,
@@ -12,7 +12,7 @@ pub struct GaplessTextStream {
 }
 
 impl GaplessTextStream {
-    pub fn new(src: Box<dyn BufRead>, align: usize, format: &InoutFormat) -> Self {
+    pub fn new(src: Box<dyn Stream>, align: usize, format: &InoutFormat) -> Self {
         assert!(!format.is_binary());
         assert!(format.is_gapless());
 
@@ -23,18 +23,16 @@ impl GaplessTextStream {
     }
 }
 
-impl Read for GaplessTextStream {
-    fn read(&mut self, _: &mut [u8]) -> Result<usize> {
-        Ok(0)
-    }
-}
-
-impl BufRead for GaplessTextStream {
-    fn fill_buf(&mut self) -> Result<&[u8]> {
+impl Stream for GaplessTextStream {
+    fn fill_buf(&mut self) -> Result<usize> {
         self.buf.fill_buf(|buf| {
             self.inner.read_line(buf)?;
             Ok(())
         })
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        self.buf.as_slice()
     }
 
     fn consume(&mut self, amount: usize) {
@@ -76,7 +74,7 @@ pub struct TextStream {
 }
 
 impl TextStream {
-    pub fn new(src: Box<dyn BufRead>, align: usize, format: &InoutFormat) -> Self {
+    pub fn new(src: Box<dyn Stream>, align: usize, format: &InoutFormat) -> Self {
         assert!(!format.is_binary());
         assert!(!format.is_gapless());
 
@@ -89,14 +87,8 @@ impl TextStream {
     }
 }
 
-impl Read for TextStream {
-    fn read(&mut self, _: &mut [u8]) -> Result<usize> {
-        Ok(0)
-    }
-}
-
-impl BufRead for TextStream {
-    fn fill_buf(&mut self) -> Result<&[u8]> {
+impl Stream for TextStream {
+    fn fill_buf(&mut self) -> Result<usize> {
         self.buf.fill_buf(|buf| {
             let next_offset = std::cmp::min(self.offset + BLOCK_SIZE, self.line.offset);
             let fwd_len = next_offset - self.offset;
@@ -122,6 +114,10 @@ impl BufRead for TextStream {
 
             Ok(())
         })
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        self.buf.as_slice()
     }
 
     fn consume(&mut self, amount: usize) {

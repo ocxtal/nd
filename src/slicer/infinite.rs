@@ -1,7 +1,7 @@
 // @file infinite.rs
 // @author Hajime Suzuki
 
-use crate::common::{FetchSegments, Segment};
+use crate::common::{SegmentStream, Segment};
 use std::io::{BufRead, Result};
 
 pub struct InfiniteSlicer {
@@ -20,7 +20,7 @@ impl InfiniteSlicer {
     }
 }
 
-impl FetchSegments for InfiniteSlicer {
+impl SegmentStream for InfiniteSlicer {
     fn fill_segment_buf(&mut self) -> Result<(&[u8], &[Segment])> {
         let stream = self.src.fill_buf()?;
         Ok((stream, &self.segments))

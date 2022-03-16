@@ -88,6 +88,26 @@ impl InoutFormat {
     }
 }
 
+pub trait Stream {
+    fn fill_buf(&mut self) -> Result<usize>;
+    fn as_slice(&self) -> &[u8];
+    fn consume(&mut self, amount: usize);
+}
+
+impl Stream for Box<dyn Stream> {
+    fn fill_buf(&mut self) -> Result<usize> {
+        self.fill_buf()
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        self.as_slice()
+    }
+
+    fn consume(&mut self, amount: usize) {
+        self.consume(amount);
+    }
+}
+
 pub struct StreamBuf {
     buf: Vec<u8>,
     cap: usize,
@@ -132,7 +152,7 @@ impl StreamBuf {
         return Ok(&self.buf[self.pos..]);
     }
 
-    pub fn fill_buf<F>(&mut self, f: F) -> Result<&[u8]>
+    pub fn fill_buf<F>(&mut self, f: F) -> Result<usize>
     where
         F: FnMut(&mut Vec<u8>) -> Result<()>,
     {
@@ -140,7 +160,7 @@ impl StreamBuf {
 
         debug_assert!(self.buf.len() < self.cap);
         if self.is_eof {
-            return Ok(&self.buf[self.pos..]);
+            return Ok(self.buf.len() - self.pos);
         }
 
         while self.buf.len() < self.cap {
@@ -155,9 +175,12 @@ impl StreamBuf {
         }
         self.cap = std::cmp::max(self.cap, self.buf.len());
 
-        let slice = &self.buf[self.pos..];
-        assert!(slice.len() >= MARGIN_SIZE);
-        Ok(slice)
+        assert!(self.buf.len() >= self.pos + MARGIN_SIZE);
+        Ok(self.buf.len() - self.pos)
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        &self.buf[self.pos..]
     }
 
     pub fn consume(&mut self, amount: usize) {
@@ -195,40 +218,40 @@ impl StreamBuf {
     }
 }
 
-pub struct EofReader<T: Sized + BufRead> {
+pub struct EofStream<T: Sized + Stream> {
     src: T,
 }
 
-impl<T: Sized + BufRead> EofReader<T> {
+impl<T: Sized + Stream> EofStream<T> {
     pub fn new(src: T) -> Self {
-        EofReader { src }
+        EofStream { src }
     }
 
-    pub fn fill_buf(&mut self, block_size: usize) -> Result<(bool, &[u8])> {
-        let mut prev_len = {
-            let stream = self.src.fill_buf()?;
-            if stream.len() >= block_size {
-                return Ok((false, stream));
-            }
-            stream.len()
-        };
+    pub fn fill_buf(&mut self, block_size: usize) -> Result<(bool, usize)> {
+        let mut prev_len = self.src.fill_buf()?;
+        if prev_len >= block_size {
+            return Ok((false, prev_len));
+        }
 
         loop {
             // tell the src the stream being not enough, then try read again
             self.src.consume(0);
 
-            let stream = self.src.fill_buf()?;
-            if stream.len() >= block_size {
-                return Ok((false, stream));
+            let len = self.src.fill_buf()?;
+            if len >= block_size {
+                return Ok((false, len));
             }
 
             // if it doesn't change, it's EOF
-            if stream.len() == prev_len {
-                return Ok((true, stream));
+            if len == prev_len {
+                return Ok((true, len));
             }
-
-            prev_len = stream.len();
+            prev_len = len;
         }
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        self.src.as_slice()
     }
 
     pub fn consume(&mut self, amount: usize) {
@@ -269,9 +292,10 @@ impl From<Range<usize>> for Segment {
     }
 }
 
-pub trait FetchSegments {
+pub trait SegmentStream {
     // chunked iterator
-    fn fill_segment_buf(&mut self) -> Result<(&[u8], &[Segment])>;
+    fn fill_segment_buf(&mut self) -> Result<(usize, usize)>;   // #bytes, #segments
+    fn as_slices(&self) -> (&[u8], &[Segment]);
     fn consume(&mut self, bytes: usize) -> Result<usize>;
 }
 

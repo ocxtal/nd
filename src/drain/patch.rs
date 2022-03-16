@@ -1,16 +1,16 @@
 // @file patch.rs
 // @author Hajime Suzuki
 
-use crate::common::{ConsumeSegments, FetchSegments, FillUninit, InoutFormat, Segment, StreamBuf, BLOCK_SIZE};
+use crate::common::{ConsumeSegments, SegmentStream, FillUninit, InoutFormat, Segment, Stream, StreamBuf, BLOCK_SIZE};
 use crate::source::PatchStream;
-use std::io::{BufRead, Read, Result, Seek, SeekFrom, Write};
+use std::io::{Result, Seek, SeekFrom, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use tempfile::SpooledTempFile;
 
 struct CacheStream {
-    src: Box<dyn FetchSegments>,
+    src: Box<dyn SegmentStream>,
     cache: Arc<Mutex<SpooledTempFile>>,
     skip: usize,
 }
@@ -22,7 +22,7 @@ struct CacheStreamReader {
 }
 
 impl CacheStream {
-    fn new(src: Box<dyn FetchSegments>) -> Self {
+    fn new(src: Box<dyn SegmentStream>) -> Self {
         let cache = SpooledTempFile::new(128 * BLOCK_SIZE);
         CacheStream {
             src,
@@ -39,22 +39,24 @@ impl CacheStream {
         }
     }
 
-    fn fill_segment_buf(&mut self) -> Result<(&[u8], &[Segment])> {
-        loop {
-            let (block, segments) = self.src.fill_segment_buf()?;
-            if block.len() <= self.skip {
+    fn fill_segment_buf(&mut self) -> Result<(usize, usize)> {
+        let (stream_len, segment_count) = self.src.fill_segment_buf()?;
+
+        let mut prev_stream_len = 0;
+        while self.skip + BLOCK_SIZE < stream_len {
+            if stream_len <= self.skip {
                 self.src.consume(0)?;
                 continue;
             }
 
-            return Ok((block, segments));
+            return Ok((stream_len, segment_count));
         }
     }
 }
 
-impl FetchSegments for CacheStream {
-    fn fill_segment_buf(&mut self) -> Result<(&[u8], &[Segment])> {
-        let (block, segments) = self.fill_segment_buf()?;
+impl SegmentStream for CacheStream {
+    fn fill_segment_buf(&mut self) -> Result<(usize, usize)> {
+        let (stream_len, segment_count) = self.fill_segment_buf()?;
 
         if let Ok(mut cache) = self.cache.lock() {
             cache.write_all(&block[self.skip..]).unwrap();
@@ -71,14 +73,8 @@ impl FetchSegments for CacheStream {
     }
 }
 
-impl Read for CacheStreamReader {
-    fn read(&mut self, _: &mut [u8]) -> Result<usize> {
-        Ok(0)
-    }
-}
-
-impl BufRead for CacheStreamReader {
-    fn fill_buf(&mut self) -> Result<&[u8]> {
+impl Stream for CacheStreamReader {
+    fn fill_buf(&mut self) -> Result<> {
         self.buf.fill_buf(|buf| {
             if let Ok(mut cache) = self.cache.lock() {
                 cache.seek(SeekFrom::Start(self.offset as u64)).unwrap();
@@ -86,6 +82,10 @@ impl BufRead for CacheStreamReader {
             }
             Ok(())
         })
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        self.buf.as_slice()
     }
 
     fn consume(&mut self, amount: usize) {
@@ -136,18 +136,16 @@ impl BashPipe {
     }
 }
 
-impl Read for BashPipeReader {
-    fn read(&mut self, _: &mut [u8]) -> Result<usize> {
-        Ok(0)
-    }
-}
-
-impl BufRead for BashPipeReader {
-    fn fill_buf(&mut self) -> Result<&[u8]> {
+impl Stream for BashPipeReader {
+    fn fill_buf(&mut self) -> Result<usize> {
         self.buf.fill_buf(|buf| {
             buf.fill_uninit(BLOCK_SIZE, |buf| self.output.read(buf))?;
             Ok(())
         })
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        self.buf.as_slice()
     }
 
     fn consume(&mut self, amount: usize) {
@@ -156,14 +154,14 @@ impl BufRead for BashPipeReader {
 }
 
 pub struct PatchDrain {
-    src: Box<dyn FetchSegments>,
+    src: Box<dyn SegmentStream>,
     buf: Vec<u8>,
     pipe: BashPipe,
     drain: Option<JoinHandle<()>>,
 }
 
 impl PatchDrain {
-    pub fn new(src: Box<dyn FetchSegments>, dst: Box<dyn Write + Send>, format: &InoutFormat, command: &str) -> Self {
+    pub fn new(src: Box<dyn SegmentStream>, dst: Box<dyn Write + Send>, format: &InoutFormat, command: &str) -> Self {
         let format = *format;
 
         let src = Box::new(CacheStream::new(src));
@@ -177,14 +175,12 @@ impl PatchDrain {
             let mut patch = PatchStream::new(Box::new(cache_reader), Box::new(pipe_reader), &format);
 
             loop {
-                let stream = patch.fill_buf().unwrap();
-                if stream.len() == 0 {
+                let len = patch.fill_buf().unwrap();
+                if len == 0 {
                     break;
                 }
-                dst.write_all(&stream).unwrap();
-
-                let consume_len = stream.len();
-                patch.consume(consume_len);
+                dst.write_all(patch.as_slice()).unwrap();
+                patch.consume(len);
             }
         });
 
@@ -200,8 +196,8 @@ impl PatchDrain {
         debug_assert!(!self.buf.is_empty());
 
         while self.buf.len() < BLOCK_SIZE {
-            let (block, segments) = self.src.fill_segment_buf()?;
-            if block.is_empty() {
+            let (stream_len, segment_count) = self.src.fill_segment_buf()?;
+            if stream_len == 0 {
                 self.pipe.write_all(&self.buf).unwrap();
                 self.pipe.close();
 
@@ -209,10 +205,11 @@ impl PatchDrain {
                 return Ok(0);
             }
 
+            let (stream, segments) = self.src.as_slices();
             for s in segments {
-                self.buf.extend_from_slice(&block[s.as_range()]);
+                self.buf.extend_from_slice(&stream[s.as_range()]);
             }
-            self.src.consume(block.len())?;
+            self.src.consume(stream_len)?;
         }
 
         self.pipe.write_all(&self.buf).unwrap();
@@ -223,14 +220,22 @@ impl PatchDrain {
 
 impl ConsumeSegments for PatchDrain {
     fn consume_segments(&mut self) -> Result<usize> {
-        loop {
-            let ret = self.consume_segments_impl();
-            if ret.is_err() || ret.unwrap() == 0 {
-                let drain = self.drain.take().unwrap();
-                drain.join().unwrap();
-                return ret;
+        let core_impl = || -> Result<usize> {
+            loop {
+                let ret = self.consume_segments_impl();
+                if ret.is_err() {
+                    return ret;
+                }
+                if let Ok(_len @ 0) = ret {
+                    return ret;
+                }
             }
-        }
+        };
+
+        let ret = core_impl();
+        let drain = self.drain.take().unwrap();
+        drain.join().unwrap();
+        ret
     }
 }
 

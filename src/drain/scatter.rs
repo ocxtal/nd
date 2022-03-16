@@ -1,7 +1,7 @@
 // @file scatter.rs
 // @author Hajime Suzuki
 
-use crate::common::{ConsumeSegments, FetchSegments, BLOCK_SIZE};
+use crate::common::{ConsumeSegments, SegmentStream, BLOCK_SIZE};
 use std::io::{Read, Result, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::mpsc::{channel, Sender};
@@ -24,7 +24,7 @@ fn create_pipe(args: &str, offset: usize, line: usize) -> (Child, ChildStdin, Ch
 }
 
 pub struct ScatterDrain {
-    src: Box<dyn FetchSegments>,
+    src: Box<dyn SegmentStream>,
     offset: usize,
     lines: usize,
     command: String,
@@ -33,7 +33,7 @@ pub struct ScatterDrain {
 }
 
 impl ScatterDrain {
-    pub fn new(src: Box<dyn FetchSegments>, dst: Box<dyn Write + Send>, command: &str) -> Self {
+    pub fn new(src: Box<dyn SegmentStream>, dst: Box<dyn Write + Send>, command: &str) -> Self {
         let command = command.to_string();
         let (sender, reciever) = channel::<Option<(Child, ChildStdout)>>();
 

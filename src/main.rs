@@ -12,7 +12,7 @@ mod stream;
 use clap::{App, AppSettings, Arg, ColorChoice};
 use std::io::{BufRead, BufReader, Read, Write};
 
-use common::{ConsumeSegments, FetchSegments, InoutFormat, BLOCK_SIZE};
+use common::{ConsumeSegments, SegmentStream, InoutFormat, BLOCK_SIZE};
 use drain::{PatchDrain, ScatterDrain, TransparentDrain};
 use eval::{parse_int, parse_range};
 use formatter::HexFormatter;
@@ -270,7 +270,7 @@ fn main() {
         (disp, len)
     };
 
-    let (slicer, min_width): (Box<dyn FetchSegments>, _) = if let Some(pattern) = m.value_of("regex") {
+    let (slicer, min_width): (Box<dyn SegmentStream>, _) = if let Some(pattern) = m.value_of("regex") {
         (Box::new(RegexSlicer::new(input, width as usize, pattern)), 0)
     } else if let Some(pattern) = m.value_of("match") {
         (Box::new(HammingSlicer::new(input, pattern)), 0)
@@ -295,7 +295,7 @@ fn main() {
     eprintln!("c: {:?}, {:?}, {:?}", disp, len, min_width);
 
     // dump all
-    let formatter: Box<dyn FetchSegments> = if output_format.is_binary() {
+    let formatter: Box<dyn SegmentStream> = if output_format.is_binary() {
         slicer
     } else {
         Box::new(HexFormatter::new(slicer, offset, min_width as usize))

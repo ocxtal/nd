@@ -14,8 +14,8 @@ mod x86_64;
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use x86_64::*;
 
-use crate::common::{FillUninit, InoutFormat, ToResult};
-use std::io::{BufRead, Result};
+use crate::common::{FillUninit, InoutFormat, Stream, ToResult};
+use std::io::Result;
 
 mod naive;
 use naive::*;
@@ -199,7 +199,7 @@ type ParseSingle = fn(&[u8]) -> Option<(u64, usize)>;
 type ParseBody = fn(bool, &[u8], &mut [u8]) -> Option<((usize, usize), usize)>;
 
 pub struct TextParser {
-    src: Box<dyn BufRead>,
+    src: Box<dyn Stream>,
 
     // parser for non-binary streams; bypassed for binary streams (though the functions are valid)
     parse_offset: ParseSingle,
@@ -210,7 +210,7 @@ pub struct TextParser {
 impl TextParser {
     const MIN_MARGIN: usize = 256;
 
-    pub fn new(src: Box<dyn BufRead>, format: &InoutFormat) -> Self {
+    pub fn new(src: Box<dyn Stream>, format: &InoutFormat) -> Self {
         assert!(!format.is_binary());
         let offset = format.offset as usize;
         let length = format.length as usize;
@@ -265,6 +265,7 @@ impl TextParser {
             let (scanned, parsed) = buf.fill_uninit_on_option_with_ret(4 * 16, |arr: &mut [u8]| {
                 (self.parse_body)(is_in_tail, &stream[p..], arr)
             })?.0;
+            p += parsed;
 
             if scanned < 4 * 48 {
                 return Some((p, is_in_tail, true));
@@ -275,21 +276,23 @@ impl TextParser {
     }
 
     fn read_line_continued(&mut self, offset: usize, span: usize, is_in_tail: bool, buf: &mut Vec<u8>) -> Result<(usize, usize, usize)> {
-        let stream = self.src.fill_buf()?;
-        if stream.len() == 0 {
+        let len = self.src.fill_buf()?;
+        if len == 0 {
             return Ok((1, offset, span));
         }
 
-        let mut is_in_tail = is_in_tail;
+        let stream = self.src.as_slice();
         let mut p = 0;
-        while p < stream.len() {
+        let mut is_in_tail = is_in_tail;
+
+        while p < len {
             let (fwd, delim_found, eol_found) = self.read_body(&stream[p..], is_in_tail, buf).to_result()?;
             p += fwd;
             is_in_tail = delim_found;
 
             if eol_found {
                 self.src.consume(p);
-                return Ok((1, offset, stream.len()));
+                return Ok((1, offset, len));
             }
         }
 
@@ -298,15 +301,16 @@ impl TextParser {
     }
 
     pub fn read_line(&mut self, buf: &mut Vec<u8>) -> Result<(usize, usize, usize)> {
-        let stream = self.src.fill_buf()?;
-        if stream.len() == 0 {
+        let len = self.src.fill_buf()?;
+        if len == 0 {
             return Ok((0, 0, 0));
         }
 
+        let stream = self.src.as_slice();
         let (fwd, offset, span) = self.read_head(stream).to_result()?;
-
-        let mut is_in_tail = false;
         let mut p = fwd;
+        let mut is_in_tail = false;
+
         while p < stream.len() {
             let (fwd, delim_found, eol_found) = self.read_body(&stream[p..], is_in_tail, buf).to_result()?;
             p += fwd;

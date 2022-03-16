@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 // @brief Hamming-distance matcher and slicer
 
-use crate::common::{FetchSegments, Segment};
+use crate::common::{SegmentStream, Segment};
 use std::io::{BufRead, Result};
 
 #[allow(dead_code)]
@@ -22,7 +22,7 @@ impl HammingSlicer {
     }
 }
 
-impl FetchSegments for HammingSlicer {
+impl SegmentStream for HammingSlicer {
     fn fill_segment_buf(&mut self) -> Result<(&[u8], &[Segment])> {
         let stream = self.src.fill_buf()?;
         Ok((stream, &self.segments))
