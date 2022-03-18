@@ -10,7 +10,6 @@ pub struct CatStream {
     i: usize,
     rem: usize,
     cache: StreamBuf,
-    dummy: [u8; 0],
 }
 
 impl CatStream {
@@ -20,7 +19,6 @@ impl CatStream {
             i: 0,
             rem: 0,
             cache: StreamBuf::new(),
-            dummy: [0; 0],
         }
     }
 
@@ -62,7 +60,7 @@ impl Stream for CatStream {
 
         let (is_eof, len) = self.srcs[self.i].fill_buf(BLOCK_SIZE)?;
         if self.cache.len() > 0 || is_eof {
-            self.accumulate_into_cache(is_eof);
+            self.accumulate_into_cache(is_eof)?;
         }
 
         self.rem = 0;
@@ -90,6 +88,10 @@ impl Stream for CatStream {
         self.cache.consume(in_cache);
 
         self.rem -= amount - in_cache;
+        if self.i >= self.srcs.len() {
+            debug_assert!(self.rem == 0);
+            return;
+        }
         self.srcs[self.i].consume(amount - in_cache);
     }
 }

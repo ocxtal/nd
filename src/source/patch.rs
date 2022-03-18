@@ -83,26 +83,26 @@ impl PatchStream {
         }
     }
 
-    fn fill_buf_with_skip(&mut self) -> Result<usize> {
-        while self.skip > 0 {
-            let len = self.src.fill_buf()?;
-            if len == 0 {
-                return Ok(len);
-            }
+    // fn fill_buf_with_skip(&mut self) -> Result<usize> {
 
-            let consume_len = std::cmp::min(self.skip, len);
-            self.src.consume(consume_len);
-            self.skip -= consume_len;
-        }
-
-        self.src.fill_buf()
-    }
+    // }
 }
 
 impl Stream for PatchStream {
     fn fill_buf(&mut self) -> Result<usize> {
         self.buf.fill_buf(|buf| {
-            let len = self.fill_buf_with_skip()?;
+            while self.skip > 0 {
+                let len = self.src.fill_buf()?;
+                if len == 0 {
+                    return Ok(());
+                }
+
+                let consume_len = std::cmp::min(self.skip, len);
+                self.src.consume(consume_len);
+                self.skip -= consume_len;
+            }
+
+            let len = self.src.fill_buf()?;
             let mut stream = self.src.as_slice();
 
             while stream.len() > 0 {

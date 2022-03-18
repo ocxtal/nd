@@ -1,15 +1,21 @@
 // @file common.rs
 // @author Hajime Suzuki
 
-// use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::convert::From;
-use std::io::{Error, ErrorKind, Result};
+use std::io::{Read, Error, ErrorKind, Result};
 use std::ops::Range;
 
+// #[cfg(test)]
+use rand::{Rng, thread_rng, rngs::ThreadRng};
+
+#[cfg(test)]
+pub const BLOCK_SIZE: usize = 29 * 5;
+
+#[cfg(not(test))]
 pub const BLOCK_SIZE: usize = 2 * 1024 * 1024;
+
 pub const MARGIN_SIZE: usize = 256;
-pub const CHUNK_SIZE: usize = 32 * 1024;
 
 #[derive(Copy, Clone, Debug)]
 pub struct InoutFormat {
@@ -89,25 +95,120 @@ impl InoutFormat {
     }
 }
 
+
+macro_rules! rep {
+    ( $arr: expr, $n: expr ) => {{
+        let mut v = Vec::new();
+        for _ in 0..$n {
+            v.extend_from_slice($arr);
+        }
+        v
+    }};
+}
+
+struct RepReader {
+    v: Vec<u8>,
+    offset: usize,
+    prev_len: usize,
+    rng: ThreadRng,
+}
+
+impl RepReader {
+    fn new(arr: &[u8], n: usize) -> Self {
+        let mut v = Vec::new();
+        for _ in 0..n {
+            v.extend_from_slice(arr);
+        }
+
+        RepReader {
+            v,
+            offset: 0,
+            prev_len: 0,
+            rng: thread_rng(),
+        }
+    }
+
+    fn gen_len(&mut self) -> usize {
+        let rand = self.rng.gen::<usize>() % (3 * BLOCK_SIZE + 9) + 1;
+        let clip = self.v.len() - self.offset;
+
+        self.prev_len = std::cmp::min(rand, clip);
+        assert!(self.prev_len > 0);
+
+        self.prev_len
+    }
+
+    fn all(&self) -> &[u8] {
+        &self.v
+    }
+}
+
+impl Read for RepReader {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        if self.offset >= self.v.len() {
+            return Ok(0);
+        }
+
+        let len = std::cmp::min(self.gen_len(), buf.len());
+        buf.copy_from_slice(&self.v[self.offset..self.offset + len]);
+        self.offset += len;
+
+        Ok(len)
+    }
+}
+
+macro_rules! test_read_all {
+    ( $src: expr, $expected: expr ) => {{
+        
+    }};
+}
+
+#[test]
+fn test_rep_reader() {
+    let mut src = RepReader::new("abc", 30);
+
+    loop {
+        let
+    }
+
+    ;
+}
+
+impl Stream for RepReader {
+    fn fill_buf(&mut self) -> Result<usize> {
+        if self.offset >= self.v.len() {
+            return Ok(0);
+        }
+        Ok(self.gen_len())
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        &self.v[self.offset..self.offset + self.prev_len]
+    }
+
+    fn consume(&mut self, amount: usize) {
+        assert!(amount <= self.prev_len);
+        self.offset += amount;
+    }
+}
+
 pub trait Stream {
     fn fill_buf(&mut self) -> Result<usize>;
     fn as_slice(&self) -> &[u8];
     fn consume(&mut self, amount: usize);
 }
 
-impl<T: Stream + ?Sized> Stream for Box<T>
-
-impl Stream for Box<dyn Stream> {
+impl<T: Stream + ?Sized> Stream for Box<T> {
     fn fill_buf(&mut self) -> Result<usize> {
-        self.borrow().fill_buf()
+        (**self).fill_buf()
     }
 
     fn as_slice(&self) -> &[u8] {
-        self.borrow().as_slice()
+        (**self).as_slice()
     }
 
     fn consume(&mut self, amount: usize) {
-        self.borrow().consume(amount);
+        (**self).consume(amount);
     }
 }
 
@@ -327,6 +428,7 @@ pub trait FillUninit {
         T: Sized,
         F: FnMut(&mut [u8]) -> Option<(T, usize)>,
     {
+        let mut f = f;
         self.fill_uninit_with_ret(len, |buf| f(buf).ok_or(Error::from(ErrorKind::Other))).ok()
     }
 
@@ -334,6 +436,7 @@ pub trait FillUninit {
     where
         F: FnMut(&mut [u8]) -> Result<usize>,
     {
+        let mut f = f;
         self.fill_uninit_with_ret(len, |buf| f(buf).map(|len| ((), len)))
             .map(|(_, len)| len)
     }

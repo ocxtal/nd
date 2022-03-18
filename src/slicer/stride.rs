@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 // @brief constant-stride slicer
 
-use crate::common::{EofStream, SegmentStream, Segment, Stream, StreamBuf, BLOCK_SIZE};
+use crate::common::{EofStream, SegmentStream, Segment, Stream, BLOCK_SIZE};
 use std::io::Result;
 
 struct ConstStrideSegments {
@@ -55,12 +55,14 @@ impl ConstStrideSegments {
     }
 
     fn calc_max_fwd(&self, count: usize) -> usize {
+        eprintln!("d: {:?}, {:?}", count, self.segments.len());
         assert!(self.segments.len() >= count && count > 0);
 
         (self.segments[count - 1].tail() + self.pitch).saturating_sub(self.len)
     }
 
     fn slice_segments_with_clip(&mut self, len: usize) -> Result<(usize, usize)> {
+        eprintln!("b: {:?}", len);
         let mut next_tail = self.get_next_tail();
         while next_tail < len + self.margin.1 {
             let pos = next_tail.saturating_sub(self.len);
@@ -76,6 +78,7 @@ impl ConstStrideSegments {
     }
 
     fn slice_segments(&mut self, len: usize) -> Result<(usize, usize)> {
+        eprintln!("e: {:?}", len);
         let mut next_tail = self.get_next_tail();
 
         if next_tail >= len {
@@ -90,6 +93,7 @@ impl ConstStrideSegments {
             }
 
             self.last_count = self.segments.len() - n_extra;
+            eprintln!("a: {:?}, {:?}, {:?}", self.last_count, self.segments.len(), n_extra);
             self.last_len = self.calc_max_fwd(self.last_count);
             return Ok((len, self.last_count));
         }
@@ -108,6 +112,7 @@ impl ConstStrideSegments {
     }
 
     fn fill_segment_buf(&mut self, is_eof: bool, len: usize) -> Result<(usize, usize)> {
+        eprintln!("fill: {:?}, {:?}, {:?}, {:?}, {:?}", is_eof, len, self.flush_threshold, self.phase, self.prev_phase);
         if self.flush_threshold > 0 {
             // is still in the head
             if is_eof {
@@ -167,7 +172,6 @@ impl ConstStrideSegments {
 
 pub struct ConstStrideSlicer {
     src: EofStream<Box<dyn Stream>>,
-    buf: StreamBuf,
     segments: ConstStrideSegments,
 }
 
@@ -175,7 +179,6 @@ impl ConstStrideSlicer {
     pub fn new(src: Box<dyn Stream>, margin: (usize, usize), pitch: usize, len: usize) -> Self {
         ConstStrideSlicer {
             src: EofStream::new(src),
-            buf: StreamBuf::new(),
             segments: ConstStrideSegments::new(margin, pitch, len),
         }
     }

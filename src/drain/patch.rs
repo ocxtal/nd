@@ -224,7 +224,7 @@ impl PatchDrain {
 
 impl ConsumeSegments for PatchDrain {
     fn consume_segments(&mut self) -> Result<usize> {
-        let core_impl = || -> Result<usize> {
+        let mut core_impl = || -> Result<usize> {
             loop {
                 let ret = self.consume_segments_impl();
                 if ret.is_err() {

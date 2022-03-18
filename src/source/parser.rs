@@ -208,8 +208,6 @@ pub struct TextParser {
 }
 
 impl TextParser {
-    const MIN_MARGIN: usize = 256;
-
     pub fn new(src: Box<dyn Stream>, format: &InoutFormat) -> Self {
         assert!(!format.is_binary());
         let offset = format.offset as usize;
@@ -241,7 +239,7 @@ impl TextParser {
         }
     }
 
-    fn read_head(&mut self, stream: &[u8]) -> Option<(usize, usize, usize)> {
+    fn read_head(&self, stream: &[u8]) -> Option<(usize, usize, usize)> {
         let mut p = 0;
 
         let (offset, fwd) = (self.parse_offset)(&stream[p..])?;
@@ -257,7 +255,7 @@ impl TextParser {
         Some((p, offset as usize, length as usize))
     }
 
-    fn read_body(&mut self, stream: &[u8], is_in_tail: bool, buf: &mut Vec<u8>) -> Option<(usize, bool, bool)> {
+    fn read_body(&self, stream: &[u8], is_in_tail: bool, buf: &mut Vec<u8>) -> Option<(usize, bool, bool)> {
         let mut p = 0;
         let mut is_in_tail = is_in_tail;
 
