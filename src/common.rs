@@ -95,7 +95,6 @@ impl InoutFormat {
     }
 }
 
-
 macro_rules! rep {
     ( $arr: expr, $n: expr ) => {{
         let mut v = Vec::new();
@@ -103,6 +102,113 @@ macro_rules! rep {
             v.extend_from_slice($arr);
         }
         v
+    }};
+}
+
+macro_rules! test_read_all {
+    ( $src: expr, $expected: expr ) => {{
+        let mut rng = thread_rng();
+        let mut src = $src;
+        let mut v = Vec::new();
+        loop {
+            let cap = (rng.gen::<usize>() % BLOCK_SIZE) + 128;
+            let len = v.len();
+            v.resize(len + cap, 0);
+
+            let fwd = src.read(&mut v[len..len + cap]).unwrap();
+            v.resize(len + fwd, 0);
+            if fwd == 0 {
+                break;
+            }
+        }
+
+        assert_eq!(v, $expected);
+    }};
+}
+
+pub trait Stream {
+    fn fill_buf(&mut self) -> Result<usize>;
+    fn as_slice(&self) -> &[u8];
+    fn consume(&mut self, amount: usize);
+}
+
+impl<T: Stream + ?Sized> Stream for Box<T> {
+    fn fill_buf(&mut self) -> Result<usize> {
+        (**self).fill_buf()
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        (**self).as_slice()
+    }
+
+    fn consume(&mut self, amount: usize) {
+        (**self).consume(amount);
+    }
+}
+
+macro_rules! test_stream_random_len {
+    ( $src: expr, $expected: expr ) => {{
+        let mut rng = thread_rng();
+        let mut src = $src;
+        let mut v = Vec::new();
+        loop {
+            let len = src.fill_buf().unwrap();
+            if len == 0 {
+                break;
+            }
+
+            let consume = std::cmp::min(len, rng.gen::<usize>() % (2 * BLOCK_SIZE) + 1);
+            v.extend_from_slice(&src.as_slice()[..consume]);
+            src.consume(consume);
+        }
+        assert_eq!(v, $expected);
+    }};
+}
+
+macro_rules! test_stream_random_consume {
+    ( $src: expr, $expected: expr ) => {{
+        let mut rng = thread_rng();
+        let mut src = $src;
+        let mut v = Vec::new();
+        loop {
+            let len = src.fill_buf().unwrap();
+            if len == 0 {
+                break;
+            }
+            if rng.gen::<bool>() {
+                src.consume(0);
+                continue;
+            }
+
+            v.extend_from_slice(&src.as_slice()[..(len + 1) / 2]);
+            src.consume((len + 1) / 2);
+        }
+        assert_eq!(v, $expected);
+    }};
+}
+
+macro_rules! test_stream_all_at_once {
+    ( $src: expr, $expected: expr ) => {{
+        let mut src = $src;
+        let mut prev_len = 0;
+        loop {
+            let len = src.fill_buf().unwrap();
+            if len == prev_len {
+                break;
+            }
+
+            src.consume(0);
+            prev_len = len;
+        }
+
+        let stream = src.as_slice();
+        let len = stream.len();
+        assert_eq!(len, $expected.len());
+        assert_eq!(stream, $expected);
+        src.consume(len);
+
+        let len = src.fill_buf().unwrap();
+        assert_eq!(len, 0);
     }};
 }
 
@@ -129,12 +235,11 @@ impl RepReader {
     }
 
     fn gen_len(&mut self) -> usize {
+        assert!(self.v.len() >= (self.offset + self.prev_len));
+        let clip = self.v.len() - (self.offset + self.prev_len);
+
         let rand = self.rng.gen::<usize>() % (3 * BLOCK_SIZE + 9) + 1;
-        let clip = self.v.len() - self.offset;
-
-        self.prev_len = std::cmp::min(rand, clip);
-        assert!(self.prev_len > 0);
-
+        self.prev_len += std::cmp::min(rand, clip);
         self.prev_len
     }
 
@@ -149,29 +254,26 @@ impl Read for RepReader {
             return Ok(0);
         }
 
+        // force clear the previous read when RepReader is used via trait Read
+        self.prev_len = 0;
         let len = std::cmp::min(self.gen_len(), buf.len());
-        buf.copy_from_slice(&self.v[self.offset..self.offset + len]);
+
+        let src = &self.v[self.offset..];
+        let len = std::cmp::min(len, src.len());
+
+        (&mut buf[..len]).copy_from_slice(&src[..len]);
         self.offset += len;
 
         Ok(len)
     }
 }
 
-macro_rules! test_read_all {
-    ( $src: expr, $expected: expr ) => {{
-        
-    }};
-}
-
 #[test]
-fn test_rep_reader() {
-    let mut src = RepReader::new("abc", 30);
-
-    loop {
-        let
-    }
-
-    ;
+fn test_rep_reader_read_all() {
+    test_read_all!(RepReader::new(b"a", 3000), rep!(b"a", 3000));
+    test_read_all!(RepReader::new(b"abc", 3000), rep!(b"abc", 3000));
+    test_read_all!(RepReader::new(b"abcbc", 3000), rep!(b"abcbc", 3000));
+    test_read_all!(RepReader::new(b"abcbcdefghijklm", 1000), rep!(b"abcbcdefghijklm", 1000));
 }
 
 impl Stream for RepReader {
@@ -188,28 +290,37 @@ impl Stream for RepReader {
 
     fn consume(&mut self, amount: usize) {
         assert!(amount <= self.prev_len);
+
+        if amount == 0 {
+            return;
+        }
         self.offset += amount;
+        self.prev_len -= amount;
     }
 }
 
-pub trait Stream {
-    fn fill_buf(&mut self) -> Result<usize>;
-    fn as_slice(&self) -> &[u8];
-    fn consume(&mut self, amount: usize);
+#[test]
+fn test_rep_reader_random_len() {
+    test_stream_random_len!(RepReader::new(b"a", 3000), rep!(b"a", 3000));
+    test_stream_random_len!(RepReader::new(b"abc", 3000), rep!(b"abc", 3000));
+    test_stream_random_len!(RepReader::new(b"abcbc", 3000), rep!(b"abcbc", 3000));
+    test_stream_random_len!(RepReader::new(b"abcbcdefghijklm", 1000), rep!(b"abcbcdefghijklm", 1000));
 }
 
-impl<T: Stream + ?Sized> Stream for Box<T> {
-    fn fill_buf(&mut self) -> Result<usize> {
-        (**self).fill_buf()
-    }
+#[test]
+fn test_rep_reader_random_consume() {
+    test_stream_random_consume!(RepReader::new(b"a", 3000), rep!(b"a", 3000));
+    test_stream_random_consume!(RepReader::new(b"abc", 3000), rep!(b"abc", 3000));
+    test_stream_random_consume!(RepReader::new(b"abcbc", 3000), rep!(b"abcbc", 3000));
+    test_stream_random_consume!(RepReader::new(b"abcbcdefghijklm", 1000), rep!(b"abcbcdefghijklm", 1000));
+}
 
-    fn as_slice(&self) -> &[u8] {
-        (**self).as_slice()
-    }
-
-    fn consume(&mut self, amount: usize) {
-        (**self).consume(amount);
-    }
+#[test]
+fn test_rep_reader_all_at_once() {
+    test_stream_all_at_once!(RepReader::new(b"a", 3000), rep!(b"a", 3000));
+    test_stream_all_at_once!(RepReader::new(b"abc", 3000), rep!(b"abc", 3000));
+    test_stream_all_at_once!(RepReader::new(b"abcbc", 3000), rep!(b"abcbc", 3000));
+    test_stream_all_at_once!(RepReader::new(b"abcbcdefghijklm", 1000), rep!(b"abcbcdefghijklm", 1000));
 }
 
 pub struct StreamBuf {
@@ -279,7 +390,7 @@ impl StreamBuf {
         }
         self.cap = std::cmp::max(self.cap, self.buf.len());
 
-        assert!(self.buf.len() >= self.pos + MARGIN_SIZE);
+        // assert!(self.buf.len() >= self.pos + MARGIN_SIZE);
         Ok(self.buf.len() - self.pos)
     }
 
@@ -315,11 +426,105 @@ impl StreamBuf {
             let additional = self.cap.saturating_sub(self.buf.capacity());
             self.buf.reserve(additional);
         } else {
-            self.cap = BLOCK_SIZE; // reset the capacity
+            self.cap = std::cmp::max(self.buf.len() + 1, BLOCK_SIZE);
+            debug_assert!(self.buf.len() < self.cap);
         }
 
         debug_assert!(self.buf.capacity() >= MARGIN_SIZE);
     }
+}
+
+#[test]
+fn test_stream_buf_random() {
+    macro_rules! test {
+        ( $pattern: expr, $n: expr ) => {{
+            let mut rng = thread_rng();
+            let mut src = RepReader::new($pattern, $n);
+            let mut buf = StreamBuf::new();
+            let mut v = Vec::new();
+            let mut prev_len = 0;
+            loop {
+                let len = buf.fill_buf(|buf| {
+                    let len = src.fill_buf().unwrap();
+                    buf.extend_from_slice(src.as_slice());
+                    src.consume(len);
+
+                    Ok(())
+                }).unwrap();
+
+                if len == prev_len {
+                    break;
+                }
+
+                if rng.gen::<bool>() {
+                    buf.consume(0);
+                    prev_len = len;
+                    continue;
+                }
+
+                let consume = std::cmp::min(len, rng.gen::<usize>() % (2 * BLOCK_SIZE) + 1);
+                v.extend_from_slice(&buf.as_slice()[..consume]);
+
+                buf.consume(consume);
+                prev_len = len - consume;
+            }
+            assert_eq!(v.len(), src.all().len());
+            assert_eq!(v, src.all());
+        }};
+    }
+
+    test!(b"a", 3000);
+    test!(b"abc", 3000);
+    test!(b"abcbc", 3000);
+    test!(b"abcbcdefghijklm", 1000);
+}
+
+#[test]
+fn test_stream_buf_all_at_once() {
+    macro_rules! test {
+        ( $pattern: expr, $n: expr ) => {{
+            let mut src = RepReader::new($pattern, $n);
+            let mut buf = StreamBuf::new();
+            let mut prev_len = 0;
+            loop {
+                let len = buf.fill_buf(|buf| {
+                    let len = src.fill_buf().unwrap();
+                    buf.extend_from_slice(src.as_slice());
+                    src.consume(len);
+
+                    Ok(())
+                }).unwrap();
+
+                if len == prev_len {
+                    break;
+                }
+
+                buf.consume(0);
+                prev_len = len;
+            }
+
+            assert_eq!(buf.as_slice().len(), src.all().len());
+            assert_eq!(buf.as_slice(), src.all());
+
+            let len = buf.as_slice().len();
+            buf.consume(len);
+
+            let len = buf.fill_buf(|buf| {
+                let len = src.fill_buf().unwrap();
+                buf.extend_from_slice(src.as_slice());
+                src.consume(len);
+
+                Ok(())
+            }).unwrap();
+            assert_eq!(len, 0);
+            assert_eq!(buf.as_slice(), b"");
+        }};
+    }
+
+    test!(b"a", 3000);
+    test!(b"abc", 3000);
+    test!(b"abcbc", 3000);
+    test!(b"abcbcdefghijklm", 1000);
 }
 
 pub struct EofStream<T: Sized + Stream> {
