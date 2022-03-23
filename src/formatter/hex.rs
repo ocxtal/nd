@@ -10,7 +10,8 @@ use core::arch::aarch64::*;
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use core::arch::x86_64::*;
 
-use crate::common::{SegmentStream, FillUninit, Segment, BLOCK_SIZE};
+use crate::common::{FillUninit, Segment, BLOCK_SIZE};
+use crate::stream::SegmentStream;
 
 fn format_hex_single_naive(dst: &mut [u8], offset: usize, bytes: usize) -> usize {
     for (i, x) in dst[..2 * bytes].iter_mut().enumerate() {

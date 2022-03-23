@@ -1,8 +1,10 @@
 // @file patch.rs
 // @author Hajime Suzuki
 
-use crate::common::{ConsumeSegments, SegmentStream, FillUninit, InoutFormat, Segment, Stream, StreamBuf, BLOCK_SIZE};
+use crate::common::{FillUninit, InoutFormat, Segment, BLOCK_SIZE};
 use crate::source::PatchStream;
+use crate::stream::{ByteStream, SegmentStream, StreamDrain};
+use crate::streambuf::StreamBuf;
 use std::io::{Read, Result, Seek, SeekFrom, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -77,7 +79,7 @@ impl SegmentStream for CacheStream {
     }
 }
 
-impl Stream for CacheStreamReader {
+impl ByteStream for CacheStreamReader {
     fn fill_buf(&mut self) -> Result<usize> {
         self.buf.fill_buf(|buf| {
             if let Ok(mut cache) = self.cache.lock() {
@@ -140,7 +142,7 @@ impl BashPipe {
     }
 }
 
-impl Stream for BashPipeReader {
+impl ByteStream for BashPipeReader {
     fn fill_buf(&mut self) -> Result<usize> {
         self.buf.fill_buf(|buf| {
             buf.fill_uninit(BLOCK_SIZE, |buf| self.output.read(buf))?;
@@ -222,7 +224,7 @@ impl PatchDrain {
     }
 }
 
-impl ConsumeSegments for PatchDrain {
+impl StreamDrain for PatchDrain {
     fn consume_segments(&mut self) -> Result<usize> {
         let mut core_impl = || -> Result<usize> {
             loop {

@@ -2,7 +2,8 @@
 // @author Hajime Suzuki
 // @brief constant-stride slicer
 
-use crate::common::{EofStream, SegmentStream, Segment, Stream, BLOCK_SIZE};
+use crate::common::{Segment, BLOCK_SIZE};
+use crate::stream::{ByteStream, EofStream, SegmentStream};
 use std::io::Result;
 
 struct ConstStrideSegments {
@@ -171,12 +172,12 @@ impl ConstStrideSegments {
 }
 
 pub struct ConstStrideSlicer {
-    src: EofStream<Box<dyn Stream>>,
+    src: EofStream<Box<dyn ByteStream>>,
     segments: ConstStrideSegments,
 }
 
 impl ConstStrideSlicer {
-    pub fn new(src: Box<dyn Stream>, margin: (usize, usize), pitch: usize, len: usize) -> Self {
+    pub fn new(src: Box<dyn ByteStream>, margin: (usize, usize), pitch: usize, len: usize) -> Self {
         ConstStrideSlicer {
             src: EofStream::new(src),
             segments: ConstStrideSegments::new(margin, pitch, len),

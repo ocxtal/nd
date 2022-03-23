@@ -3,7 +3,9 @@
 // @date 2022/2/4
 
 use super::parser::TextParser;
-use crate::common::{InoutFormat, Stream, StreamBuf, BLOCK_SIZE};
+use crate::common::{InoutFormat, BLOCK_SIZE};
+use crate::stream::ByteStream;
+use crate::streambuf::StreamBuf;
 use std::io::Result;
 
 pub struct GaplessTextStream {
@@ -12,7 +14,7 @@ pub struct GaplessTextStream {
 }
 
 impl GaplessTextStream {
-    pub fn new(src: Box<dyn Stream>, align: usize, format: &InoutFormat) -> Self {
+    pub fn new(src: Box<dyn ByteStream>, align: usize, format: &InoutFormat) -> Self {
         assert!(!format.is_binary());
         assert!(format.is_gapless());
 
@@ -23,7 +25,7 @@ impl GaplessTextStream {
     }
 }
 
-impl Stream for GaplessTextStream {
+impl ByteStream for GaplessTextStream {
     fn fill_buf(&mut self) -> Result<usize> {
         self.buf.fill_buf(|buf| {
             self.inner.read_line(buf)?;
@@ -74,7 +76,7 @@ pub struct TextStream {
 }
 
 impl TextStream {
-    pub fn new(src: Box<dyn Stream>, align: usize, format: &InoutFormat) -> Self {
+    pub fn new(src: Box<dyn ByteStream>, align: usize, format: &InoutFormat) -> Self {
         assert!(!format.is_binary());
         assert!(!format.is_gapless());
 
@@ -87,7 +89,7 @@ impl TextStream {
     }
 }
 
-impl Stream for TextStream {
+impl ByteStream for TextStream {
     fn fill_buf(&mut self) -> Result<usize> {
         self.buf.fill_buf(|buf| {
             let next_offset = std::cmp::min(self.offset + BLOCK_SIZE, self.line.offset);

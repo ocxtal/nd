@@ -4,6 +4,6 @@
 
 mod hex;
 
-pub use self::hex::HexFormatter;
+pub(crate) use self::hex::HexFormatter;
 
 // end of mod.rs

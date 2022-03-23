@@ -14,7 +14,8 @@ mod x86_64;
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use x86_64::*;
 
-use crate::common::{FillUninit, InoutFormat, Stream, ToResult};
+use crate::common::{FillUninit, InoutFormat, ToResult};
+use crate::stream::ByteStream;
 use std::io::Result;
 
 mod naive;
@@ -199,7 +200,7 @@ type ParseSingle = fn(&[u8]) -> Option<(u64, usize)>;
 type ParseBody = fn(bool, &[u8], &mut [u8]) -> Option<((usize, usize), usize)>;
 
 pub struct TextParser {
-    src: Box<dyn Stream>,
+    src: Box<dyn ByteStream>,
 
     // parser for non-binary streams; bypassed for binary streams (though the functions are valid)
     parse_offset: ParseSingle,
@@ -208,7 +209,7 @@ pub struct TextParser {
 }
 
 impl TextParser {
-    pub fn new(src: Box<dyn Stream>, format: &InoutFormat) -> Self {
+    pub fn new(src: Box<dyn ByteStream>, format: &InoutFormat) -> Self {
         assert!(!format.is_binary());
         let offset = format.offset as usize;
         let length = format.length as usize;

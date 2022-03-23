@@ -1,7 +1,8 @@
 // @file scatter.rs
 // @author Hajime Suzuki
 
-use crate::common::{ConsumeSegments, SegmentStream, BLOCK_SIZE};
+use crate::common::BLOCK_SIZE;
+use crate::stream::{StreamDrain, SegmentStream};
 use std::io::{Read, Result, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::mpsc::{channel, Sender};
@@ -90,7 +91,7 @@ impl ScatterDrain {
     }
 }
 
-impl ConsumeSegments for ScatterDrain {
+impl StreamDrain for ScatterDrain {
     fn consume_segments(&mut self) -> Result<usize> {
         loop {
             let len = self.consume_segments_impl()?;

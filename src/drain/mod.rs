@@ -5,8 +5,8 @@ mod patch;
 mod scatter;
 mod trans;
 
-pub use self::patch::PatchDrain;
-pub use self::scatter::ScatterDrain;
-pub use self::trans::TransparentDrain;
+pub(crate) use self::patch::PatchDrain;
+pub(crate) use self::scatter::ScatterDrain;
+pub(crate) use self::trans::TransparentDrain;
 
 // end of mod.rs

@@ -2,17 +2,17 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
-use crate::common::Stream;
+use crate::stream::ByteStream;
 use std::io::Result;
 
 pub struct ClipStream {
-    src: Box<dyn Stream>,
+    src: Box<dyn ByteStream>,
     skip: usize,
     rem: usize,
 }
 
 impl ClipStream {
-    pub fn new(src: Box<dyn Stream>, skip: usize, len: usize) -> Self {
+    pub fn new(src: Box<dyn ByteStream>, skip: usize, len: usize) -> Self {
         ClipStream {
             src,
             skip,
@@ -21,7 +21,7 @@ impl ClipStream {
     }
 }
 
-impl Stream for ClipStream {
+impl ByteStream for ClipStream {
     fn fill_buf(&mut self) -> Result<usize> {
         while self.skip > 0 {
             let len = self.src.fill_buf()?;

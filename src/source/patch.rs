@@ -3,7 +3,9 @@
 // @date 2022/2/5
 
 use super::parser::TextParser;
-use crate::common::{InoutFormat, Stream, StreamBuf};
+use crate::common::InoutFormat;
+use crate::stream::ByteStream;
+use crate::streambuf::StreamBuf;
 use std::io::Result;
 
 struct PatchFeeder {
@@ -65,7 +67,7 @@ impl PatchFeeder {
 }
 
 pub struct PatchStream {
-    src: Box<dyn Stream>,
+    src: Box<dyn ByteStream>,
     patch: PatchFeeder,
     buf: StreamBuf,
     skip: usize,
@@ -73,7 +75,7 @@ pub struct PatchStream {
 }
 
 impl PatchStream {
-    pub fn new(src: Box<dyn Stream>, patch: Box<dyn Stream>, format: &InoutFormat) -> Self {
+    pub fn new(src: Box<dyn ByteStream>, patch: Box<dyn ByteStream>, format: &InoutFormat) -> Self {
         PatchStream {
             src,
             patch: PatchFeeder::new(TextParser::new(patch, format)),
@@ -88,7 +90,7 @@ impl PatchStream {
     // }
 }
 
-impl Stream for PatchStream {
+impl ByteStream for PatchStream {
     fn fill_buf(&mut self) -> Result<usize> {
         self.buf.fill_buf(|buf| {
             while self.skip > 0 {

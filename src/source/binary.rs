@@ -2,7 +2,9 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
-use crate::common::{FillUninit, InoutFormat, Stream, StreamBuf, BLOCK_SIZE};
+use crate::common::{FillUninit, InoutFormat, BLOCK_SIZE};
+use crate::stream::ByteStream;
+use crate::streambuf::StreamBuf;
 use std::io::{Read, Result};
 
 pub struct BinaryStream {
@@ -20,7 +22,7 @@ impl BinaryStream {
     }
 }
 
-impl Stream for BinaryStream {
+impl ByteStream for BinaryStream {
     fn fill_buf(&mut self) -> Result<usize> {
         self.buf.fill_buf(|buf| {
             buf.fill_uninit(BLOCK_SIZE, |arr| self.src.read(arr))?;

@@ -2,12 +2,13 @@
 // @author Hajime Suzuki
 // @brief regex slicer
 
-use crate::common::{EofStream, Stream, SegmentStream, Segment, BLOCK_SIZE};
+use crate::common::{Segment, BLOCK_SIZE};
+use crate::stream::{ByteStream, EofStream, SegmentStream};
 use regex::bytes::{Match, Regex};
 use std::io::Result;
 
 pub struct RegexSlicer {
-    src: EofStream<Box<dyn Stream>>,
+    src: EofStream<Box<dyn ByteStream>>,
     prev_len: usize,
     width: usize,
     re: Regex,
@@ -15,7 +16,7 @@ pub struct RegexSlicer {
 }
 
 impl RegexSlicer {
-    pub fn new(src: Box<dyn Stream>, width: usize, pattern: &str) -> Self {
+    pub fn new(src: Box<dyn ByteStream>, width: usize, pattern: &str) -> Self {
         RegexSlicer {
             src: EofStream::new(src),
             prev_len: 0,

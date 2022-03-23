@@ -2,11 +2,13 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
-use crate::common::{FillUninit, Stream, StreamBuf};
+use crate::common::FillUninit;
+use crate::stream::ByteStream;
+use crate::streambuf::StreamBuf;
 use std::io::Result;
 
 pub struct ZipStream {
-    srcs: Vec<Box<dyn Stream>>,
+    srcs: Vec<Box<dyn ByteStream>>,
     buf: StreamBuf,
     ptrs: Vec<*const u8>, // pointer cache (only for use in the fill_buf_impl function)
     fill_buf_impl: fn(&mut Self) -> Result<usize>,
@@ -54,7 +56,7 @@ macro_rules! fill_buf_impl {
 }
 
 impl ZipStream {
-    pub fn new(srcs: Vec<Box<dyn Stream>>, word_size: usize) -> Self {
+    pub fn new(srcs: Vec<Box<dyn ByteStream>>, word_size: usize) -> Self {
         assert!(!srcs.is_empty());
         assert!(word_size.is_power_of_two() && word_size <= 16);
 
@@ -78,7 +80,7 @@ impl ZipStream {
     fill_buf_impl!(fill_buf_impl_w16, 16);
 }
 
-impl Stream for ZipStream {
+impl ByteStream for ZipStream {
     fn fill_buf(&mut self) -> Result<usize> {
         (self.fill_buf_impl)(self)
     }

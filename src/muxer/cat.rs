@@ -2,18 +2,20 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
-use crate::common::{EofStream, Stream, StreamBuf, BLOCK_SIZE};
+use crate::common::BLOCK_SIZE;
+use crate::stream::{EofStream, ByteStream};
+use crate::streambuf::StreamBuf;
 use std::io::Result;
 
 pub struct CatStream {
-    srcs: Vec<EofStream<Box<dyn Stream>>>,
+    srcs: Vec<EofStream<Box<dyn ByteStream>>>,
     i: usize,
     rem: usize,
     cache: StreamBuf,
 }
 
 impl CatStream {
-    pub fn new(srcs: Vec<Box<dyn Stream>>) -> Self {
+    pub fn new(srcs: Vec<Box<dyn ByteStream>>) -> Self {
         CatStream {
             srcs: srcs.into_iter().map(|x| EofStream::new(x)).collect(),
             i: 0,
@@ -51,7 +53,7 @@ impl CatStream {
     }
 }
 
-impl Stream for CatStream {
+impl ByteStream for CatStream {
     fn fill_buf(&mut self) -> Result<usize> {
         if self.i >= self.srcs.len() {
             debug_assert!(self.rem == usize::MAX);

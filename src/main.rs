@@ -8,17 +8,21 @@ mod formatter;
 mod slicer;
 mod source;
 mod stream;
+mod streambuf;
+mod tester;
+mod muxer;
 
 use clap::{App, AppSettings, Arg, ColorChoice};
 use std::io::{Read, Write};
 
-use common::{ConsumeSegments, SegmentStream, Stream, InoutFormat, BLOCK_SIZE};
+use common::{InoutFormat, BLOCK_SIZE};
 use drain::{PatchDrain, ScatterDrain, TransparentDrain};
 use eval::{parse_int, parse_range};
 use formatter::HexFormatter;
 use slicer::{ConstStrideSlicer, HammingSlicer, RegexSlicer, SliceMerger};
 use source::{BinaryStream, GaplessTextStream, PatchStream, TextStream};
-use stream::{CatStream, ClipStream, ZipStream};
+use stream::{ByteStream, SegmentStream, StreamDrain};
+use muxer::{CatStream, ClipStream, ZipStream};
 
 fn create_source(name: &str) -> Box<dyn Read> {
     if name == "-" {
@@ -157,9 +161,9 @@ fn main() {
     };
 
     let inputs: Vec<&str> = m.values_of("inputs").unwrap().collect();
-    let inputs: Vec<Box<dyn Stream>> = inputs
+    let inputs: Vec<Box<dyn ByteStream>> = inputs
         .iter()
-        .map(|x| -> Box<dyn Stream> {
+        .map(|x| -> Box<dyn ByteStream> {
             let src = create_source(x);
             let src = Box::new(BinaryStream::new(src, word_size, &InoutFormat::input_default()));
             if input_format.is_binary() {
@@ -174,7 +178,7 @@ fn main() {
         })
         .collect();
 
-    let input: Box<dyn Stream> = if let Some(_) = m.value_of("zip") {
+    let input: Box<dyn ByteStream> = if let Some(_) = m.value_of("zip") {
         Box::new(ZipStream::new(inputs, word_size))
     } else {
         Box::new(CatStream::new(inputs))
@@ -304,7 +308,7 @@ fn main() {
 
     // postprocess
     let output: Box<dyn Write + Send> = Box::new(std::io::stdout());
-    let mut output: Box<dyn ConsumeSegments> = if let Some(scatter) = m.value_of("scatter") {
+    let mut output: Box<dyn StreamDrain> = if let Some(scatter) = m.value_of("scatter") {
         Box::new(ScatterDrain::new(formatter, output, scatter))
     } else if let Some(patch_back) = m.value_of("patch-back") {
         Box::new(PatchDrain::new(formatter, output, &patch_format, patch_back))

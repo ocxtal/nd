@@ -1,7 +1,7 @@
 // @file trans.rs
 // @author Hajime Suzuki
 
-use crate::common::{ConsumeSegments, SegmentStream};
+use crate::stream::{StreamDrain, SegmentStream};
 use std::io::{Result, Write};
 
 pub struct TransparentDrain {
@@ -33,7 +33,7 @@ impl TransparentDrain {
     }
 }
 
-impl ConsumeSegments for TransparentDrain {
+impl StreamDrain for TransparentDrain {
     fn consume_segments(&mut self) -> Result<usize> {
         loop {
             let len = self.consume_segments_impl()?;
