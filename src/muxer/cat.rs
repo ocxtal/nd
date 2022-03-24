@@ -17,7 +17,7 @@ pub struct CatStream {
 impl CatStream {
     pub fn new(srcs: Vec<Box<dyn ByteStream>>) -> Self {
         CatStream {
-            srcs: srcs.into_iter().map(|x| EofStream::new(x)).collect(),
+            srcs: srcs.into_iter().map(EofStream::new).collect(),
             i: 0,
             rem: 0,
             cache: StreamBuf::new(),

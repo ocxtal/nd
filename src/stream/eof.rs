@@ -3,8 +3,10 @@
 // @date 2022/3/23
 
 use super::ByteStream;
-use crate::common::BLOCK_SIZE;
 use std::io::Result;
+
+#[cfg(test)]
+use crate::common::BLOCK_SIZE;
 
 #[cfg(test)]
 use super::tester::*;

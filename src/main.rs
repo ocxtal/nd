@@ -167,17 +167,15 @@ fn main() {
             let src = Box::new(BinaryStream::new(src, word_size, &InoutFormat::input_default()));
             if input_format.is_binary() {
                 src
+            } else if input_format.is_gapless() {
+                Box::new(GaplessTextStream::new(src, word_size, &input_format))
             } else {
-                if input_format.is_gapless() {
-                    Box::new(GaplessTextStream::new(src, word_size, &input_format))
-                } else {
-                    Box::new(TextStream::new(src, word_size, &input_format))
-                }
+                Box::new(TextStream::new(src, word_size, &input_format))
             }
         })
         .collect();
 
-    let input: Box<dyn ByteStream> = if let Some(_) = m.value_of("zip") {
+    let input: Box<dyn ByteStream> = if m.value_of("zip").is_some() {
         Box::new(ZipStream::new(inputs, word_size))
     } else {
         Box::new(CatStream::new(inputs))

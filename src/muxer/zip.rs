@@ -27,7 +27,6 @@ macro_rules! fill_buf_impl {
                 *ptr = src.as_slice().as_ptr();
             }
 
-            debug_assert!((bulk_len & ($w - 1)) == 0);
             if bulk_len == 0 {
                 return Ok(0);
             }
@@ -72,7 +71,7 @@ impl ZipStream {
 
         let len = srcs.len();
         ZipStream {
-            srcs: srcs,
+            srcs,
             buf: StreamBuf::new(),
             ptrs: (0..len).map(|_| std::ptr::null::<u8>()).collect(),
             fill_buf_impl: fill_buf_impls[index],

@@ -52,7 +52,7 @@ impl StreamBuf {
         let rounded = (tail + self.align - 1) / self.align * self.align;
         self.buf.resize(rounded - self.offset, 0);
 
-        return Ok(self.buf.len() - self.pos);
+        Ok(self.buf.len() - self.pos)
     }
 
     pub fn fill_buf<F>(&mut self, f: F) -> Result<usize>

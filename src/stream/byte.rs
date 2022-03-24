@@ -26,6 +26,7 @@ impl<T: ByteStream + ?Sized> ByteStream for Box<T> {
 }
 
 // concatenation of random-length chunks
+#[allow(unused_macros)]
 macro_rules! test_stream_random_len {
     ( $src: expr, $expected: expr ) => {{
         let mut rng = rand::thread_rng();
@@ -45,9 +46,11 @@ macro_rules! test_stream_random_len {
     }};
 }
 
+#[allow(unused_imports)]
 pub(crate) use test_stream_random_len;
 
 // random selection of consume-some or request-more
+#[allow(unused_macros)]
 macro_rules! test_stream_random_consume {
     ( $src: expr, $expected: expr ) => {{
         let mut rng = rand::thread_rng();
@@ -70,9 +73,11 @@ macro_rules! test_stream_random_consume {
     }};
 }
 
+#[allow(unused_imports)]
 pub(crate) use test_stream_random_consume;
 
 // iteratively request more bytes
+#[allow(unused_macros)]
 macro_rules! test_stream_all_at_once {
     ( $src: expr, $expected: expr ) => {{
         let mut src = $src;
@@ -101,6 +106,7 @@ macro_rules! test_stream_all_at_once {
     }};
 }
 
+#[allow(unused_imports)]
 pub(crate) use test_stream_all_at_once;
 
 // end of byte.rs

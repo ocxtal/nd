@@ -228,12 +228,9 @@ impl StreamDrain for PatchDrain {
     fn consume_segments(&mut self) -> Result<usize> {
         let mut core_impl = || -> Result<usize> {
             loop {
-                let ret = self.consume_segments_impl();
-                if ret.is_err() {
-                    return ret;
-                }
-                if let Ok(_len @ 0) = ret {
-                    return ret;
+                let ret = self.consume_segments_impl()?;
+                if ret == 0 {
+                    return Ok(ret);
                 }
             }
         };

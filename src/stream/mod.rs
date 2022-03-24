@@ -5,8 +5,10 @@
 mod byte;
 mod drain;
 mod eof;
-mod mock;
 mod segment;
+
+#[cfg(test)]
+mod mock;
 
 pub use self::byte::ByteStream;
 pub use self::drain::StreamDrain;

@@ -135,7 +135,7 @@ pub trait ToResult<T> {
 
 impl<T> ToResult<T> for Option<T> {
     fn to_result(self) -> Result<T> {
-        self.ok_or(Error::from(ErrorKind::Other))
+        self.ok_or_else(|| Error::from(ErrorKind::Other))
     }
 }
 
@@ -151,7 +151,7 @@ pub trait FillUninit {
         F: FnMut(&mut [u8]) -> Option<(T, usize)>,
     {
         let mut f = f;
-        self.fill_uninit_with_ret(len, |buf| f(buf).ok_or(Error::from(ErrorKind::Other)))
+        self.fill_uninit_with_ret(len, |buf| f(buf).ok_or_else(|| Error::from(ErrorKind::Other)))
             .ok()
     }
 

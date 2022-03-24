@@ -107,7 +107,7 @@ impl ByteStream for PatchStream {
             let len = self.src.fill_buf()?;
             let mut stream = self.src.as_slice();
 
-            while stream.len() > 0 {
+            while !stream.is_empty() {
                 // region where we keep the original stream
                 let next_offset = std::cmp::min(self.offset + stream.len(), self.patch.offset);
                 let fwd_len = next_offset - self.offset;
@@ -115,7 +115,7 @@ impl ByteStream for PatchStream {
 
                 let (fwd, rem) = stream.split_at(fwd_len);
                 buf.extend_from_slice(fwd);
-                if rem.len() == 0 {
+                if rem.is_empty() {
                     break;
                 }
 
