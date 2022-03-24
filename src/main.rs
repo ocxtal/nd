@@ -203,7 +203,7 @@ fn main() {
     };
 
     let (pad, adj) = (pad.max(offset) - offset, pad.max(offset) - pad);
-    let (pad, skip, len) = if len == usize::MAX {
+    let (_pad, skip, len) = if len == usize::MAX {
         (pad.min(len), skip + adj, usize::MAX)
     } else {
         (pad.min(len), skip + adj, pad.max(len) - pad)

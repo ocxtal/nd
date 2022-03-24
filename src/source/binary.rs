@@ -7,6 +7,15 @@ use crate::stream::ByteStream;
 use crate::streambuf::StreamBuf;
 use std::io::{Read, Result};
 
+#[cfg(test)]
+use crate::tester::rep;
+
+#[cfg(test)]
+use crate::stream::tester::*;
+
+#[cfg(test)]
+use rand::{Rng, thread_rng};
+
 pub struct BinaryStream {
     src: Box<dyn Read>,
     buf: StreamBuf,
@@ -14,6 +23,7 @@ pub struct BinaryStream {
 
 impl BinaryStream {
     pub fn new(src: Box<dyn Read>, align: usize, format: &InoutFormat) -> Self {
+        assert!(align > 0);
         assert!(format.is_binary());
         BinaryStream {
             src,
@@ -37,6 +47,23 @@ impl ByteStream for BinaryStream {
     fn consume(&mut self, amount: usize) {
         self.buf.consume(amount);
     }
+}
+
+#[test]
+fn test_binary_stream_random_len() {
+    macro_rules! test {
+        ( $pattern: expr ) => {{
+            let pattern = $pattern;
+            let src = Box::new(MockSource::new(&pattern));
+            let src = BinaryStream::new(src, 1, &InoutFormat::input_default());
+            test_stream_random_len!(src, pattern);
+        }};
+    }
+
+    test!(rep!(b"a", 3000));
+    test!(rep!(b"abc", 3000));
+    test!(rep!(b"abcbc", 3000));
+    test!(rep!(b"abcbcdefghijklmno", 1001));
 }
 
 // end of binary.rs

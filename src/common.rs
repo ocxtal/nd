@@ -12,7 +12,7 @@ pub const BLOCK_SIZE: usize = 29 * 5;
 #[cfg(not(test))]
 pub const BLOCK_SIZE: usize = 2 * 1024 * 1024;
 
-pub const MARGIN_SIZE: usize = 256;
+// pub const MARGIN_SIZE: usize = 256;
 
 #[derive(Copy, Clone, Debug)]
 pub struct InoutFormat {
@@ -91,9 +91,9 @@ impl InoutFormat {
         self.is_gapless() && self.body == b'b'
     }
 
-    pub fn has_location(&self) -> bool {
-        self.offset != b'n' && self.length != b'n'
-    }
+    // pub fn has_location(&self) -> bool {
+    //     self.offset != b'n' && self.length != b'n'
+    // }
 }
 
 #[derive(Copy, Clone, Debug, Default)]

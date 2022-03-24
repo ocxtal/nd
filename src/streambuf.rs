@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 // @date 2022/3/23
 
-use crate::common::{BLOCK_SIZE, MARGIN_SIZE};
+use crate::common::BLOCK_SIZE;
 use crate::tester::rep;
 use std::io::Result;
 
@@ -122,7 +122,7 @@ impl StreamBuf {
             debug_assert!(self.buf.len() < self.cap);
         }
 
-        debug_assert!(self.buf.capacity() >= MARGIN_SIZE);
+        // debug_assert!(self.buf.capacity() >= MARGIN_SIZE);
     }
 }
 
