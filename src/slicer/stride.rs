@@ -113,7 +113,10 @@ impl ConstStrideSegments {
     }
 
     fn fill_segment_buf(&mut self, is_eof: bool, len: usize) -> Result<(usize, usize)> {
-        eprintln!("fill: {:?}, {:?}, {:?}, {:?}, {:?}", is_eof, len, self.flush_threshold, self.phase, self.prev_phase);
+        eprintln!(
+            "fill: {:?}, {:?}, {:?}, {:?}, {:?}",
+            is_eof, len, self.flush_threshold, self.phase, self.prev_phase
+        );
         if self.flush_threshold > 0 {
             // is still in the head
             if is_eof {

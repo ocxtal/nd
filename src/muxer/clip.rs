@@ -13,11 +13,7 @@ pub struct ClipStream {
 
 impl ClipStream {
     pub fn new(src: Box<dyn ByteStream>, skip: usize, len: usize) -> Self {
-        ClipStream {
-            src,
-            skip,
-            rem: len,
-        }
+        ClipStream { src, skip, rem: len }
     }
 }
 

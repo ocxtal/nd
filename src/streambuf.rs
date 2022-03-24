@@ -3,17 +3,13 @@
 // @date 2022/3/23
 
 use crate::common::BLOCK_SIZE;
-use crate::tester::rep;
 use std::io::Result;
 
 #[cfg(test)]
 use crate::stream::ByteStream;
 
 #[cfg(test)]
-use rand::{Rng, thread_rng};
-
-#[cfg(test)]
-use crate::stream::tester::MockSource;
+use crate::stream::tester::*;
 
 pub struct StreamBuf {
     buf: Vec<u8>,
@@ -132,7 +128,7 @@ fn test_stream_buf_random_len() {
         ( $pattern: expr ) => {{
             let pattern = $pattern;
 
-            let mut rng = thread_rng();
+            let mut rng = rand::thread_rng();
             let mut src = MockSource::new(&pattern);
             let mut buf = StreamBuf::new();
 
@@ -140,17 +136,19 @@ fn test_stream_buf_random_len() {
             let mut acc = 0;
             let mut drain = Vec::new();
             while drain.len() < pattern.len() {
-                let len = buf.fill_buf(|buf| {
-                    let len = src.fill_buf().unwrap();
-                    let slice = src.as_slice();
-                    assert_eq!(slice.len(), len);
+                let len = buf
+                    .fill_buf(|buf| {
+                        let len = src.fill_buf().unwrap();
+                        let slice = src.as_slice();
+                        assert_eq!(slice.len(), len);
 
-                    buf.extend_from_slice(slice);
-                    src.consume(len);
-                    acc += len;
+                        buf.extend_from_slice(slice);
+                        src.consume(len);
+                        acc += len;
 
-                    Ok(())
-                }).unwrap();
+                        Ok(())
+                    })
+                    .unwrap();
 
                 let consume: usize = rng.gen_range(1..=std::cmp::min(len, 2 * BLOCK_SIZE));
                 drain.extend_from_slice(&buf.as_slice()[..consume]);
@@ -182,7 +180,7 @@ fn test_stream_buf_random_consume() {
         ( $pattern: expr ) => {{
             let pattern = $pattern;
 
-            let mut rng = thread_rng();
+            let mut rng = rand::thread_rng();
             let mut src = MockSource::new(&pattern);
             let mut buf = StreamBuf::new();
 
@@ -190,17 +188,19 @@ fn test_stream_buf_random_consume() {
             let mut acc = 0;
             let mut drain = Vec::new();
             while drain.len() < pattern.len() {
-                let len = buf.fill_buf(|buf| {
-                    let len = src.fill_buf().unwrap();
-                    let slice = src.as_slice();
-                    assert_eq!(slice.len(), len);
+                let len = buf
+                    .fill_buf(|buf| {
+                        let len = src.fill_buf().unwrap();
+                        let slice = src.as_slice();
+                        assert_eq!(slice.len(), len);
 
-                    buf.extend_from_slice(slice);
-                    src.consume(len);
-                    acc += len;
+                        buf.extend_from_slice(slice);
+                        src.consume(len);
+                        acc += len;
 
-                    Ok(())
-                }).unwrap();
+                        Ok(())
+                    })
+                    .unwrap();
 
                 if rng.gen::<bool>() {
                     buf.consume(0);
@@ -242,17 +242,19 @@ fn test_stream_buf_all_at_once() {
             let mut acc = 0;
             let mut prev_len = 0;
             loop {
-                let len = buf.fill_buf(|buf| {
-                    let len = src.fill_buf().unwrap();
-                    let slice = src.as_slice();
-                    assert_eq!(slice.len(), len);
+                let len = buf
+                    .fill_buf(|buf| {
+                        let len = src.fill_buf().unwrap();
+                        let slice = src.as_slice();
+                        assert_eq!(slice.len(), len);
 
-                    buf.extend_from_slice(slice);
-                    src.consume(len);
-                    acc += len;
+                        buf.extend_from_slice(slice);
+                        src.consume(len);
+                        acc += len;
 
-                    Ok(())
-                }).unwrap();
+                        Ok(())
+                    })
+                    .unwrap();
 
                 if len == prev_len {
                     break;

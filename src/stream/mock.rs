@@ -2,18 +2,14 @@
 // @author Hajime Suzuki
 // @date 2022/3/23
 
-use crate::common::BLOCK_SIZE;
 use super::ByteStream;
+use crate::common::BLOCK_SIZE;
 use std::io::{Read, Result};
 
 #[cfg(test)]
-use crate::tester::{rep, test_read_all};
+use crate::stream::tester::*;
 
-#[cfg(test)]
-use crate::stream::tester::{test_stream_random_len, test_stream_random_consume, test_stream_all_at_once};
-
-#[cfg(test)]
-use rand::{Rng, thread_rng, rngs::ThreadRng};
+use rand::rngs::ThreadRng;
 
 pub struct MockSource {
     v: Vec<u8>,
@@ -28,7 +24,7 @@ impl MockSource {
             v: pattern.to_vec(),
             offset: 0,
             prev_len: 0,
-            rng: thread_rng(),
+            rng: rand::thread_rng(),
         }
     }
 
@@ -62,20 +58,6 @@ impl Read for MockSource {
     }
 }
 
-#[test]
-fn test_mock_source_read_all() {
-    macro_rules! test {
-        ( $pattern: expr ) => {
-            test_read_all!(MockSource::new(&$pattern), $pattern);
-        };
-    }
-
-    test!(rep!(b"a", 3000));
-    test!(rep!(b"abc", 3000));
-    test!(rep!(b"abcbc", 3000));
-    test!(rep!(b"abcbcdefghijklmno", 1001));
-}
-
 impl ByteStream for MockSource {
     fn fill_buf(&mut self) -> Result<usize> {
         if self.offset >= self.v.len() {
@@ -99,46 +81,27 @@ impl ByteStream for MockSource {
     }
 }
 
-#[test]
-fn test_mock_source_random_len() {
-    macro_rules! test {
-        ( $pattern: expr ) => {
-            test_stream_random_len!(MockSource::new(&$pattern), $pattern);
-        };
-    }
-
-    test!(rep!(b"a", 3000));
-    test!(rep!(b"abc", 3000));
-    test!(rep!(b"abcbc", 3000));
-    test!(rep!(b"abcbcdefghijklmno", 1001));
+macro_rules! test_inner {
+    ( $inner: ident, $pattern: expr ) => {
+        $inner!(MockSource::new(&$pattern), $pattern);
+    };
 }
 
-#[test]
-fn test_mock_source_random_consume() {
-    macro_rules! test {
-        ( $pattern: expr ) => {
-            test_stream_random_consume!(MockSource::new(&$pattern), $pattern);
-        };
-    }
-
-    test!(rep!(b"a", 3000));
-    test!(rep!(b"abc", 3000));
-    test!(rep!(b"abcbc", 3000));
-    test!(rep!(b"abcbcdefghijklmno", 1001));
+macro_rules! test_fn {
+    ( $name: ident, $inner: ident ) => {
+        #[test]
+        fn $name() {
+            test_inner!($inner, rep!(b"a", 3000));
+            test_inner!($inner, rep!(b"abc", 3000));
+            test_inner!($inner, rep!(b"abcbc", 3000));
+            test_inner!($inner, rep!(b"abcbcdefghijklmno", 1001));
+        }
+    };
 }
 
-#[test]
-fn test_mock_source_all_at_once() {
-    macro_rules! test {
-        ( $pattern: expr ) => {
-            test_stream_all_at_once!(MockSource::new(&$pattern), $pattern);
-        };
-    }
-
-    test!(rep!(b"a", 3000));
-    test!(rep!(b"abc", 3000));
-    test!(rep!(b"abcbc", 3000));
-    test!(rep!(b"abcbcdefghijklmno", 1001));
-}
+test_fn!(test_mock_source_read_all, test_read_all);
+test_fn!(test_mock_source_random_len, test_stream_random_len);
+test_fn!(test_mock_source_random_consume, test_stream_random_consume);
+test_fn!(test_mock_source_all_at_once, test_stream_all_at_once);
 
 // end of mock.rs

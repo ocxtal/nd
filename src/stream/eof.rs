@@ -2,15 +2,12 @@
 // @author Hajime Suzuki
 // @date 2022/3/23
 
+use super::ByteStream;
 use crate::common::BLOCK_SIZE;
 use std::io::Result;
-use super::ByteStream;
 
 #[cfg(test)]
 use super::tester::*;
-
-#[cfg(test)]
-use crate::tester::*;
 
 pub struct EofStream<T: Sized + ByteStream> {
     src: T,
@@ -81,7 +78,7 @@ fn test_eof_stream() {
             while rem > 0 {
                 let (is_eof, len) = src.fill_buf(BLOCK_SIZE).unwrap();
                 assert!(is_eof);
-                assert_eq!(len, rem);   // no bytes added after once EOF reported
+                assert_eq!(len, rem); // no bytes added after once EOF reported
 
                 drain.extend_from_slice(&src.as_slice()[..(rem + 1) / 2]);
                 src.consume((rem + 1) / 2);

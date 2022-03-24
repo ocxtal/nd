@@ -151,7 +151,8 @@ pub trait FillUninit {
         F: FnMut(&mut [u8]) -> Option<(T, usize)>,
     {
         let mut f = f;
-        self.fill_uninit_with_ret(len, |buf| f(buf).ok_or(Error::from(ErrorKind::Other))).ok()
+        self.fill_uninit_with_ret(len, |buf| f(buf).ok_or(Error::from(ErrorKind::Other)))
+            .ok()
     }
 
     fn fill_uninit<F>(&mut self, len: usize, f: F) -> Result<usize>

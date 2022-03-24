@@ -261,9 +261,9 @@ impl TextParser {
         let mut is_in_tail = is_in_tail;
 
         while (&stream[p..]).len() > 4 * 48 {
-            let (scanned, parsed) = buf.fill_uninit_on_option_with_ret(4 * 16, |arr: &mut [u8]| {
-                (self.parse_body)(is_in_tail, &stream[p..], arr)
-            })?.0;
+            let (scanned, parsed) = buf
+                .fill_uninit_on_option_with_ret(4 * 16, |arr: &mut [u8]| (self.parse_body)(is_in_tail, &stream[p..], arr))?
+                .0;
             p += parsed;
 
             if scanned < 4 * 48 {

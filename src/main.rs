@@ -5,12 +5,11 @@ mod common;
 mod drain;
 mod eval;
 mod formatter;
+mod muxer;
 mod slicer;
 mod source;
 mod stream;
 mod streambuf;
-mod tester;
-mod muxer;
 
 use clap::{App, AppSettings, Arg, ColorChoice};
 use std::io::{Read, Write};
@@ -19,10 +18,10 @@ use common::{InoutFormat, BLOCK_SIZE};
 use drain::{PatchDrain, ScatterDrain, TransparentDrain};
 use eval::{parse_int, parse_range};
 use formatter::HexFormatter;
+use muxer::{CatStream, ClipStream, ZipStream};
 use slicer::{ConstStrideSlicer, HammingSlicer, RegexSlicer, SliceMerger};
 use source::{BinaryStream, GaplessTextStream, PatchStream, TextStream};
 use stream::{ByteStream, SegmentStream, StreamDrain};
-use muxer::{CatStream, ClipStream, ZipStream};
 
 fn create_source(name: &str) -> Box<dyn Read> {
     if name == "-" {

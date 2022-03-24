@@ -7,7 +7,7 @@ use std::io::Result;
 
 pub trait SegmentStream {
     // chunked iterator
-    fn fill_segment_buf(&mut self) -> Result<(usize, usize)>;   // #bytes, #segments
+    fn fill_segment_buf(&mut self) -> Result<(usize, usize)>; // #bytes, #segments
     fn as_slices(&self) -> (&[u8], &[Segment]);
     fn consume(&mut self, bytes: usize) -> Result<usize>;
 }

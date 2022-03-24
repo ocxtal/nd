@@ -60,7 +60,13 @@ impl ZipStream {
         assert!(!srcs.is_empty());
         assert!(word_size.is_power_of_two() && word_size <= 16);
 
-        let fill_buf_impls = [Self::fill_buf_impl_w1, Self::fill_buf_impl_w2, Self::fill_buf_impl_w4, Self::fill_buf_impl_w8, Self::fill_buf_impl_w16];
+        let fill_buf_impls = [
+            Self::fill_buf_impl_w1,
+            Self::fill_buf_impl_w2,
+            Self::fill_buf_impl_w4,
+            Self::fill_buf_impl_w8,
+            Self::fill_buf_impl_w16,
+        ];
         let index = word_size.trailing_zeros() as usize;
         debug_assert!(index < 5);
 

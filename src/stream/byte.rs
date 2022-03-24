@@ -28,7 +28,7 @@ impl<T: ByteStream + ?Sized> ByteStream for Box<T> {
 // concatenation of random-length chunks
 macro_rules! test_stream_random_len {
     ( $src: expr, $expected: expr ) => {{
-        let mut rng = thread_rng();
+        let mut rng = rand::thread_rng();
         let mut src = $src;
         let mut v = Vec::new();
         loop {
@@ -50,7 +50,7 @@ pub(crate) use test_stream_random_len;
 // random selection of consume-some or request-more
 macro_rules! test_stream_random_consume {
     ( $src: expr, $expected: expr ) => {{
-        let mut rng = thread_rng();
+        let mut rng = rand::thread_rng();
         let mut src = $src;
         let mut v = Vec::new();
         loop {

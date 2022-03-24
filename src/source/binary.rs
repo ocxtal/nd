@@ -8,13 +8,7 @@ use crate::streambuf::StreamBuf;
 use std::io::{Read, Result};
 
 #[cfg(test)]
-use crate::tester::rep;
-
-#[cfg(test)]
 use crate::stream::tester::*;
-
-#[cfg(test)]
-use rand::{Rng, thread_rng};
 
 pub struct BinaryStream {
     src: Box<dyn Read>,

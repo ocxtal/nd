@@ -1,7 +1,7 @@
 // @file trans.rs
 // @author Hajime Suzuki
 
-use crate::stream::{StreamDrain, SegmentStream};
+use crate::stream::{SegmentStream, StreamDrain};
 use std::io::{Result, Write};
 
 pub struct TransparentDrain {
@@ -13,7 +13,12 @@ pub struct TransparentDrain {
 
 impl TransparentDrain {
     pub fn new(src: Box<dyn SegmentStream>, dst: Box<dyn Write + Send>) -> Self {
-        TransparentDrain { src, dst, offset: 0, skip: 0 }
+        TransparentDrain {
+            src,
+            dst,
+            offset: 0,
+            skip: 0,
+        }
     }
 
     fn consume_segments_impl(&mut self) -> Result<usize> {

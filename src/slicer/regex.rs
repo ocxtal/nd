@@ -59,7 +59,7 @@ impl SegmentStream for RegexSlicer {
             self.matches.extend(self.re.find_iter(chunk).map(|x| to_segment(x, pos)));
 
             self.prev_len = len;
-            return Ok((self.prev_len, self.matches.len()))
+            return Ok((self.prev_len, self.matches.len()));
         }
 
         self.prev_len = (count - 1) * self.width;

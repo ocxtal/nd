@@ -3,7 +3,7 @@
 // @date 2022/2/4
 
 use crate::common::BLOCK_SIZE;
-use crate::stream::{EofStream, ByteStream};
+use crate::stream::{ByteStream, EofStream};
 use crate::streambuf::StreamBuf;
 use std::io::Result;
 
