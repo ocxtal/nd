@@ -17,6 +17,8 @@ pub use self::segment::SegmentStream;
 
 #[cfg(test)]
 pub mod tester {
+    #[allow(unused_imports)]
+    pub(crate) use crate::common::{BLOCK_SIZE, MARGIN_SIZE};
     pub(crate) use rand::Rng;
 
     // n-times repetition of the pattern

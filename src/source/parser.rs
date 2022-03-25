@@ -14,8 +14,8 @@ mod x86_64;
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use x86_64::*;
 
-use crate::common::{FillUninit, InoutFormat, ToResult};
-use crate::stream::ByteStream;
+use crate::common::{FillUninit, InoutFormat, ToResult, BLOCK_SIZE, MARGIN_SIZE};
+use crate::stream::{ByteStream, EofStream};
 use std::io::Result;
 
 mod naive;
@@ -200,7 +200,7 @@ type ParseSingle = fn(&[u8]) -> Option<(u64, usize)>;
 type ParseBody = fn(bool, &[u8], &mut [u8]) -> Option<((usize, usize), usize)>;
 
 pub struct TextParser {
-    src: Box<dyn ByteStream>,
+    src: EofStream<Box<dyn ByteStream>>,
 
     // parser for non-binary streams; bypassed for binary streams (though the functions are valid)
     parse_offset: ParseSingle,
@@ -233,7 +233,7 @@ impl TextParser {
         };
 
         TextParser {
-            src,
+            src: EofStream::new(src),
             parse_offset: header_parsers[offset].expect("unrecognized parser key for header.offset"),
             parse_length: header_parsers[length].expect("unrecognized parser key for header.length"),
             parse_body: body_parsers[body].expect("unrecognized parser key for body"),
@@ -254,18 +254,18 @@ impl TextParser {
         }
         p += 2;
 
-        eprintln!("p({:?}), offset({:?}), length({:?})", p, offset, length);
         Some((p, offset as usize, length as usize))
     }
 
-    fn read_body(&self, stream: &[u8], is_in_tail: bool, buf: &mut Vec<u8>) -> Option<(usize, bool, bool)> {
+    fn read_body(&self, stream: &[u8], len: usize, is_in_tail: bool, buf: &mut Vec<u8>) -> Option<(usize, bool, bool)> {
+        debug_assert!(stream.len() >= len + MARGIN_SIZE);
+
         let mut p = 0;
         let mut is_in_tail = is_in_tail;
 
-        while stream[p..].len() >= 4 * 48 {
-            let (scanned, parsed) = buf
-                .fill_uninit_on_option_with_ret(4 * 16, |arr: &mut [u8]| (self.parse_body)(is_in_tail, &stream[p..], arr))?
-                .0;
+        while p < len {
+            let ret = buf.fill_uninit_on_option_with_ret(4 * 16, |arr| (self.parse_body)(is_in_tail, &stream[p..], arr))?;
+            let (scanned, parsed) = ret.0;
             p += parsed;
 
             if scanned < 4 * 48 {
@@ -277,7 +277,7 @@ impl TextParser {
     }
 
     fn read_line_continued(&mut self, offset: usize, span: usize, is_in_tail: bool, buf: &mut Vec<u8>) -> Result<(usize, usize, usize)> {
-        let len = self.src.fill_buf()?;
+        let (_, len) = self.src.fill_buf(BLOCK_SIZE)?;
         if len == 0 {
             return Ok((1, offset, span));
         }
@@ -286,13 +286,13 @@ impl TextParser {
         let mut p = 0;
         let mut is_in_tail = is_in_tail;
 
-        while stream[p..].len() >= 4 * 48 {
-            let (fwd, delim_found, eol_found) = self.read_body(&stream[p..], is_in_tail, buf).to_result()?;
+        while p < len {
+            let (fwd, delim_found, eol_found) = self.read_body(&stream[p..], len - p, is_in_tail, buf).to_result()?;
             p += fwd;
             is_in_tail = delim_found;
 
             if eol_found {
-                self.src.consume(p);
+                self.src.consume(std::cmp::min(p + 1, len));
                 return Ok((1, offset, len));
             }
         }
@@ -302,23 +302,25 @@ impl TextParser {
     }
 
     pub fn read_line(&mut self, buf: &mut Vec<u8>) -> Result<(usize, usize, usize)> {
-        let len = self.src.fill_buf()?;
+        let (_, len) = self.src.fill_buf(BLOCK_SIZE)?;
         if len == 0 {
             return Ok((0, 0, 0));
         }
 
         let stream = self.src.as_slice();
+        debug_assert!(stream.len() >= MARGIN_SIZE);
+
         let (fwd, offset, span) = self.read_head(stream).to_result()?;
         let mut p = fwd;
         let mut is_in_tail = false;
 
-        while stream[p..].len() >= 4 * 48 {
-            let (fwd, delim_found, eol_found) = self.read_body(&stream[p..], is_in_tail, buf).to_result()?;
+        while p < len {
+            let (fwd, delim_found, eol_found) = self.read_body(&stream[p..], len - p, is_in_tail, buf).to_result()?;
             p += fwd;
             is_in_tail = delim_found;
 
             if eol_found {
-                self.src.consume(p);
+                self.src.consume(std::cmp::min(p + 1, len));
                 return Ok((1, offset, span));
             }
         }

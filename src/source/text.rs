@@ -60,27 +60,25 @@ macro_rules! test_gapless_fn {
         #[test]
         fn $name() {
             test_gapless_inner!($inner, b"0000 01 | 00\n".as_slice(), [0u8]);
+            test_gapless_inner!($inner, b"0000 02 | 00 01 \n".as_slice(), [0u8, 1]);
 
-            // test_gapless_inner!(
-            //     $inner,
-            //     rep!(b"0000 01 | 00\n", 3000),
-            //     [0u8; 3000]
-            // );
-            // test_gapless_inner!(
-            //     $inner,
-            //     rep!(b"000 0 | 01 02 03 04 05\nfff 10 | 11 12 13 14 15 16 17\n010 10 | 21 22 23 24 25 |\n020 80 | 31 32 33 34 35 36 37 38 39 3a \n\n100 30 | 51 52 53 54 55\n200 1000000 |\n", 300),
-            //     rep!(&[0x01u8, 0x02, 0x03, 0x04, 0x05, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x21, 0x22, 0x23, 0x24, 0x25, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x51, 0x52, 0x53, 0x54, 0x55], 300)
-            // );
-            // test_gapless_inner!($inner, rep!(b"abc", 3000));
-            // test_gapless_inner!($inner, rep!(b"abcbc", 3000));
-            // test_gapless_inner!($inner, rep!(b"abcbcdefghijklmno", 1001));
+            test_gapless_inner!(
+                $inner,
+                rep!(b"0010 ff | 00\n", 3000),
+                [0u8; 3000]
+            );
+            test_gapless_inner!(
+                $inner,
+                rep!(b"000 0 | 01 02 03 04 05\nfff 10 | 11 12 13 14 15 16 17\n010 10 | 21 22 23 24 25\n020 80 | 31 32 33 34 35 36 37 38 39 3a\n100 30 | 51 52 53 54 55\n", 300),
+                rep!(&[0x01u8, 0x02, 0x03, 0x04, 0x05, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x21, 0x22, 0x23, 0x24, 0x25, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x51, 0x52, 0x53, 0x54, 0x55], 300)
+            );
         }
     };
 }
 
 test_gapless_fn!(test_gapless_text_random_len, test_stream_random_len);
-// test_gapless_fn!(test_gapless_text_random_consume, test_stream_random_consume);
-// test_gapless_fn!(test_gapless_text_all_at_once, test_stream_all_at_once);
+test_gapless_fn!(test_gapless_text_random_consume, test_stream_random_consume);
+test_gapless_fn!(test_gapless_text_all_at_once, test_stream_all_at_once);
 
 struct TextStreamCache {
     offset: usize,

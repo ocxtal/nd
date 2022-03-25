@@ -44,8 +44,11 @@ macro_rules! test_stream_random_len {
                 break;
             }
 
+            let stream = src.as_slice();
+            assert!(stream.len() >= len + MARGIN_SIZE);
+
             let consume: usize = rng.gen_range(1..=std::cmp::min(len, 2 * BLOCK_SIZE));
-            v.extend_from_slice(&src.as_slice()[..consume]);
+            v.extend_from_slice(&stream[..consume]);
             src.consume(consume);
         }
         assert_eq!(v, $expected);
@@ -72,7 +75,10 @@ macro_rules! test_stream_random_consume {
                 continue;
             }
 
-            v.extend_from_slice(&src.as_slice()[..(len + 1) / 2]);
+            let stream = src.as_slice();
+            assert!(stream.len() >= len + MARGIN_SIZE);
+
+            v.extend_from_slice(&stream[..(len + 1) / 2]);
             src.consume((len + 1) / 2);
         }
         assert_eq!(v, $expected);
@@ -98,17 +104,20 @@ macro_rules! test_stream_all_at_once {
             prev_len = len;
         }
 
-        let stream = src.as_slice();
-        let len = stream.len();
+        let len = src.fill_buf().unwrap();
         assert_eq!(len, $expected.len());
-        assert_eq!(stream, $expected);
+
+        let stream = src.as_slice();
+        assert!(stream.len() >= len + MARGIN_SIZE);
+        assert_eq!(&stream[..len], $expected);
         src.consume(len);
 
         let len = src.fill_buf().unwrap();
         assert_eq!(len, 0);
 
         let stream = src.as_slice();
-        assert_eq!(stream.len(), 0);
+        assert!(stream.len() >= MARGIN_SIZE);
+        assert_eq!(&stream[..MARGIN_SIZE], [0u8; MARGIN_SIZE]);
     }};
 }
 

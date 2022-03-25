@@ -3,7 +3,7 @@
 // @date 2022/3/23
 
 use super::ByteStream;
-use crate::common::BLOCK_SIZE;
+use crate::common::{BLOCK_SIZE, MARGIN_SIZE};
 use std::io::{Read, Result};
 
 #[cfg(test)]
@@ -13,6 +13,7 @@ use rand::{rngs::ThreadRng, Rng};
 
 pub struct MockSource {
     v: Vec<u8>,
+    len: usize,
     offset: usize,
     prev_len: usize,
     rng: ThreadRng,
@@ -20,8 +21,12 @@ pub struct MockSource {
 
 impl MockSource {
     pub fn new(pattern: &[u8]) -> Self {
+        let mut v = pattern.to_vec();
+        v.resize(pattern.len() + MARGIN_SIZE, 0);
+
         MockSource {
-            v: pattern.to_vec(),
+            v,
+            len: pattern.len(),
             offset: 0,
             prev_len: 0,
             rng: rand::thread_rng(),
@@ -29,8 +34,8 @@ impl MockSource {
     }
 
     fn gen_len(&mut self) -> usize {
-        assert!(self.v.len() >= (self.offset + self.prev_len));
-        let clip = self.v.len() - (self.offset + self.prev_len);
+        assert!(self.len >= (self.offset + self.prev_len));
+        let clip = self.len - (self.offset + self.prev_len);
 
         let rand: usize = self.rng.gen_range(1..=2 * BLOCK_SIZE);
         self.prev_len += std::cmp::min(rand, clip);
@@ -40,7 +45,7 @@ impl MockSource {
 
 impl Read for MockSource {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        if self.offset >= self.v.len() {
+        if self.offset >= self.len {
             return Ok(0);
         }
 
@@ -48,7 +53,7 @@ impl Read for MockSource {
         self.prev_len = 0;
         let len = std::cmp::min(self.gen_len(), buf.len());
 
-        let src = &self.v[self.offset..];
+        let src = &self.v[self.offset..self.len];
         let len = std::cmp::min(len, src.len());
 
         (&mut buf[..len]).copy_from_slice(&src[..len]);
@@ -60,14 +65,14 @@ impl Read for MockSource {
 
 impl ByteStream for MockSource {
     fn fill_buf(&mut self) -> Result<usize> {
-        if self.offset >= self.v.len() {
+        if self.offset >= self.len {
             return Ok(0);
         }
         Ok(self.gen_len())
     }
 
     fn as_slice(&self) -> &[u8] {
-        &self.v[self.offset..self.offset + self.prev_len]
+        &self.v[self.offset..self.offset + self.prev_len + MARGIN_SIZE]
     }
 
     fn consume(&mut self, amount: usize) {
