@@ -253,6 +253,8 @@ impl TextParser {
             return None;
         }
         p += 2;
+
+        eprintln!("p({:?}), offset({:?}), length({:?})", p, offset, length);
         Some((p, offset as usize, length as usize))
     }
 
@@ -260,7 +262,7 @@ impl TextParser {
         let mut p = 0;
         let mut is_in_tail = is_in_tail;
 
-        while stream[p..].len() > 4 * 48 {
+        while stream[p..].len() >= 4 * 48 {
             let (scanned, parsed) = buf
                 .fill_uninit_on_option_with_ret(4 * 16, |arr: &mut [u8]| (self.parse_body)(is_in_tail, &stream[p..], arr))?
                 .0;
@@ -284,7 +286,7 @@ impl TextParser {
         let mut p = 0;
         let mut is_in_tail = is_in_tail;
 
-        while p < len {
+        while stream[p..].len() >= 4 * 48 {
             let (fwd, delim_found, eol_found) = self.read_body(&stream[p..], is_in_tail, buf).to_result()?;
             p += fwd;
             is_in_tail = delim_found;
@@ -310,7 +312,7 @@ impl TextParser {
         let mut p = fwd;
         let mut is_in_tail = false;
 
-        while p < stream.len() {
+        while stream[p..].len() >= 4 * 48 {
             let (fwd, delim_found, eol_found) = self.read_body(&stream[p..], is_in_tail, buf).to_result()?;
             p += fwd;
             is_in_tail = delim_found;

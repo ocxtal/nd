@@ -9,7 +9,7 @@ use std::io::{Read, Result};
 #[cfg(test)]
 use crate::stream::tester::*;
 
-use rand::{Rng, rngs::ThreadRng};
+use rand::{rngs::ThreadRng, Rng};
 
 pub struct MockSource {
     v: Vec<u8>,
@@ -83,9 +83,9 @@ impl ByteStream for MockSource {
 
 #[allow(unused_macros)]
 macro_rules! test_inner {
-    ( $inner: ident, $pattern: expr ) => {
+    ( $inner: ident, $pattern: expr ) => {{
         $inner!(MockSource::new(&$pattern), $pattern);
-    };
+    }};
 }
 
 #[allow(unused_macros)]

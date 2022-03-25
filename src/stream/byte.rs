@@ -25,6 +25,12 @@ impl<T: ByteStream + ?Sized> ByteStream for Box<T> {
     }
 }
 
+// macro_rules! cat {
+//     ( $( $x: expr ),+ ) => {
+//         vec![ $( $x ),+ ].into_iter().flatten().collect::<Vec<u8>>()
+//     };
+// }
+
 // concatenation of random-length chunks
 #[allow(unused_macros)]
 macro_rules! test_stream_random_len {

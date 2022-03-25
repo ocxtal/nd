@@ -43,21 +43,31 @@ impl ByteStream for BinaryStream {
     }
 }
 
-#[test]
-fn test_binary_stream_random_len() {
-    macro_rules! test {
-        ( $pattern: expr ) => {{
-            let pattern = $pattern;
-            let src = Box::new(MockSource::new(&pattern));
-            let src = BinaryStream::new(src, 1, &InoutFormat::input_default());
-            test_stream_random_len!(src, pattern);
-        }};
-    }
-
-    test!(rep!(b"a", 3000));
-    test!(rep!(b"abc", 3000));
-    test!(rep!(b"abcbc", 3000));
-    test!(rep!(b"abcbcdefghijklmno", 1001));
+#[allow(unused_macros)]
+macro_rules! test_inner {
+    ( $inner: ident, $pattern: expr ) => {{
+        let pattern = $pattern;
+        let src = Box::new(MockSource::new(&pattern));
+        let src = BinaryStream::new(src, 1, &InoutFormat::input_default());
+        $inner!(src, pattern);
+    }};
 }
+
+#[allow(unused_macros)]
+macro_rules! test_fn {
+    ( $name: ident, $inner: ident ) => {
+        #[test]
+        fn $name() {
+            test_inner!($inner, rep!(b"a", 3000));
+            test_inner!($inner, rep!(b"abc", 3000));
+            test_inner!($inner, rep!(b"abcbc", 3000));
+            test_inner!($inner, rep!(b"abcbcdefghijklmno", 1001));
+        }
+    };
+}
+
+test_fn!(test_binary_stream_random_len, test_stream_random_len);
+test_fn!(test_binary_stream_random_consume, test_stream_random_consume);
+test_fn!(test_binary_stream_all_at_once, test_stream_all_at_once);
 
 // end of binary.rs

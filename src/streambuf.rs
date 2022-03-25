@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 // @date 2022/3/23
 
-use crate::common::BLOCK_SIZE;
+use crate::common::{BLOCK_SIZE, MARGIN_SIZE};
 use std::io::Result;
 
 #[cfg(test)]
@@ -117,8 +117,6 @@ impl StreamBuf {
             self.cap = std::cmp::max(self.buf.len() + 1, BLOCK_SIZE);
             debug_assert!(self.buf.len() < self.cap);
         }
-
-        // debug_assert!(self.buf.capacity() >= MARGIN_SIZE);
     }
 }
 
@@ -136,19 +134,18 @@ fn test_stream_buf_random_len() {
             let mut acc = 0;
             let mut drain = Vec::new();
             while drain.len() < pattern.len() {
-                let len = buf
-                    .fill_buf(|buf| {
-                        let len = src.fill_buf().unwrap();
-                        let slice = src.as_slice();
-                        assert_eq!(slice.len(), len);
+                let len = buf.fill_buf(0, |buf| {
+                    let len = src.fill_buf(0).unwrap();
+                    let slice = src.as_slice();
+                    assert_eq!(slice.len(), len);
 
-                        buf.extend_from_slice(slice);
-                        src.consume(len);
-                        acc += len;
+                    buf.extend_from_slice(slice);
+                    src.consume(len);
+                    acc += len;
 
-                        Ok(())
-                    })
-                    .unwrap();
+                    Ok(())
+                });
+                let len = len.unwrap();
 
                 let consume: usize = rng.gen_range(1..=std::cmp::min(len, 2 * BLOCK_SIZE));
                 drain.extend_from_slice(&buf.as_slice()[..consume]);
@@ -188,19 +185,18 @@ fn test_stream_buf_random_consume() {
             let mut acc = 0;
             let mut drain = Vec::new();
             while drain.len() < pattern.len() {
-                let len = buf
-                    .fill_buf(|buf| {
-                        let len = src.fill_buf().unwrap();
-                        let slice = src.as_slice();
-                        assert_eq!(slice.len(), len);
+                let len = buf.fill_buf(0, |buf| {
+                    let len = src.fill_buf(0).unwrap();
+                    let slice = src.as_slice();
+                    assert_eq!(slice.len(), len);
 
-                        buf.extend_from_slice(slice);
-                        src.consume(len);
-                        acc += len;
+                    buf.extend_from_slice(slice);
+                    src.consume(len);
+                    acc += len;
 
-                        Ok(())
-                    })
-                    .unwrap();
+                    Ok(())
+                });
+                let len = len.unwrap();
 
                 if rng.gen::<bool>() {
                     buf.consume(0);
@@ -242,19 +238,73 @@ fn test_stream_buf_all_at_once() {
             let mut acc = 0;
             let mut prev_len = 0;
             loop {
-                let len = buf
-                    .fill_buf(|buf| {
-                        let len = src.fill_buf().unwrap();
-                        let slice = src.as_slice();
-                        assert_eq!(slice.len(), len);
+                let len = buf.fill_buf(0, |buf| {
+                    let len = src.fill_buf(0).unwrap();
+                    let slice = src.as_slice();
+                    assert_eq!(slice.len(), len);
 
-                        buf.extend_from_slice(slice);
-                        src.consume(len);
-                        acc += len;
+                    buf.extend_from_slice(slice);
+                    src.consume(len);
+                    acc += len;
 
-                        Ok(())
-                    })
-                    .unwrap();
+                    Ok(())
+                });
+                let len = len.unwrap();
+
+                if len == prev_len {
+                    break;
+                }
+
+                buf.consume(0);
+                prev_len = len;
+            }
+
+            // #bytes accumulated to the StreamBuf equals to the source length
+            assert_eq!(acc, pattern.len());
+            assert_eq!(buf.as_slice().len(), pattern.len());
+            assert_eq!(buf.as_slice(), pattern);
+
+            // source is empty
+            assert_eq!(src.fill_buf(0).unwrap(), 0);
+
+            // buf gets empty after consuming all
+            let len = buf.as_slice().len();
+            buf.consume(len);
+
+            assert_eq!(buf.as_slice(), b"");
+        }};
+    }
+
+    test!(rep!(b"a", 3000));
+    test!(rep!(b"abc", 3000));
+    test!(rep!(b"abcbc", 3000));
+    test!(rep!(b"abcbcdefghijklmno", 1001));
+}
+
+#[test]
+fn test_stream_buf_tail_margin() {
+    macro_rules! test {
+        ( $pattern: expr ) => {{
+            let pattern = $pattern;
+
+            let mut src = MockSource::new(&pattern);
+            let mut buf = StreamBuf::new();
+
+            let mut acc = 0;
+            let mut prev_len = 0;
+            loop {
+                let len = buf.fill_buf(99, |buf| {
+                    let len = src.fill_buf(0).unwrap();
+                    let slice = src.as_slice();
+                    assert_eq!(slice.len(), len);
+
+                    buf.extend_from_slice(slice);
+                    src.consume(len);
+                    acc += len;
+
+                    Ok(())
+                });
+                let len = len.unwrap();
 
                 if len == prev_len {
                     break;
