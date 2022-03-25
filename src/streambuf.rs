@@ -45,17 +45,17 @@ impl StreamBuf {
         self.buf.extend_from_slice(stream)
     }
 
-    pub fn make_aligned(&mut self, tail_margin: usize) -> Result<usize> {
+    pub fn make_aligned(&mut self) -> Result<usize> {
         debug_assert!(self.buf.len() < self.cap);
 
         let tail = self.offset + self.buf.len();
         let rounded = (tail + self.align - 1) / self.align * self.align;
-        self.buf.resize(rounded - self.offset + tail_margin, 0);
+        self.buf.resize(rounded - self.offset, 0);
 
         Ok(self.buf.len() - self.pos)
     }
 
-    pub fn fill_buf<F>(&mut self, tail_margin: usize, f: F) -> Result<usize>
+    pub fn fill_buf<F>(&mut self, f: F) -> Result<usize>
     where
         F: FnMut(&mut Vec<u8>) -> Result<()>,
     {
@@ -73,7 +73,7 @@ impl StreamBuf {
             // end of stream if len == 0
             if self.buf.len() == base {
                 self.is_eof = true;
-                return self.make_aligned(tail_margin);
+                return self.make_aligned();
             }
         }
         self.cap = std::cmp::max(self.cap, self.buf.len());
