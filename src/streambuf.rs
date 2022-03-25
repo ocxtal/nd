@@ -45,17 +45,17 @@ impl StreamBuf {
         self.buf.extend_from_slice(stream)
     }
 
-    pub fn make_aligned(&mut self) -> Result<usize> {
+    pub fn make_aligned(&mut self, tail_margin: usize) -> Result<usize> {
         debug_assert!(self.buf.len() < self.cap);
 
         let tail = self.offset + self.buf.len();
         let rounded = (tail + self.align - 1) / self.align * self.align;
-        self.buf.resize(rounded - self.offset, 0);
+        self.buf.resize(rounded - self.offset + tail_margin, 0);
 
         Ok(self.buf.len() - self.pos)
     }
 
-    pub fn fill_buf<F>(&mut self, f: F) -> Result<usize>
+    pub fn fill_buf<F>(&mut self, tail_margin: usize, f: F) -> Result<usize>
     where
         F: FnMut(&mut Vec<u8>) -> Result<()>,
     {
@@ -73,12 +73,12 @@ impl StreamBuf {
             // end of stream if len == 0
             if self.buf.len() == base {
                 self.is_eof = true;
-                return self.make_aligned();
+                return self.make_aligned(tail_margin);
             }
         }
         self.cap = std::cmp::max(self.cap, self.buf.len());
 
-        // assert!(self.buf.len() >= self.pos + MARGIN_SIZE);
+        self.buf.reserve(MARGIN_SIZE);
         Ok(self.buf.len() - self.pos)
     }
 
@@ -134,8 +134,8 @@ fn test_stream_buf_random_len() {
             let mut acc = 0;
             let mut drain = Vec::new();
             while drain.len() < pattern.len() {
-                let len = buf.fill_buf(0, |buf| {
-                    let len = src.fill_buf(0).unwrap();
+                let len = buf.fill_buf(|buf| {
+                    let len = src.fill_buf().unwrap();
                     let slice = src.as_slice();
                     assert_eq!(slice.len(), len);
 
@@ -185,8 +185,8 @@ fn test_stream_buf_random_consume() {
             let mut acc = 0;
             let mut drain = Vec::new();
             while drain.len() < pattern.len() {
-                let len = buf.fill_buf(0, |buf| {
-                    let len = src.fill_buf(0).unwrap();
+                let len = buf.fill_buf(|buf| {
+                    let len = src.fill_buf().unwrap();
                     let slice = src.as_slice();
                     assert_eq!(slice.len(), len);
 
@@ -238,63 +238,8 @@ fn test_stream_buf_all_at_once() {
             let mut acc = 0;
             let mut prev_len = 0;
             loop {
-                let len = buf.fill_buf(0, |buf| {
-                    let len = src.fill_buf(0).unwrap();
-                    let slice = src.as_slice();
-                    assert_eq!(slice.len(), len);
-
-                    buf.extend_from_slice(slice);
-                    src.consume(len);
-                    acc += len;
-
-                    Ok(())
-                });
-                let len = len.unwrap();
-
-                if len == prev_len {
-                    break;
-                }
-
-                buf.consume(0);
-                prev_len = len;
-            }
-
-            // #bytes accumulated to the StreamBuf equals to the source length
-            assert_eq!(acc, pattern.len());
-            assert_eq!(buf.as_slice().len(), pattern.len());
-            assert_eq!(buf.as_slice(), pattern);
-
-            // source is empty
-            assert_eq!(src.fill_buf(0).unwrap(), 0);
-
-            // buf gets empty after consuming all
-            let len = buf.as_slice().len();
-            buf.consume(len);
-
-            assert_eq!(buf.as_slice(), b"");
-        }};
-    }
-
-    test!(rep!(b"a", 3000));
-    test!(rep!(b"abc", 3000));
-    test!(rep!(b"abcbc", 3000));
-    test!(rep!(b"abcbcdefghijklmno", 1001));
-}
-
-#[test]
-fn test_stream_buf_tail_margin() {
-    macro_rules! test {
-        ( $pattern: expr ) => {{
-            let pattern = $pattern;
-
-            let mut src = MockSource::new(&pattern);
-            let mut buf = StreamBuf::new();
-
-            let mut acc = 0;
-            let mut prev_len = 0;
-            loop {
-                let len = buf.fill_buf(99, |buf| {
-                    let len = src.fill_buf(0).unwrap();
+                let len = buf.fill_buf(|buf| {
+                    let len = src.fill_buf().unwrap();
                     let slice = src.as_slice();
                     assert_eq!(slice.len(), len);
 
@@ -335,5 +280,60 @@ fn test_stream_buf_tail_margin() {
     test!(rep!(b"abcbc", 3000));
     test!(rep!(b"abcbcdefghijklmno", 1001));
 }
+
+// #[test]
+// fn test_stream_buf_tail_margin() {
+//     macro_rules! test {
+//         ( $pattern: expr ) => {{
+//             let pattern = $pattern;
+
+//             let mut src = MockSource::new(&pattern);
+//             let mut buf = StreamBuf::new();
+
+//             let mut acc = 0;
+//             let mut prev_len = 0;
+//             loop {
+//                 let len = buf.fill_buf(99, |buf| {
+//                     let len = src.fill_buf().unwrap();
+//                     let slice = src.as_slice();
+//                     assert_eq!(slice.len(), len);
+
+//                     buf.extend_from_slice(slice);
+//                     src.consume(len);
+//                     acc += len;
+
+//                     Ok(())
+//                 });
+//                 let len = len.unwrap();
+
+//                 if len == prev_len {
+//                     break;
+//                 }
+
+//                 buf.consume(0);
+//                 prev_len = len;
+//             }
+
+//             // #bytes accumulated to the StreamBuf equals to the source length
+//             assert_eq!(acc, pattern.len());
+//             assert_eq!(buf.as_slice().len(), pattern.len());
+//             assert_eq!(buf.as_slice(), pattern);
+
+//             // source is empty
+//             assert_eq!(src.fill_buf().unwrap(), 0);
+
+//             // buf gets empty after consuming all
+//             let len = buf.as_slice().len();
+//             buf.consume(len);
+
+//             assert_eq!(buf.as_slice(), b"");
+//         }};
+//     }
+
+//     test!(rep!(b"a", 3000));
+//     test!(rep!(b"abc", 3000));
+//     test!(rep!(b"abcbc", 3000));
+//     test!(rep!(b"abcbcdefghijklmno", 1001));
+// }
 
 // end of streambuf.rs
