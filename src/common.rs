@@ -17,7 +17,7 @@ pub const MARGIN_SIZE: usize = 256;
 #[derive(Copy, Clone, Debug)]
 pub struct InoutFormat {
     pub offset: u8, // in {'b', 'd', 'x'}
-    pub length: u8, // in {'b', 'd', 'x'}
+    pub span: u8,   // in {'b', 'd', 'x'}
     pub body: u8,   // in {'b', 'd', 'x', 'a'}
 }
 
@@ -27,10 +27,10 @@ impl InoutFormat {
 
         let config = config.as_bytes();
         let offset = config[0];
-        let length = config[1];
+        let span = config[1];
         let body = config[2];
 
-        InoutFormat { offset, length, body }
+        InoutFormat { offset, span, body }
     }
 
     pub fn new(config: &str) -> Self {
@@ -70,7 +70,7 @@ impl InoutFormat {
     pub fn input_default() -> Self {
         InoutFormat {
             offset: b'n',
-            length: b'n',
+            span: b'n',
             body: b'b',
         }
     }
@@ -78,13 +78,13 @@ impl InoutFormat {
     pub fn output_default() -> Self {
         InoutFormat {
             offset: b'x',
-            length: b'x',
+            span: b'x',
             body: b'x',
         }
     }
 
     pub fn is_gapless(&self) -> bool {
-        self.offset == b'n' && self.length == b'n'
+        self.offset == b'n' && self.span == b'n'
     }
 
     pub fn is_binary(&self) -> bool {
@@ -92,7 +92,7 @@ impl InoutFormat {
     }
 
     // pub fn has_location(&self) -> bool {
-    //     self.offset != b'n' && self.length != b'n'
+    //     self.offset != b'n' && self.span != b'n'
     // }
 }
 

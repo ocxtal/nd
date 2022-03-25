@@ -62,15 +62,30 @@ macro_rules! test_gapless_fn {
             test_gapless_inner!($inner, b"0000 01 | 00\n".as_slice(), [0u8]);
             test_gapless_inner!($inner, b"0000 02 | 00 01 \n".as_slice(), [0u8, 1]);
 
+            // (offset, length) in the header is just ignored
+            test_gapless_inner!($inner, rep!(b"0010 ff | 00\n", 3000), [0u8; 3000]);
+
+            #[rustfmt::skip]
             test_gapless_inner!(
                 $inner,
-                rep!(b"0010 ff | 00\n", 3000),
-                [0u8; 3000]
-            );
-            test_gapless_inner!(
-                $inner,
-                rep!(b"000 0 | 01 02 03 04 05\nfff 10 | 11 12 13 14 15 16 17\n010 10 | 21 22 23 24 25\n020 80 | 31 32 33 34 35 36 37 38 39 3a\n100 30 | 51 52 53 54 55\n", 300),
-                rep!(&[0x01u8, 0x02, 0x03, 0x04, 0x05, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x21, 0x22, 0x23, 0x24, 0x25, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x51, 0x52, 0x53, 0x54, 0x55], 300)
+                rep!(
+                    b"000 00 | 01 02 03 04 05\n\
+                      fff 10 | 11 12 13 14 15 16 17\n\
+                      010 10 | 21 22 23 24 25\n\
+                      020 80 | 31 32 33 34 35 36 37 38 39 3a\n\
+                      100 30 | 51 52 53 54 55\n",
+                    3000
+                ),
+                rep!(
+                    &[
+                        0x01u8, 0x02, 0x03, 0x04, 0x05,
+                        0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+                        0x21, 0x22, 0x23, 0x24, 0x25,
+                        0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a,
+                        0x51, 0x52, 0x53, 0x54, 0x55,
+                    ],
+                    3000
+                )
             );
         }
     };
@@ -80,15 +95,15 @@ test_gapless_fn!(test_gapless_text_random_len, test_stream_random_len);
 test_gapless_fn!(test_gapless_text_random_consume, test_stream_random_consume);
 test_gapless_fn!(test_gapless_text_all_at_once, test_stream_all_at_once);
 
-struct TextStreamCache {
+struct TextFeeder {
     offset: usize,
     span: usize,
     buf: Vec<u8>,
 }
 
-impl TextStreamCache {
+impl TextFeeder {
     fn new() -> Self {
-        TextStreamCache {
+        TextFeeder {
             offset: 0,
             span: 0,
             buf: Vec::new(),
@@ -96,19 +111,30 @@ impl TextStreamCache {
     }
 
     fn fill_buf(&mut self, src: &mut TextParser) -> Result<(usize, usize)> {
+        // offset is set usize::MAX once the source reached EOF
+        if self.offset == usize::MAX {
+            return Ok((usize::MAX, 0));
+        }
+
+        // flush the current buffer, then read the next line
         self.buf.clear();
 
         let (lines, offset, span) = src.read_line(&mut self.buf)?;
         self.offset = offset;
         self.span = span;
 
+        // mark EOF
+        if lines == 0 {
+            self.offset = usize::MAX;
+            self.span = 0;
+        }
         Ok((lines, offset))
     }
 }
 
 pub struct TextStream {
     inner: TextParser,
-    line: TextStreamCache,
+    line: TextFeeder,
     buf: StreamBuf,
     offset: usize,
 }
@@ -118,9 +144,14 @@ impl TextStream {
         assert!(!format.is_binary());
         assert!(!format.is_gapless());
 
+        // read the first line
+        let mut inner = TextParser::new(src, format);
+        let mut line = TextFeeder::new();
+        line.fill_buf(&mut inner).unwrap();
+
         TextStream {
-            inner: TextParser::new(src, format),
-            line: TextStreamCache::new(),
+            inner,
+            line,
             buf: StreamBuf::new_with_align(align),
             offset: 0,
         }
@@ -130,6 +161,10 @@ impl TextStream {
 impl ByteStream for TextStream {
     fn fill_buf(&mut self) -> Result<usize> {
         self.buf.fill_buf(|buf| {
+            if self.line.offset == usize::MAX {
+                return Ok(());
+            }
+
             let next_offset = std::cmp::min(self.offset + BLOCK_SIZE, self.line.offset);
             let fwd_len = next_offset - self.offset;
             self.offset += fwd_len;
@@ -164,5 +199,55 @@ impl ByteStream for TextStream {
         self.buf.consume(amount);
     }
 }
+
+#[allow(unused_macros)]
+macro_rules! test_text_inner {
+    ( $inner: ident, $input: expr, $expected: expr ) => {{
+        let src = Box::new(MockSource::new(&$input));
+        let src = TextStream::new(src, 1, &InoutFormat::new("xxx"));
+        $inner!(src, $expected);
+    }};
+}
+
+#[allow(unused_macros)]
+macro_rules! test_text_fn {
+    ( $name: ident, $inner: ident ) => {
+        #[test]
+        fn $name() {
+            // test_text_inner!($inner, b"0000 01 | 00\n".as_slice(), [0u8]);
+            test_text_inner!($inner, b"0000 02 | 00 01 \n".as_slice(), [0u8, 1]);
+
+            // (offset, length) in the header is just ignored
+            // test_text_inner!($inner, rep!(b"0010 ff | 00\n", 3000), [0u8; 3000]);
+
+            // #[rustfmt::skip]
+            // test_text_inner!(
+            //     $inner,
+            //     rep!(
+            //         b"000 00 | 01 02 03 04 05\n\
+            //           fff 10 | 11 12 13 14 15 16 17\n\
+            //           010 10 | 21 22 23 24 25\n\
+            //           020 80 | 31 32 33 34 35 36 37 38 39 3a\n\
+            //           100 30 | 51 52 53 54 55\n",
+            //         3000
+            //     ),
+            //     rep!(
+            //         &[
+            //             0x01u8, 0x02, 0x03, 0x04, 0x05,
+            //             0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+            //             0x21, 0x22, 0x23, 0x24, 0x25,
+            //             0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a,
+            //             0x51, 0x52, 0x53, 0x54, 0x55,
+            //         ],
+            //         3000
+            //     )
+            // );
+        }
+    };
+}
+
+test_text_fn!(test_text_random_len, test_stream_random_len);
+test_text_fn!(test_text_random_consume, test_stream_random_consume);
+test_text_fn!(test_text_all_at_once, test_stream_all_at_once);
 
 // end of text.rs

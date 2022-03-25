@@ -160,6 +160,15 @@ fn test_parse_hex_body_impl(f: &dyn Fn(bool, &[u8], &mut [u8]) -> Option<((usize
     test!("48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b    |H......'.eHP+..k\n", &e[..16], Some(((68, 51), 16)));
     test!("48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b     |H......'.eHP+..k\n", &e[..16], Some(((69, 52), 16)));
 
+    // no comment section after the second '|'
+    test!("48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b|\n", &e[..16], Some(((48, 47), 16)));
+    test!("48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b |\n", &e[..16], Some(((49, 48), 16)));
+    test!("48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b  |\n", &e[..16], Some(((50, 49), 16)));
+
+    test!("48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b| \n", &e[..16], Some(((49, 47), 16)));
+    test!("48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b | \n", &e[..16], Some(((50, 48), 16)));
+    test!("48 b1 e3 9c 98 ac a3 27 c9 65 48 50 2b b7 bb 6b  | \n", &e[..16], Some(((51, 49), 16)));
+
     // intermediate blanks
     test!("48 b1 e3 9c    ac a3 27 c9 65 48 50 2b b7 bb 6b|H......'.eHP+..k\n", [0x48u8, 0xb1, 0xe3, 0x9c], Some(((64, 47), 4)));
     test!("            98                48 50 2b b7 bb 6b     |H......'.eHP+..k\n", [], Some(((69, 52), 0)));
@@ -204,7 +213,7 @@ pub struct TextParser {
 
     // parser for non-binary streams; bypassed for binary streams (though the functions are valid)
     parse_offset: ParseSingle,
-    parse_length: ParseSingle,
+    parse_span: ParseSingle,
     parse_body: ParseBody,
 }
 
@@ -212,7 +221,7 @@ impl TextParser {
     pub fn new(src: Box<dyn ByteStream>, format: &InoutFormat) -> Self {
         assert!(!format.is_binary());
         let offset = format.offset as usize;
-        let length = format.length as usize;
+        let span = format.span as usize;
         let body = format.body as usize;
 
         let header_parsers = {
@@ -235,7 +244,7 @@ impl TextParser {
         TextParser {
             src: EofStream::new(src),
             parse_offset: header_parsers[offset].expect("unrecognized parser key for header.offset"),
-            parse_length: header_parsers[length].expect("unrecognized parser key for header.length"),
+            parse_span: header_parsers[span].expect("unrecognized parser key for header.span"),
             parse_body: body_parsers[body].expect("unrecognized parser key for body"),
         }
     }
@@ -246,7 +255,7 @@ impl TextParser {
         let (offset, fwd) = (self.parse_offset)(&stream[p..])?;
         p += fwd + 1;
 
-        let (length, fwd) = (self.parse_length)(&stream[p..])?;
+        let (span, fwd) = (self.parse_span)(&stream[p..])?;
         p += fwd + 1;
 
         if stream[p] != b'|' || stream[p + 1] != b' ' {
@@ -254,7 +263,7 @@ impl TextParser {
         }
         p += 2;
 
-        Some((p, offset as usize, length as usize))
+        Some((p, offset as usize, span as usize))
     }
 
     fn read_body(&self, stream: &[u8], len: usize, is_in_tail: bool, buf: &mut Vec<u8>) -> Option<(usize, bool, bool)> {
