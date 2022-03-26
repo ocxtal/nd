@@ -7,87 +7,128 @@ use crate::stream::ByteStream;
 use crate::streambuf::StreamBuf;
 use std::io::Result;
 
-pub struct ZipStream {
+#[cfg(test)]
+use crate::stream::tester::*;
+
+struct Zipper {
     srcs: Vec<Box<dyn ByteStream>>,
-    buf: StreamBuf,
     ptrs: Vec<*const u8>, // pointer cache (only for use in the fill_buf_impl function)
-    fill_buf_impl: fn(&mut Self) -> Result<usize>,
+    mask: usize,
+    gather_impl: fn(&mut Self, usize, &mut [u8]) -> Result<usize>,
 }
 
-macro_rules! fill_buf_impl {
+macro_rules! gather_impl {
     ( $name: ident, $w: expr ) => {
-        fn $name(&mut self) -> Result<usize> {
-            // bulk_len is the minimum valid slice length among the source buffers
-            let mut bulk_len = usize::MAX;
-            for (src, ptr) in self.srcs.iter_mut().zip(self.ptrs.iter_mut()) {
-                let len = src.fill_buf()?;
-                bulk_len = std::cmp::min(bulk_len, len);
+        fn $name(&mut self, bytes_per_src: usize, buf: &mut [u8]) -> Result<usize> {
+            let mut dst = buf.as_mut_ptr();
 
-                // initialize the pointer cache (used in the loop below)
-                *ptr = src.as_slice().as_ptr();
+            for _ in 0..bytes_per_src / $w {
+                for ptr in self.ptrs.iter_mut() {
+                    unsafe { std::ptr::copy_nonoverlapping(*ptr, dst, $w) };
+                    *ptr = ptr.wrapping_add($w);
+                    dst = dst.wrapping_add($w);
+                }
             }
 
-            if bulk_len == 0 {
-                return Ok(0);
-            }
-
-            self.buf.fill_buf(|buf| {
-                buf.fill_uninit(self.srcs.len() * bulk_len, |arr: &mut [u8]| {
-                    let mut dst = arr.as_mut_ptr();
-                    for _ in 0..bulk_len / $w {
-                        for ptr in self.ptrs.iter_mut() {
-                            unsafe { std::ptr::copy_nonoverlapping(*ptr, dst, $w) };
-                            *ptr = ptr.wrapping_add($w);
-                            dst = dst.wrapping_add($w);
-                        }
-                    }
-                    Ok(self.srcs.len() * bulk_len)
-                })?;
-                Ok(false)
-            })?;
-
-            for src in &mut self.srcs {
-                src.consume(bulk_len);
-            }
-            Ok(self.srcs.len() * bulk_len)
+            Ok(self.srcs.len() * bytes_per_src)
         }
     };
 }
 
-impl ZipStream {
-    pub fn new(srcs: Vec<Box<dyn ByteStream>>, word_size: usize) -> Self {
+impl Zipper {
+    fn new(srcs: Vec<Box<dyn ByteStream>>, word_size: usize) -> Self {
         assert!(!srcs.is_empty());
         assert!(word_size.is_power_of_two() && word_size <= 16);
 
-        let fill_buf_impls = [
-            Self::fill_buf_impl_w1,
-            Self::fill_buf_impl_w2,
-            Self::fill_buf_impl_w4,
-            Self::fill_buf_impl_w8,
-            Self::fill_buf_impl_w16,
+        let gather_impls = [
+            Self::gather_impl_w1,
+            Self::gather_impl_w2,
+            Self::gather_impl_w4,
+            Self::gather_impl_w8,
+            Self::gather_impl_w16,
         ];
         let index = word_size.trailing_zeros() as usize;
         debug_assert!(index < 5);
 
         let len = srcs.len();
-        ZipStream {
+        Zipper {
             srcs,
-            buf: StreamBuf::new(),
             ptrs: (0..len).map(|_| std::ptr::null::<u8>()).collect(),
-            fill_buf_impl: fill_buf_impls[index],
+            mask: !(word_size - 1),
+            gather_impl: gather_impls[index],
         }
     }
 
-    fill_buf_impl!(fill_buf_impl_w1, 1);
-    fill_buf_impl!(fill_buf_impl_w2, 2);
-    fill_buf_impl!(fill_buf_impl_w4, 4);
-    fill_buf_impl!(fill_buf_impl_w8, 8);
-    fill_buf_impl!(fill_buf_impl_w16, 16);
+    fn fill_buf(&mut self) -> Result<(usize, usize)> {
+        // bulk_len is the minimum valid slice length among the source buffers
+        let mut prev_len = usize::MAX;
+        loop {
+            let mut len = usize::MAX;
+            for src in &mut self.srcs {
+                len = std::cmp::min(len, src.fill_buf()? & self.mask);
+            }
+
+            if len > 0 || len == prev_len {
+                prev_len = len;
+                break;
+            }
+
+            debug_assert!(len == 0);
+            self.consume(0);
+            prev_len = 0;
+        }
+
+        // initialize the pointer cache (used in `gather_impl`)
+        for (src, ptr) in self.srcs.iter_mut().zip(self.ptrs.iter_mut()) {
+            *ptr = src.as_slice().as_ptr();
+        }
+        Ok((prev_len, self.srcs.len() * prev_len))
+    }
+
+    gather_impl!(gather_impl_w1, 1);
+    gather_impl!(gather_impl_w2, 2);
+    gather_impl!(gather_impl_w4, 4);
+    gather_impl!(gather_impl_w8, 8);
+    gather_impl!(gather_impl_w16, 16);
+
+    fn gather(&mut self, bytes_per_src: usize, buf: &mut [u8]) -> Result<usize> {
+        (self.gather_impl)(self, bytes_per_src, buf)
+    }
+
+    fn consume(&mut self, bytes_per_src: usize) {
+        for src in &mut self.srcs {
+            src.consume(bytes_per_src);
+        }
+    }
+}
+
+pub struct ZipStream {
+    src: Zipper,
+    buf: StreamBuf,
+}
+
+impl ZipStream {
+    pub fn new(srcs: Vec<Box<dyn ByteStream>>, word_size: usize) -> Self {
+        ZipStream {
+            src: Zipper::new(srcs, word_size),
+            buf: StreamBuf::new(),
+        }
+    }
 }
 
 impl ByteStream for ZipStream {
     fn fill_buf(&mut self) -> Result<usize> {
-        (self.fill_buf_impl)(self)
+        self.buf.fill_buf(|buf| {
+            let (bytes_per_src, bytes_all) = self.src.fill_buf()?;
+            if bytes_per_src == 0 {
+                return Ok(false);
+            }
+
+            buf.fill_uninit(bytes_all, |buf| self.src.gather(bytes_per_src, buf))?;
+
+            self.src.consume(bytes_per_src);
+            Ok(false)
+        })
     }
 
     fn as_slice(&self) -> &[u8] {
@@ -98,5 +139,116 @@ impl ByteStream for ZipStream {
         self.buf.consume(amount);
     }
 }
+
+#[allow(unused_macros)]
+macro_rules! test_zip_impl {
+    ( $inner: ident, $word_size: expr, $inputs: expr, $expected: expr ) => {{
+        let srcs = $inputs
+            .iter()
+            .map(|x| -> Box<dyn ByteStream> { Box::new(MockSource::new(x)) })
+            .collect::<Vec<Box<dyn ByteStream>>>();
+        let src = ZipStream::new(srcs, $word_size);
+        $inner!(src, $expected);
+    }};
+}
+
+#[allow(unused_macros)]
+macro_rules! test_zip {
+    ( $name: ident, $inner: ident ) => {
+        #[test]
+        fn $name() {
+            // ZipStream clips the output at the end of the shortest input
+            test_zip_impl!($inner, 1, [b"".as_slice()], b"");
+            test_zip_impl!($inner, 2, [b"".as_slice()], b"");
+            test_zip_impl!($inner, 4, [b"".as_slice()], b"");
+            test_zip_impl!($inner, 8, [b"".as_slice()], b"");
+
+            test_zip_impl!($inner, 1, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
+            test_zip_impl!($inner, 2, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
+            test_zip_impl!($inner, 4, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
+            test_zip_impl!($inner, 8, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
+
+            test_zip_impl!($inner, 1, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
+            test_zip_impl!($inner, 2, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
+            test_zip_impl!($inner, 4, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
+            test_zip_impl!($inner, 8, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
+
+            // eight-byte streams
+            test_zip_impl!(
+                $inner,
+                1,
+                [
+                    [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07].as_slice(),
+                    [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17].as_slice(),
+                    [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27].as_slice(),
+                ],
+                [
+                    0x00, 0x10, 0x20, 0x01, 0x11, 0x21, 0x02, 0x12, 0x22, 0x03, 0x13, 0x23, 0x04, 0x14, 0x24, 0x05, 0x15, 0x25, 0x06, 0x16,
+                    0x26, 0x07, 0x17, 0x27
+                ]
+            );
+            test_zip_impl!(
+                $inner,
+                2,
+                [
+                    [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07].as_slice(),
+                    [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17].as_slice(),
+                    [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27].as_slice(),
+                ],
+                [
+                    0x00, 0x01, 0x10, 0x11, 0x20, 0x21, 0x02, 0x03, 0x12, 0x13, 0x22, 0x23, 0x04, 0x05, 0x14, 0x15, 0x24, 0x25, 0x06, 0x07,
+                    0x16, 0x17, 0x26, 0x27
+                ]
+            );
+            test_zip_impl!(
+                $inner,
+                4,
+                [
+                    [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07].as_slice(),
+                    [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17].as_slice(),
+                    [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27].as_slice(),
+                ],
+                [
+                    0x00, 0x01, 0x02, 0x03, 0x10, 0x11, 0x12, 0x13, 0x20, 0x21, 0x22, 0x23, 0x04, 0x05, 0x06, 0x07, 0x14, 0x15, 0x16, 0x17,
+                    0x24, 0x25, 0x26, 0x27
+                ]
+            );
+            test_zip_impl!(
+                $inner,
+                8,
+                [
+                    [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07].as_slice(),
+                    [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17].as_slice(),
+                    [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27].as_slice(),
+                ],
+                [
+                    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x20, 0x21, 0x22, 0x23,
+                    0x24, 0x25, 0x26, 0x27
+                ]
+            );
+
+            // clips the first input
+            test_zip_impl!(
+                $inner,
+                1,
+                [
+                    [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08].as_slice(),
+                    [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17].as_slice(),
+                    [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27].as_slice(),
+                ],
+                [
+                    0x00, 0x10, 0x20, 0x01, 0x11, 0x21, 0x02, 0x12, 0x22, 0x03, 0x13, 0x23, 0x04, 0x14, 0x24, 0x05, 0x15, 0x25, 0x06, 0x16,
+                    0x26, 0x07, 0x17, 0x27
+                ]
+            );
+
+            // TODO: longer steam
+        }
+    };
+}
+
+test_zip!(test_text_random_len, test_stream_random_len);
+test_zip!(test_text_random_consume, test_stream_random_consume);
+test_zip!(test_text_all_at_once, test_stream_all_at_once);
 
 // end of zip.rs

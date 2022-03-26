@@ -7,6 +7,9 @@ use crate::stream::{ByteStream, EofStream};
 use crate::streambuf::StreamBuf;
 use std::io::Result;
 
+// #[cfg(test)]
+// use crate::stream::tester::*;
+
 pub struct CatStream {
     srcs: Vec<EofStream<Box<dyn ByteStream>>>,
     i: usize,

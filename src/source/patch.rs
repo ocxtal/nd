@@ -114,7 +114,11 @@ impl ByteStream for PatchStream {
             let mut rem_len = len;
             let mut stream = self.src.as_slice();
 
-            while rem_len > 0 {
+            let force_try_next = loop {
+                if rem_len == 0 {
+                    break false;
+                }
+
                 // region where we keep the original stream
                 let next_offset = std::cmp::min(self.offset + rem_len, self.patch.offset);
                 let fwd_len = next_offset - self.offset;
@@ -126,7 +130,7 @@ impl ByteStream for PatchStream {
                 buf.extend_from_slice(fwd_stream);
 
                 if rem_len == 0 {
-                    break;
+                    break true;
                 }
 
                 // region that is overwritten by patch
@@ -134,10 +138,10 @@ impl ByteStream for PatchStream {
 
                 // if the patched stream becomes longer than the remainder of the original stream,
                 // set the skip for the next fill_buf
-                if patch_span > rem_len {
+                if patch_span >= rem_len {
                     self.offset += patch_span;
                     self.skip = patch_span - rem_len;
-                    break;
+                    break true;
                 }
 
                 // otherwise forward the original stream
@@ -146,10 +150,10 @@ impl ByteStream for PatchStream {
 
                 let (_, rem_stream) = rem_stream.split_at(patch_span);
                 stream = rem_stream;
-            }
+            };
 
             self.src.consume(len);
-            Ok(false)
+            Ok(force_try_next)
         })
     }
 
