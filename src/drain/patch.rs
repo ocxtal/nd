@@ -86,7 +86,7 @@ impl ByteStream for CacheStreamReader {
                 cache.seek(SeekFrom::Start(self.offset as u64)).unwrap();
                 buf.fill_uninit(BLOCK_SIZE, |buf| cache.read(buf))?;
             }
-            Ok(())
+            Ok(false)
         })
     }
 
@@ -146,7 +146,7 @@ impl ByteStream for BashPipeReader {
     fn fill_buf(&mut self) -> Result<usize> {
         self.buf.fill_buf(|buf| {
             buf.fill_uninit(BLOCK_SIZE, |buf| self.output.read(buf))?;
-            Ok(())
+            Ok(false)
         })
     }
 

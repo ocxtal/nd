@@ -43,7 +43,7 @@ macro_rules! fill_buf_impl {
                     }
                     Ok(self.srcs.len() * bulk_len)
                 })?;
-                Ok(())
+                Ok(false)
             })?;
 
             for src in &mut self.srcs {

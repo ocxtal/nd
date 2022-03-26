@@ -66,7 +66,7 @@ impl StreamBuf {
 
     pub fn fill_buf<F>(&mut self, f: F) -> Result<usize>
     where
-        F: FnMut(&mut Vec<u8>) -> Result<()>,
+        F: FnMut(&mut Vec<u8>) -> Result<bool>,
     {
         let mut f = f;
 
@@ -82,7 +82,12 @@ impl StreamBuf {
         // collect into the buffer without margin
         while self.buf.len() < self.request {
             let prev_len = self.buf.len();
-            f(&mut self.buf)?;
+
+            // TODO: test force_try_next == true
+            let force_try_next = f(&mut self.buf)?;
+            if force_try_next {
+                continue;
+            }
 
             // end of stream if no byte added to the buffer
             if self.buf.len() == prev_len {
@@ -163,7 +168,7 @@ fn test_stream_buf_random_len() {
                     src.consume(len);
                     acc += len;
 
-                    Ok(())
+                    Ok(false)
                 });
                 let len = len.unwrap();
                 let stream = buf.as_slice();
@@ -219,7 +224,7 @@ fn test_stream_buf_random_consume() {
                     src.consume(len);
                     acc += len;
 
-                    Ok(())
+                    Ok(false)
                 });
                 let len = len.unwrap();
 
@@ -278,7 +283,7 @@ fn test_stream_buf_all_at_once() {
                     src.consume(len);
                     acc += len;
 
-                    Ok(())
+                    Ok(false)
                 });
                 let len = len.unwrap();
 
@@ -302,7 +307,7 @@ fn test_stream_buf_all_at_once() {
 
             // buf gets empty after consuming all
             buf.consume(acc);
-            assert_eq!(buf.fill_buf(|_| Ok(())).unwrap(), 0);
+            assert_eq!(buf.fill_buf(|_| Ok(false)).unwrap(), 0);
 
             let stream = buf.as_slice();
             assert!(stream.len() >= MARGIN_SIZE);

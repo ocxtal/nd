@@ -30,7 +30,7 @@ impl ByteStream for BinaryStream {
     fn fill_buf(&mut self) -> Result<usize> {
         self.buf.fill_buf(|buf| {
             buf.fill_uninit(BLOCK_SIZE, |arr| self.src.read(arr))?;
-            Ok(())
+            Ok(false)
         })
     }
 
@@ -44,30 +44,30 @@ impl ByteStream for BinaryStream {
 }
 
 #[allow(unused_macros)]
-macro_rules! test_inner {
+macro_rules! test_impl {
     ( $inner: ident, $pattern: expr ) => {{
         let pattern = $pattern;
         let src = Box::new(MockSource::new(&pattern));
         let src = BinaryStream::new(src, 1, &InoutFormat::input_default());
-        $inner!(src, pattern);
+        $inner!(src, &pattern);
     }};
 }
 
 #[allow(unused_macros)]
-macro_rules! test_fn {
+macro_rules! test {
     ( $name: ident, $inner: ident ) => {
         #[test]
         fn $name() {
-            test_inner!($inner, rep!(b"a", 3000));
-            test_inner!($inner, rep!(b"abc", 3000));
-            test_inner!($inner, rep!(b"abcbc", 3000));
-            test_inner!($inner, rep!(b"abcbcdefghijklmno", 1001));
+            test_impl!($inner, rep!(b"a", 3000));
+            test_impl!($inner, rep!(b"abc", 3000));
+            test_impl!($inner, rep!(b"abcbc", 3000));
+            test_impl!($inner, rep!(b"abcbcdefghijklmno", 1001));
         }
     };
 }
 
-test_fn!(test_binary_stream_random_len, test_stream_random_len);
-test_fn!(test_binary_stream_random_consume, test_stream_random_consume);
-test_fn!(test_binary_stream_all_at_once, test_stream_all_at_once);
+test!(test_binary_stream_random_len, test_stream_random_len);
+test!(test_binary_stream_random_consume, test_stream_random_consume);
+test!(test_binary_stream_all_at_once, test_stream_all_at_once);
 
 // end of binary.rs

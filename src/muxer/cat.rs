@@ -38,7 +38,7 @@ impl CatStream {
             self.i += is_eof as usize;
             if self.i >= self.srcs.len() {
                 self.rem = usize::MAX;
-                return Ok(());
+                return Ok(false);
             }
 
             let (is_eof_next, len) = self.srcs[self.i].fill_buf(BLOCK_SIZE)?;
@@ -47,7 +47,7 @@ impl CatStream {
             is_eof = is_eof_next;
             self.rem = len;
 
-            Ok(())
+            Ok(false)
         })
         // note: the last stream is not consumed
     }

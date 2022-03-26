@@ -51,7 +51,7 @@ macro_rules! test_stream_random_len {
             v.extend_from_slice(&stream[..consume]);
             src.consume(consume);
         }
-        assert_eq!(v, $expected);
+        assert_eq!(&v, $expected.as_slice());
     }};
 }
 
@@ -81,7 +81,7 @@ macro_rules! test_stream_random_consume {
             v.extend_from_slice(&stream[..(len + 1) / 2]);
             src.consume((len + 1) / 2);
         }
-        assert_eq!(v, $expected);
+        assert_eq!(&v, $expected.as_slice());
     }};
 }
 
@@ -109,7 +109,7 @@ macro_rules! test_stream_all_at_once {
 
         let stream = src.as_slice();
         assert!(stream.len() >= len + MARGIN_SIZE);
-        assert_eq!(&stream[..len], $expected);
+        assert_eq!(&stream[..len], $expected.as_slice());
         src.consume(len);
 
         let len = src.fill_buf().unwrap();
