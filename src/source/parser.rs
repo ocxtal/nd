@@ -14,7 +14,7 @@ mod x86_64;
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use x86_64::*;
 
-use crate::common::{FillUninit, InoutFormat, ToResult, BLOCK_SIZE, MARGIN_SIZE};
+use crate::common::{FillUninit, InoutFormat, ToResult, MARGIN_SIZE};
 use crate::stream::{ByteStream, EofStream};
 use std::io::Result;
 
@@ -286,7 +286,7 @@ impl TextParser {
     }
 
     fn read_line_continued(&mut self, offset: usize, span: usize, is_in_tail: bool, buf: &mut Vec<u8>) -> Result<(usize, usize, usize)> {
-        let (_, len) = self.src.fill_buf(BLOCK_SIZE)?;
+        let (_, len) = self.src.fill_buf()?;
         if len == 0 {
             return Ok((1, offset, span));
         }
@@ -311,7 +311,7 @@ impl TextParser {
     }
 
     pub fn read_line(&mut self, buf: &mut Vec<u8>) -> Result<(usize, usize, usize)> {
-        let (_, len) = self.src.fill_buf(BLOCK_SIZE)?;
+        let (_, len) = self.src.fill_buf()?;
         if len == 0 {
             return Ok((0, 0, 0));
         }

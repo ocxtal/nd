@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 // @brief constant-stride slicer
 
-use crate::common::{Segment, BLOCK_SIZE};
+use crate::common::Segment;
 use crate::stream::{ByteStream, EofStream, SegmentStream};
 use std::io::Result;
 
@@ -190,8 +190,8 @@ impl ConstStrideSlicer {
 
 impl SegmentStream for ConstStrideSlicer {
     fn fill_segment_buf(&mut self) -> Result<(usize, usize)> {
-        let block_size = std::cmp::max(self.segments.len, BLOCK_SIZE);
-        let (is_eof, len) = self.src.fill_buf(block_size)?;
+        // let block_size = std::cmp::max(self.segments.len, BLOCK_SIZE);
+        let (is_eof, len) = self.src.fill_buf()?;
 
         self.segments.fill_segment_buf(is_eof, len)
     }

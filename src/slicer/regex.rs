@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 // @brief regex slicer
 
-use crate::common::{Segment, BLOCK_SIZE};
+use crate::common::Segment;
 use crate::stream::{ByteStream, EofStream, SegmentStream};
 use regex::bytes::{Match, Regex};
 use std::io::Result;
@@ -36,7 +36,7 @@ impl SegmentStream for RegexSlicer {
             }
         };
 
-        let (is_eof, len) = self.src.fill_buf(BLOCK_SIZE)?;
+        let (is_eof, len) = self.src.fill_buf()?;
         let stream = self.src.as_slice();
 
         let count = len / self.width;

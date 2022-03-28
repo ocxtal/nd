@@ -141,7 +141,7 @@ impl ByteStream for ZipStream {
 }
 
 #[allow(unused_macros)]
-macro_rules! test_zip_impl {
+macro_rules! test_impl {
     ( $inner: ident, $word_size: expr, $inputs: expr, $expected: expr ) => {{
         let srcs = $inputs
             .iter()
@@ -153,28 +153,28 @@ macro_rules! test_zip_impl {
 }
 
 #[allow(unused_macros)]
-macro_rules! test_zip {
+macro_rules! test {
     ( $name: ident, $inner: ident ) => {
         #[test]
         fn $name() {
             // ZipStream clips the output at the end of the shortest input
-            test_zip_impl!($inner, 1, [b"".as_slice()], b"");
-            test_zip_impl!($inner, 2, [b"".as_slice()], b"");
-            test_zip_impl!($inner, 4, [b"".as_slice()], b"");
-            test_zip_impl!($inner, 8, [b"".as_slice()], b"");
+            test_impl!($inner, 1, [b"".as_slice()], b"");
+            test_impl!($inner, 2, [b"".as_slice()], b"");
+            test_impl!($inner, 4, [b"".as_slice()], b"");
+            test_impl!($inner, 8, [b"".as_slice()], b"");
 
-            test_zip_impl!($inner, 1, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_zip_impl!($inner, 2, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_zip_impl!($inner, 4, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_zip_impl!($inner, 8, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
+            test_impl!($inner, 1, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
+            test_impl!($inner, 2, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
+            test_impl!($inner, 4, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
+            test_impl!($inner, 8, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
 
-            test_zip_impl!($inner, 1, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_zip_impl!($inner, 2, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_zip_impl!($inner, 4, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_zip_impl!($inner, 8, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
+            test_impl!($inner, 1, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
+            test_impl!($inner, 2, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
+            test_impl!($inner, 4, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
+            test_impl!($inner, 8, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
 
             // eight-byte streams
-            test_zip_impl!(
+            test_impl!(
                 $inner,
                 1,
                 [
@@ -187,7 +187,7 @@ macro_rules! test_zip {
                     0x26, 0x07, 0x17, 0x27
                 ]
             );
-            test_zip_impl!(
+            test_impl!(
                 $inner,
                 2,
                 [
@@ -200,7 +200,7 @@ macro_rules! test_zip {
                     0x16, 0x17, 0x26, 0x27
                 ]
             );
-            test_zip_impl!(
+            test_impl!(
                 $inner,
                 4,
                 [
@@ -213,7 +213,7 @@ macro_rules! test_zip {
                     0x24, 0x25, 0x26, 0x27
                 ]
             );
-            test_zip_impl!(
+            test_impl!(
                 $inner,
                 8,
                 [
@@ -228,7 +228,7 @@ macro_rules! test_zip {
             );
 
             // clips the first input
-            test_zip_impl!(
+            test_impl!(
                 $inner,
                 1,
                 [
@@ -247,8 +247,8 @@ macro_rules! test_zip {
     };
 }
 
-test_zip!(test_text_random_len, test_stream_random_len);
-test_zip!(test_text_random_consume, test_stream_random_consume);
-test_zip!(test_text_all_at_once, test_stream_all_at_once);
+test!(test_zip_random_len, test_stream_random_len);
+test!(test_zip_random_consume, test_stream_random_consume);
+test!(test_zip_all_at_once, test_stream_all_at_once);
 
 // end of zip.rs

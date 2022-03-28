@@ -48,12 +48,20 @@ impl StreamBuf {
     }
 
     pub fn extend_from_slice(&mut self, stream: &[u8]) {
-        self.buf.extend_from_slice(stream)
+        // remove the margin
+        self.buf.truncate(self.len);
+
+        // append the input
+        self.buf.extend_from_slice(stream);
+        self.len += stream.len();
+
+        // restore the margin
+        self.buf.resize(self.len + MARGIN_SIZE, 0);
     }
 
     pub fn mark_eof(&mut self) {
         // at this point the buffer does not have the tail margin
-        debug_assert!(self.buf.len() < self.request);
+        // debug_assert!(self.buf.len() < self.request);
 
         // first mark EOF
         self.is_eof = true;
@@ -70,7 +78,6 @@ impl StreamBuf {
     {
         let mut f = f;
 
-        debug_assert!(self.len < self.request);
         if self.is_eof {
             // the buffer has the margin
             return Ok(self.len - self.pos);
@@ -80,7 +87,7 @@ impl StreamBuf {
         self.buf.truncate(self.len);
 
         // collect into the buffer without margin
-        while self.buf.len() < self.request {
+        loop {
             let prev_len = self.buf.len();
 
             // TODO: test force_try_next == true
@@ -92,6 +99,11 @@ impl StreamBuf {
             // end of stream if no byte added to the buffer
             if self.buf.len() == prev_len {
                 self.mark_eof();
+                break;
+            }
+
+            // break if long enough (do-while)
+            if self.buf.len() >= self.request {
                 break;
             }
         }
@@ -140,7 +152,6 @@ impl StreamBuf {
         } else {
             // reset
             self.request = std::cmp::max(self.len + 1, BLOCK_SIZE);
-            debug_assert!(self.len < self.request);
         }
     }
 }

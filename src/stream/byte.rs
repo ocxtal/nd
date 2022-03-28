@@ -110,6 +110,7 @@ macro_rules! test_stream_all_at_once {
         let stream = src.as_slice();
         assert!(stream.len() >= len + MARGIN_SIZE);
         assert_eq!(&stream[..len], $expected.as_slice());
+
         src.consume(len);
 
         let len = src.fill_buf().unwrap();
