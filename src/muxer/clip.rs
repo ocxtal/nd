@@ -71,10 +71,10 @@ macro_rules! test {
             let mut rng = thread_rng();
             let pattern = (0..32 * 1024).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
 
-            // // all
+            // all
             $inner!(ClipStream::new(Box::new(MockSource::new(&pattern)), 0, pattern.len()), &pattern);
 
-            // // head clip
+            // head clip
             $inner!(ClipStream::new(Box::new(MockSource::new(&pattern)), 1, pattern.len()), &pattern[1..]);
             $inner!(ClipStream::new(Box::new(MockSource::new(&pattern)), 1000, pattern.len()), &pattern[1000..]);
 
@@ -91,6 +91,9 @@ macro_rules! test {
             $inner!(ClipStream::new(Box::new(MockSource::new(&pattern)), 0, 0), b"");
             $inner!(ClipStream::new(Box::new(MockSource::new(&pattern)), 10, 0), b"");
             $inner!(ClipStream::new(Box::new(MockSource::new(&pattern)), pattern.len(), 0), b"");
+
+            // clip longer than the stream
+            $inner!(ClipStream::new(Box::new(MockSource::new(&pattern)), pattern.len() + 1, pattern.len()), b"");
         }
     };
 }
