@@ -54,7 +54,7 @@ pub mod tester {
                 }
             }
 
-            assert_eq!(v, $expected);
+            assert_eq!(&v, $expected);
         }};
     }
 

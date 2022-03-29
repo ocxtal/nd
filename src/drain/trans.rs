@@ -23,7 +23,7 @@ impl TransparentDrain {
 
     fn consume_segments_impl(&mut self) -> Result<usize> {
         let (stream_len, segment_count) = self.src.fill_segment_buf()?;
-        eprintln!("trans: {:?}, {:?}, {:?}", self.offset, stream_len, segment_count);
+        // eprintln!("trans: {:?}, {:?}, {:?}", self.offset, stream_len, segment_count);
         if stream_len == 0 {
             return Ok(0);
         }

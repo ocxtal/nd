@@ -62,18 +62,18 @@ macro_rules! test_gapless {
             // TODO: non-hex streams
             test_gapless_impl!($inner, b"0000 00 | \n", b"");
             test_gapless_impl!($inner, b"0000 01 | \n", b"");
-            test_gapless_impl!($inner, b"0000 01 | 00\n", [0u8]);
-            test_gapless_impl!($inner, b"0000 02 | 00 01 \n", [0u8, 1]);
-            test_gapless_impl!($inner, b"0002 04 | 03 04 \n", [3u8, 4]);
-            test_gapless_impl!($inner, b"0002 00 | 03 04 \n", [3u8, 4]);
+            test_gapless_impl!($inner, b"0000 01 | 00\n", &[0u8]);
+            test_gapless_impl!($inner, b"0000 02 | 00 01 \n", &[0u8, 1]);
+            test_gapless_impl!($inner, b"0002 04 | 03 04 \n", &[3u8, 4]);
+            test_gapless_impl!($inner, b"0002 00 | 03 04 \n", &[3u8, 4]);
 
             // (offset, length) in the header is just ignored
-            test_gapless_impl!($inner, rep!(b"0010 ff | 00\n", 3000), [0u8; 3000]);
+            test_gapless_impl!($inner, rep!(b"0010 ff | 00\n", 3000), &[0u8; 3000]);
 
             #[rustfmt::skip]
             test_gapless_impl!(
                 $inner,
-                rep!(
+                &rep!(
                     b"000 00 | 01 02 03 04 05\n\
                       fff 10 | 11 12 13 14 15 16 17\n\
                       010 10 | 21 22 23 24 25\n\
@@ -81,7 +81,7 @@ macro_rules! test_gapless {
                       100 30 | 51 52 53 54 55\n",
                     3000
                 ),
-                rep!(
+                &rep!(
                     &[
                         0x01u8, 0x02, 0x03, 0x04, 0x05,
                         0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
@@ -223,10 +223,10 @@ macro_rules! test_text {
             // TODO: non-hex streams
             test_text_impl!($inner, b"0000 00 | \n", b"");
             test_text_impl!($inner, b"0000 01 | \n", b"");
-            test_text_impl!($inner, b"0000 01 | 00\n", [0u8]);
-            test_text_impl!($inner, b"0000 02 | 00 01 \n", [0u8, 1]);
-            test_text_impl!($inner, b"0002 04 | 03 04 \n", [0u8, 0, 3, 4]);
-            test_text_impl!($inner, b"0002 00 | 03 04 \n", [0u8, 0, 3, 4]);
+            test_text_impl!($inner, b"0000 01 | 00\n", &[0u8]);
+            test_text_impl!($inner, b"0000 02 | 00 01 \n", &[0u8, 1]);
+            test_text_impl!($inner, b"0002 04 | 03 04 \n", &[0u8, 0, 3, 4]);
+            test_text_impl!($inner, b"0002 00 | 03 04 \n", &[0u8, 0, 3, 4]);
 
             #[rustfmt::skip]
             test_text_impl!(
@@ -240,7 +240,7 @@ macro_rules! test_text {
                   01c 03 | 70 71 72 73 74\n\
                   01d 05 | 80 81 82 83 84\n\
                   01d 05 | 90 91 92 93 94\n",
-                [
+                &[
                     0x00u8, 0x01, 0x02, 0x03, 0x04,
                     0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x00, 0x00, 0x00, 0x00,   // pad: (0x05 + 0x07)..0x10
                     0x20, 0x21, 0x22,                                                   // truncate: 0x13..(0x10 + 0x05)

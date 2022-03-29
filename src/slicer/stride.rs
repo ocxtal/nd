@@ -56,14 +56,14 @@ impl ConstStrideSegments {
     }
 
     fn calc_max_fwd(&self, count: usize) -> usize {
-        eprintln!("d: {:?}, {:?}", count, self.segments.len());
+        // eprintln!("d: {:?}, {:?}", count, self.segments.len());
         assert!(self.segments.len() >= count && count > 0);
 
         (self.segments[count - 1].tail() + self.pitch).saturating_sub(self.len)
     }
 
     fn slice_segments_with_clip(&mut self, len: usize) -> Result<(usize, usize)> {
-        eprintln!("b: {:?}", len);
+        // eprintln!("b: {:?}", len);
         let mut next_tail = self.get_next_tail();
         while next_tail < len + self.margin.1 {
             let pos = next_tail.saturating_sub(self.len);
@@ -79,7 +79,7 @@ impl ConstStrideSegments {
     }
 
     fn slice_segments(&mut self, len: usize) -> Result<(usize, usize)> {
-        eprintln!("e: {:?}", len);
+        // eprintln!("e: {:?}", len);
         let mut next_tail = self.get_next_tail();
 
         if next_tail >= len {
@@ -94,7 +94,7 @@ impl ConstStrideSegments {
             }
 
             self.last_count = self.segments.len() - n_extra;
-            eprintln!("a: {:?}, {:?}, {:?}", self.last_count, self.segments.len(), n_extra);
+            // eprintln!("a: {:?}, {:?}, {:?}", self.last_count, self.segments.len(), n_extra);
             self.last_len = self.calc_max_fwd(self.last_count);
             return Ok((len, self.last_count));
         }
@@ -113,10 +113,10 @@ impl ConstStrideSegments {
     }
 
     fn fill_segment_buf(&mut self, is_eof: bool, len: usize) -> Result<(usize, usize)> {
-        eprintln!(
-            "fill: {:?}, {:?}, {:?}, {:?}, {:?}",
-            is_eof, len, self.flush_threshold, self.phase, self.prev_phase
-        );
+        // eprintln!(
+        //     "fill: {:?}, {:?}, {:?}, {:?}, {:?}",
+        //     is_eof, len, self.flush_threshold, self.phase, self.prev_phase
+        // );
         if self.flush_threshold > 0 {
             // is still in the head
             if is_eof {

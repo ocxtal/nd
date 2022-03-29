@@ -294,7 +294,7 @@ fn main() {
         slicer
     };
 
-    eprintln!("c: {:?}, {:?}, {:?}", disp, len, min_width);
+    // eprintln!("c: {:?}, {:?}, {:?}", disp, len, min_width);
 
     // dump all
     let formatter: Box<dyn SegmentStream> = if output_format.is_binary() {

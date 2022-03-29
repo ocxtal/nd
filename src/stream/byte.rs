@@ -51,7 +51,7 @@ macro_rules! test_stream_random_len {
             v.extend_from_slice(&stream[..consume]);
             src.consume(consume);
         }
-        assert_eq!(&v, $expected.as_slice());
+        assert_eq!(&v, $expected);
     }};
 }
 
@@ -81,7 +81,7 @@ macro_rules! test_stream_random_consume {
             v.extend_from_slice(&stream[..(len + 1) / 2]);
             src.consume((len + 1) / 2);
         }
-        assert_eq!(&v, $expected.as_slice());
+        assert_eq!(&v, $expected);
     }};
 }
 
@@ -109,7 +109,7 @@ macro_rules! test_stream_all_at_once {
 
         let stream = src.as_slice();
         assert!(stream.len() >= len + MARGIN_SIZE);
-        assert_eq!(&stream[..len], $expected.as_slice());
+        assert_eq!(&stream[..len], $expected);
 
         src.consume(len);
 
@@ -118,7 +118,9 @@ macro_rules! test_stream_all_at_once {
 
         let stream = src.as_slice();
         assert!(stream.len() >= MARGIN_SIZE);
-        assert_eq!(&stream[..MARGIN_SIZE], [0u8; MARGIN_SIZE]);
+
+        // we don't necessarily require the tail margin being cleared
+        // assert_eq!(&stream[..MARGIN_SIZE], [0u8; MARGIN_SIZE]);
     }};
 }
 

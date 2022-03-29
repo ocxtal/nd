@@ -89,7 +89,8 @@ impl ByteStream for MockSource {
 #[allow(unused_macros)]
 macro_rules! test_impl {
     ( $inner: ident, $pattern: expr ) => {{
-        $inner!(MockSource::new(&$pattern), $pattern);
+        let pattern = $pattern;
+        $inner!(MockSource::new(&pattern), &pattern);
     }};
 }
 
