@@ -39,7 +39,10 @@ impl<T: ByteStream + ?Sized> ByteStream for Box<T> {
 
 // concatenation of random-length chunks
 #[cfg(test)]
-pub fn test_stream_random_len<T>(src: T, expected: &[u8]) where T: Sized + ByteStream {
+pub fn test_stream_random_len<T>(src: T, expected: &[u8])
+where
+    T: Sized + ByteStream,
+{
     let mut rng = rand::thread_rng();
     let mut src = src;
     let mut v = Vec::new();
@@ -63,7 +66,10 @@ pub fn test_stream_random_len<T>(src: T, expected: &[u8]) where T: Sized + ByteS
 
 // random selection of consume-some or request-more
 #[cfg(test)]
-pub fn test_stream_random_consume<T>(src: T, expected: &[u8]) where T: Sized + ByteStream {
+pub fn test_stream_random_consume<T>(src: T, expected: &[u8])
+where
+    T: Sized + ByteStream,
+{
     let mut rng = rand::thread_rng();
     let mut src = src;
     let mut v = Vec::new();
@@ -90,7 +96,10 @@ pub fn test_stream_random_consume<T>(src: T, expected: &[u8]) where T: Sized + B
 
 // iteratively request more bytes
 #[cfg(test)]
-pub fn test_stream_all_at_once<T>(src: T, expected: &[u8]) where T: Sized + ByteStream {
+pub fn test_stream_all_at_once<T>(src: T, expected: &[u8])
+where
+    T: Sized + ByteStream,
+{
     let mut src = src;
     let mut prev_len = 0;
 

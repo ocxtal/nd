@@ -6,6 +6,9 @@ use crate::common::Segment;
 use crate::stream::{ByteStream, EofStream, SegmentStream};
 use std::io::Result;
 
+#[cfg(test)]
+use crate::stream::tester::*;
+
 struct ConstStrideSegments {
     segments: Vec<Segment>, // precalculated segment array
     flush_threshold: usize,
@@ -56,22 +59,30 @@ impl ConstStrideSegments {
     }
 
     fn calc_max_fwd(&self, count: usize) -> usize {
-        // eprintln!("d: {:?}, {:?}", count, self.segments.len());
+        eprintln!("d: {:?}, {:?}", count, self.segments.len());
         assert!(self.segments.len() >= count && count > 0);
 
         (self.segments[count - 1].tail() + self.pitch).saturating_sub(self.len)
     }
 
     fn slice_segments_with_clip(&mut self, len: usize) -> Result<(usize, usize)> {
-        // eprintln!("b: {:?}", len);
         let mut next_tail = self.get_next_tail();
-        while next_tail < len + self.margin.1 {
+        eprintln!("b: {:?}, {:?}", len, next_tail);
+
+        if next_tail > len + self.margin.1 {
+            self.last_count = 0;
+            self.last_len = 0;
+            return Ok((0, 0));
+        }
+
+        while next_tail <= len + self.margin.1 {
             let pos = next_tail.saturating_sub(self.len);
             let len = std::cmp::min(next_tail, len) - pos;
             self.segments.push(Segment { pos, len });
 
             next_tail += self.pitch;
         }
+        eprintln!("f: {:?}, {:?}", next_tail, self.segments);
 
         self.last_count = self.segments.len();
         self.last_len = self.calc_max_fwd(self.last_count);
@@ -79,12 +90,12 @@ impl ConstStrideSegments {
     }
 
     fn slice_segments(&mut self, len: usize) -> Result<(usize, usize)> {
-        // eprintln!("e: {:?}", len);
+        eprintln!("e: {:?}", len);
         let mut next_tail = self.get_next_tail();
 
-        if next_tail >= len {
+        if next_tail > len {
             let n_extra = self.count_segments(next_tail - len);
-            if n_extra >= self.segments.len() {
+            if n_extra > self.segments.len() {
                 self.segments.clear();
                 self.prev_phase = self.pitch;
 
@@ -94,12 +105,12 @@ impl ConstStrideSegments {
             }
 
             self.last_count = self.segments.len() - n_extra;
-            // eprintln!("a: {:?}, {:?}, {:?}", self.last_count, self.segments.len(), n_extra);
+            eprintln!("a: {:?}, {:?}, {:?}", self.last_count, self.segments.len(), n_extra);
             self.last_len = self.calc_max_fwd(self.last_count);
             return Ok((len, self.last_count));
         }
 
-        while next_tail < len {
+        while next_tail <= len {
             self.segments.push(Segment {
                 pos: next_tail - self.len,
                 len: self.len,
@@ -113,10 +124,10 @@ impl ConstStrideSegments {
     }
 
     fn fill_segment_buf(&mut self, is_eof: bool, len: usize) -> Result<(usize, usize)> {
-        // eprintln!(
-        //     "fill: {:?}, {:?}, {:?}, {:?}, {:?}",
-        //     is_eof, len, self.flush_threshold, self.phase, self.prev_phase
-        // );
+        eprintln!(
+            "fill: {:?}, {:?}, {:?}, {:?}, {:?}",
+            is_eof, len, self.flush_threshold, self.phase, self.prev_phase
+        );
         if self.flush_threshold > 0 {
             // is still in the head
             if is_eof {
@@ -147,6 +158,8 @@ impl ConstStrideSegments {
     }
 
     fn consume(&mut self, bytes: usize) -> Result<usize> {
+        eprintln!("g: {:?}, {:?}", bytes, self.last_len);
+
         // maximum consume length is clipped by the start pos of the next segment
         let bytes = std::cmp::min(bytes, self.last_len);
 
@@ -181,6 +194,9 @@ pub struct ConstStrideSlicer {
 
 impl ConstStrideSlicer {
     pub fn new(src: Box<dyn ByteStream>, margin: (usize, usize), pitch: usize, len: usize) -> Self {
+        assert!(pitch > 0);
+        assert!(len > 0);
+
         ConstStrideSlicer {
             src: EofStream::new(src),
             segments: ConstStrideSegments::new(margin, pitch, len),
@@ -206,6 +222,22 @@ impl SegmentStream for ConstStrideSlicer {
 
         Ok(bytes)
     }
+}
+
+#[cfg(test)]
+macro_rules! bind {
+    ( $margin: expr, $pitch: expr, $len: expr ) => {
+        |pattern: &[u8]| -> Box<dyn SegmentStream> {
+            let src = Box::new(MockSource::new(pattern));
+            Box::new(ConstStrideSlicer::new(src, $margin, $pitch, $len))
+        }
+    };
+}
+
+#[test]
+fn test_stride_random_len() {
+    test_segment_random_len(b"", &bind!((0, 0), 1, 1), &[]);
+    test_segment_random_len(b"abc", &bind!((0, 0), 1, 1), &[(0..1).into(), (1..2).into(), (2..3).into()]);
 }
 
 // end of stride.rs

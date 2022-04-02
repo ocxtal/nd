@@ -5,6 +5,12 @@
 use crate::common::Segment;
 use std::io::Result;
 
+#[cfg(test)]
+use crate::common::MARGIN_SIZE;
+
+#[cfg(test)]
+use rand::Rng;
+
 pub trait SegmentStream {
     // chunked iterator
     fn fill_segment_buf(&mut self) -> Result<(usize, usize)>; // #bytes, #segments
@@ -26,46 +32,52 @@ impl<T: SegmentStream + ?Sized> SegmentStream for Box<T> {
     }
 }
 
-// #[allow(unused_macros)]
-// macro_rules! test_segment_random_len {
-//     ( $src: expr, $pattern: expr, $segments: expr ) => {{
-//         let mut rng = rand::thread_rng();
-//         let mut src = $src;
-//         let mut expected = $segments.iter();
-//         let mut offset = 0;
-//         loop {
-//             let (len, count) = src.fill_segment_buf().unwrap();
-//             if len == 0 {
-//                 assert_eq!(count.len(), 0);
-//                 break;
-//             }
+pub fn test_segment_random_len<F>(pattern: &[u8], slicer: &F, expected: &[Segment])
+where
+    F: Fn(&[u8]) -> Box<dyn SegmentStream>,
+{
+    let mut rng = rand::thread_rng();
 
-//             let (stream, segments) = src.as_slices();
-//             assert!(stream.len() >= len + MARGIN_SIZE);
+    let mut src = slicer(pattern);
+    let mut expected = expected.iter();
 
-//             let consume = rng.gen_range(1..len);
-//             for s in &segments {
-//                 if s.tail() > offset + consume {
-//                     break;
-//                 }
+    let mut offset = 0;
+    loop {
+        let (len, count) = src.fill_segment_buf().unwrap();
+        eprintln!("len({:?}), count({:?}), offset({:?})", len, count, offset);
+        if len == 0 {
+            assert_eq!(count, 0);
+            break;
+        }
 
-//                 let e = expected.next();
-//                 assert!(e.is_some());
+        let (stream, segments) = src.as_slices();
+        assert!(stream.len() >= len + MARGIN_SIZE);
+        assert_eq!(&stream[..len], &pattern[offset..offset + len]);
 
-//                 let e = e.unwrap();
-//                 assert_eq!(s.len, e.len());
-//                 assert_eq!(s, e);
-//             }
+        let consume = rng.gen_range(1..=len);
+        for s in segments {
+            if s.tail() > consume {
+                break;
+            }
 
-//             let consumed = src.consume(consume).unwrap();
-//             offset += consumed;
-//         }
+            let e = expected.next();
+            assert!(e.is_some());
+            eprintln!("s({:?}), e({:?})", s, e);
 
-//         assert_eq!(offset, $len);
+            let e = e.unwrap();
+            assert_eq!(s.len, e.len);
+            assert_eq!(&stream[s.as_range()], &pattern[e.as_range()]);
+        }
 
-//         let e = expected.next();
-//         assert!(e.is_none());
-//     }};
-// }
+        let consumed = src.consume(consume).unwrap();
+        eprintln!("consume({:?}, {:?})", consume, consumed);
+        offset += consumed;
+    }
+
+    assert_eq!(offset, pattern.len());
+
+    let e = expected.next();
+    assert!(e.is_none());
+}
 
 // end of segment.rs

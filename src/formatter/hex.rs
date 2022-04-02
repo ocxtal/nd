@@ -14,9 +14,10 @@ use crate::common::{FillUninit, Segment, BLOCK_SIZE};
 use crate::stream::SegmentStream;
 
 fn format_hex_single_naive(dst: &mut [u8], offset: usize, bytes: usize) -> usize {
+    eprintln!("{:?}, {:?}", offset, bytes);
     for (i, x) in dst[..2 * bytes].iter_mut().enumerate() {
-        let y = (offset >> (4 * (bytes - i - 1))) & 0x0f;
-        *x = b"fedcba9876543210"[y];
+        let y = (offset >> (4 * (2 * bytes - i - 1))) & 0x0f;
+        *x = b"0123456789abcdef"[y];
     }
     dst[2 * bytes] = b' ';
 

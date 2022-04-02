@@ -35,7 +35,10 @@ pub mod tester {
     pub(crate) use rep;
 
     // test template for std::io::Read trait
-    pub(crate) fn test_read_all<T>(src: T, expected: &[u8]) where T: Sized + Read {
+    pub(crate) fn test_read_all<T>(src: T, expected: &[u8])
+    where
+        T: Sized + Read,
+    {
         let mut rng = rand::thread_rng();
         let mut src = src;
         let mut v = Vec::new();
@@ -57,8 +60,10 @@ pub mod tester {
     }
 
     // re-exported for convenience
-    pub(crate) use super::byte::{ByteStream, test_stream_all_at_once, test_stream_random_consume, test_stream_random_len};
+    pub(crate) use super::byte::{test_stream_all_at_once, test_stream_random_consume, test_stream_random_len, ByteStream};
     pub(crate) use super::mock::MockSource;
+
+    pub(crate) use super::segment::{test_segment_random_len, SegmentStream};
 }
 
 // end of mod.rs

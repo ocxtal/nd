@@ -56,14 +56,6 @@ impl ByteStream for ClipStream {
 }
 
 #[allow(unused_macros)]
-macro_rules! test_impl {
-    ( $inner: ident, $pattern: expr, $expected: expr ) => {{
-        let src = ClipStream::new(MockSource::new($pattern.as_slice()));
-        $inner(src, $expected);
-    }};
-}
-
-#[allow(unused_macros)]
 macro_rules! test {
     ( $name: ident, $inner: ident ) => {
         #[test]
@@ -72,20 +64,38 @@ macro_rules! test {
             let pattern = (0..32 * 1024).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
 
             // all
-            $inner(ClipStream::new(Box::new(MockSource::new(&pattern)), 0, pattern.len()), &pattern);
+            $inner(
+                ClipStream::new(Box::new(MockSource::new(&pattern)), 0, pattern.len()),
+                &pattern,
+            );
 
             // head clip
-            $inner(ClipStream::new(Box::new(MockSource::new(&pattern)), 1, pattern.len()), &pattern[1..]);
-            $inner(ClipStream::new(Box::new(MockSource::new(&pattern)), 1000, pattern.len()), &pattern[1000..]);
+            $inner(
+                ClipStream::new(Box::new(MockSource::new(&pattern)), 1, pattern.len()),
+                &pattern[1..],
+            );
+            $inner(
+                ClipStream::new(Box::new(MockSource::new(&pattern)), 1000, pattern.len()),
+                &pattern[1000..],
+            );
 
             // tail clip
             $inner(ClipStream::new(Box::new(MockSource::new(&pattern)), 0, 1), &pattern[..1]);
-            $inner(ClipStream::new(Box::new(MockSource::new(&pattern)), 0, 1000), &pattern[..1000]);
+            $inner(
+                ClipStream::new(Box::new(MockSource::new(&pattern)), 0, 1000),
+                &pattern[..1000],
+            );
 
             // both
             $inner(ClipStream::new(Box::new(MockSource::new(&pattern)), 1, 1), &pattern[1..2]);
-            $inner(ClipStream::new(Box::new(MockSource::new(&pattern)), 1000, 100), &pattern[1000..1100]);
-            $inner(ClipStream::new(Box::new(MockSource::new(&pattern)), 3000, pattern.len()), &pattern[3000..]);
+            $inner(
+                ClipStream::new(Box::new(MockSource::new(&pattern)), 1000, 100),
+                &pattern[1000..1100],
+            );
+            $inner(
+                ClipStream::new(Box::new(MockSource::new(&pattern)), 3000, pattern.len()),
+                &pattern[3000..],
+            );
 
             // none
             $inner(ClipStream::new(Box::new(MockSource::new(&pattern)), 0, 0), b"");
@@ -93,7 +103,10 @@ macro_rules! test {
             $inner(ClipStream::new(Box::new(MockSource::new(&pattern)), pattern.len(), 0), b"");
 
             // clip longer than the stream
-            $inner(ClipStream::new(Box::new(MockSource::new(&pattern)), pattern.len() + 1, pattern.len()), b"");
+            $inner(
+                ClipStream::new(Box::new(MockSource::new(&pattern)), pattern.len() + 1, pattern.len()),
+                b"",
+            );
         }
     };
 }

@@ -96,7 +96,7 @@ impl InoutFormat {
     // }
 }
 
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub struct Segment {
     pub pos: usize,
     pub len: usize,

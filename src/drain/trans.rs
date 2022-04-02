@@ -7,7 +7,7 @@ use std::io::{Result, Write};
 pub struct TransparentDrain {
     src: Box<dyn SegmentStream>,
     dst: Box<dyn Write>,
-    offset: usize,
+    // offset: usize,
     skip: usize,
 }
 
@@ -16,13 +16,13 @@ impl TransparentDrain {
         TransparentDrain {
             src,
             dst,
-            offset: 0,
+            // offset: 0,
             skip: 0,
         }
     }
 
     fn consume_segments_impl(&mut self) -> Result<usize> {
-        let (stream_len, segment_count) = self.src.fill_segment_buf()?;
+        let (stream_len, _segment_count) = self.src.fill_segment_buf()?;
         // eprintln!("trans: {:?}, {:?}, {:?}", self.offset, stream_len, segment_count);
         if stream_len == 0 {
             return Ok(0);
