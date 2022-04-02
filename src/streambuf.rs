@@ -6,10 +6,10 @@ use crate::common::{BLOCK_SIZE, MARGIN_SIZE};
 use std::io::Result;
 
 #[cfg(test)]
-use crate::stream::ByteStream;
+use crate::stream::tester::*;
 
 #[cfg(test)]
-use crate::stream::tester::*;
+use rand::Rng;
 
 pub struct StreamBuf {
     buf: Vec<u8>,

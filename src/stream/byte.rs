@@ -5,6 +5,12 @@
 
 use std::io::Result;
 
+#[cfg(test)]
+use crate::common::{BLOCK_SIZE, MARGIN_SIZE};
+
+#[cfg(test)]
+use rand::Rng;
+
 pub trait ByteStream {
     fn fill_buf(&mut self) -> Result<usize>;
     fn as_slice(&self) -> &[u8];
@@ -32,99 +38,89 @@ impl<T: ByteStream + ?Sized> ByteStream for Box<T> {
 // }
 
 // concatenation of random-length chunks
-#[allow(unused_macros)]
-macro_rules! test_stream_random_len {
-    ( $src: expr, $expected: expr ) => {{
-        let mut rng = rand::thread_rng();
-        let mut src = $src;
-        let mut v = Vec::new();
-        loop {
-            let len = src.fill_buf().unwrap();
-            if len == 0 {
-                break;
-            }
+#[cfg(test)]
+pub fn test_stream_random_len<T>(src: T, expected: &[u8]) where T: Sized + ByteStream {
+    let mut rng = rand::thread_rng();
+    let mut src = src;
+    let mut v = Vec::new();
 
-            let stream = src.as_slice();
-            assert!(stream.len() >= len + MARGIN_SIZE);
-
-            let consume: usize = rng.gen_range(1..=std::cmp::min(len, 2 * BLOCK_SIZE));
-            v.extend_from_slice(&stream[..consume]);
-            src.consume(consume);
-        }
-        assert_eq!(&v, $expected);
-    }};
-}
-
-#[allow(unused_imports)]
-pub(crate) use test_stream_random_len;
-
-// random selection of consume-some or request-more
-#[allow(unused_macros)]
-macro_rules! test_stream_random_consume {
-    ( $src: expr, $expected: expr ) => {{
-        let mut rng = rand::thread_rng();
-        let mut src = $src;
-        let mut v = Vec::new();
-        loop {
-            let len = src.fill_buf().unwrap();
-            if len == 0 {
-                break;
-            }
-            if rng.gen::<bool>() {
-                src.consume(0);
-                continue;
-            }
-
-            let stream = src.as_slice();
-            assert!(stream.len() >= len + MARGIN_SIZE);
-
-            v.extend_from_slice(&stream[..(len + 1) / 2]);
-            src.consume((len + 1) / 2);
-        }
-        assert_eq!(&v, $expected);
-    }};
-}
-
-#[allow(unused_imports)]
-pub(crate) use test_stream_random_consume;
-
-// iteratively request more bytes
-#[allow(unused_macros)]
-macro_rules! test_stream_all_at_once {
-    ( $src: expr, $expected: expr ) => {{
-        let mut src = $src;
-        let mut prev_len = 0;
-        loop {
-            let len = src.fill_buf().unwrap();
-            if len == prev_len {
-                break;
-            }
-
-            src.consume(0);
-            prev_len = len;
-        }
-
+    loop {
         let len = src.fill_buf().unwrap();
-        assert_eq!(len, $expected.len());
+        if len == 0 {
+            break;
+        }
 
         let stream = src.as_slice();
         assert!(stream.len() >= len + MARGIN_SIZE);
-        assert_eq!(&stream[..len], $expected);
 
-        src.consume(len);
+        let consume: usize = rng.gen_range(1..=std::cmp::min(len, 2 * BLOCK_SIZE));
+        v.extend_from_slice(&stream[..consume]);
+        src.consume(consume);
+    }
 
-        let len = src.fill_buf().unwrap();
-        assert_eq!(len, 0);
-
-        let stream = src.as_slice();
-        assert!(stream.len() >= MARGIN_SIZE);
-
-        // we don't necessarily require the tail margin being cleared
-        // assert_eq!(&stream[..MARGIN_SIZE], [0u8; MARGIN_SIZE]);
-    }};
+    assert_eq!(&v, expected);
 }
 
-#[allow(unused_imports)]
-pub(crate) use test_stream_all_at_once;
+// random selection of consume-some or request-more
+#[cfg(test)]
+pub fn test_stream_random_consume<T>(src: T, expected: &[u8]) where T: Sized + ByteStream {
+    let mut rng = rand::thread_rng();
+    let mut src = src;
+    let mut v = Vec::new();
+
+    loop {
+        let len = src.fill_buf().unwrap();
+        if len == 0 {
+            break;
+        }
+        if rng.gen::<bool>() {
+            src.consume(0);
+            continue;
+        }
+
+        let stream = src.as_slice();
+        assert!(stream.len() >= len + MARGIN_SIZE);
+
+        v.extend_from_slice(&stream[..(len + 1) / 2]);
+        src.consume((len + 1) / 2);
+    }
+
+    assert_eq!(&v, expected);
+}
+
+// iteratively request more bytes
+#[cfg(test)]
+pub fn test_stream_all_at_once<T>(src: T, expected: &[u8]) where T: Sized + ByteStream {
+    let mut src = src;
+    let mut prev_len = 0;
+
+    loop {
+        let len = src.fill_buf().unwrap();
+        if len == prev_len {
+            break;
+        }
+
+        src.consume(0);
+        prev_len = len;
+    }
+
+    let len = src.fill_buf().unwrap();
+    assert_eq!(len, expected.len());
+
+    let stream = src.as_slice();
+    assert!(stream.len() >= len + MARGIN_SIZE);
+    assert_eq!(&stream[..len], expected);
+
+    src.consume(len);
+
+    let len = src.fill_buf().unwrap();
+    assert_eq!(len, 0);
+
+    let stream = src.as_slice();
+    assert!(stream.len() >= MARGIN_SIZE);
+
+    // we don't necessarily require the tail margin being cleared
+    // assert_eq!(&stream[..MARGIN_SIZE], [0u8; MARGIN_SIZE]);
+}
 
 // end of byte.rs

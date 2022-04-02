@@ -172,7 +172,7 @@ macro_rules! test_impl {
         let input = Box::new(MockSource::new($input.as_slice()));
         let patch = Box::new(MockSource::new($patch.as_slice()));
         let src = PatchStream::new(input, patch, &InoutFormat::new("xxx"));
-        $inner!(src, $expected);
+        $inner(src, $expected);
     }};
 }
 

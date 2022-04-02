@@ -148,7 +148,7 @@ macro_rules! test_impl {
             .map(|x| -> Box<dyn ByteStream> { Box::new(MockSource::new(x)) })
             .collect::<Vec<Box<dyn ByteStream>>>();
         let src = ZipStream::new(srcs, $word_size);
-        $inner!(src, $expected);
+        $inner(src, $expected);
     }};
 }
 

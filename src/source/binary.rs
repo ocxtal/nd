@@ -49,7 +49,7 @@ macro_rules! test_impl {
         let pattern = $pattern;
         let src = Box::new(MockSource::new(&pattern));
         let src = BinaryStream::new(src, 1, &InoutFormat::input_default());
-        $inner!(src, &pattern);
+        $inner(src, &pattern);
     }};
 }
 

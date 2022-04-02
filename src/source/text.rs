@@ -50,7 +50,7 @@ macro_rules! test_gapless_impl {
     ( $inner: ident, $input: expr, $expected: expr ) => {{
         let src = Box::new(MockSource::new($input.as_slice()));
         let src = GaplessTextStream::new(src, 1, &InoutFormat::new("nnx"));
-        $inner!(src, $expected);
+        $inner(src, $expected);
     }};
 }
 
@@ -211,7 +211,7 @@ macro_rules! test_text_impl {
     ( $inner: ident, $input: expr, $expected: expr ) => {{
         let src = Box::new(MockSource::new($input.as_slice()));
         let src = TextStream::new(src, 1, &InoutFormat::new("xxx"));
-        $inner!(src, $expected);
+        $inner(src, $expected);
     }};
 }
 

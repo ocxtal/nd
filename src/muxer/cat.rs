@@ -10,7 +10,7 @@ use std::io::Result;
 use crate::stream::tester::*;
 
 #[cfg(test)]
-use rand::thread_rng;
+use rand::Rng;
 
 pub struct CatStream {
     srcs: Vec<EofStream<Box<dyn ByteStream>>>,
@@ -118,7 +118,7 @@ macro_rules! test_impl {
             .map(|x| -> Box<dyn ByteStream> { Box::new(MockSource::new(x)) })
             .collect::<Vec<Box<dyn ByteStream>>>();
         let src = CatStream::new(srcs);
-        $inner!(src, $expected);
+        $inner(src, $expected);
     }};
 }
 
@@ -174,7 +174,7 @@ macro_rules! test_long {
     ( $name: ident, $inner: ident ) => {
         #[test]
         fn $name() {
-            let mut rng = thread_rng();
+            let mut rng = rand::thread_rng();
             let mut srcs = Vec::new();
             for _ in 0..3 {
                 let len = rng.gen_range(0..1024);
