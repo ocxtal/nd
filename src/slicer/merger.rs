@@ -35,7 +35,7 @@ impl SegmentStream for SliceMerger {
         self.src.as_slices()
     }
 
-    fn consume(&mut self, bytes: usize) -> Result<usize> {
+    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
         self.src.consume(bytes)
     }
 }

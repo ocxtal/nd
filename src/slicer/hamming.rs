@@ -33,9 +33,9 @@ impl SegmentStream for HammingSlicer {
         (self.src.as_slice(), &self.segments)
     }
 
-    fn consume(&mut self, bytes: usize) -> Result<usize> {
+    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
         self.src.consume(bytes);
-        Ok(bytes)
+        Ok((bytes, 0))
     }
 }
 

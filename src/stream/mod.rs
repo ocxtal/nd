@@ -63,7 +63,8 @@ pub mod tester {
     pub(crate) use super::byte::{test_stream_all_at_once, test_stream_random_consume, test_stream_random_len, ByteStream};
     pub(crate) use super::mock::MockSource;
 
-    pub(crate) use super::segment::{test_segment_random_len, SegmentStream};
+    #[allow(unused_imports)]
+    pub(crate) use super::segment::{test_segment_all_at_once, test_segment_occasional_consume, test_segment_random_len, SegmentStream};
 }
 
 // end of mod.rs

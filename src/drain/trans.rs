@@ -22,17 +22,17 @@ impl TransparentDrain {
     }
 
     fn consume_segments_impl(&mut self) -> Result<usize> {
-        let (stream_len, _segment_count) = self.src.fill_segment_buf()?;
-        // eprintln!("trans: {:?}, {:?}, {:?}", self.offset, stream_len, segment_count);
-        if stream_len == 0 {
+        let (bytes, _) = self.src.fill_segment_buf()?;
+        // eprintln!("trans: {:?}, {:?}, {:?}", self.offset, bytes, count);
+        if bytes == 0 {
             return Ok(0);
         }
 
         let (stream, _) = self.src.as_slices();
-        self.dst.write_all(&stream[self.skip..stream_len]).unwrap();
+        self.dst.write_all(&stream[self.skip..bytes]).unwrap();
 
-        let consumed = self.src.consume(stream_len)?;
-        self.skip = stream_len - consumed;
+        let consumed = self.src.consume(bytes)?;
+        self.skip = bytes - consumed.0;
 
         Ok(1)
     }

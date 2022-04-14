@@ -64,16 +64,16 @@ impl SegmentStream for CacheStream {
         self.src.as_slices()
     }
 
-    fn consume(&mut self, request: usize) -> Result<usize> {
+    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
         let (stream, _) = self.src.as_slices();
-        debug_assert!(stream.len() >= self.skip + request);
+        debug_assert!(stream.len() >= self.skip + bytes);
 
         if let Ok(mut cache) = self.cache.lock() {
-            cache.write_all(&stream[self.skip..self.skip + request]).unwrap();
+            cache.write_all(&stream[self.skip..self.skip + bytes]).unwrap();
         }
 
-        let consumed = self.src.consume(request)?;
-        self.skip = request - consumed;
+        let consumed = self.src.consume(bytes)?;
+        self.skip = bytes - consumed.0;
 
         Ok(consumed)
     }

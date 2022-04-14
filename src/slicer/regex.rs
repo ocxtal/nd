@@ -70,16 +70,16 @@ impl SegmentStream for RegexSlicer {
         (&self.src.as_slice()[..self.prev_len], &self.matches)
     }
 
-    fn consume(&mut self, bytes: usize) -> Result<usize> {
+    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
         self.src.consume(bytes);
         if bytes == 0 {
-            return Ok(0);
+            return Ok((0, 0));
         }
 
         // if entire length, just clear the buffer
         if bytes == self.prev_len {
             self.matches.clear();
-            return Ok(bytes);
+            return Ok((bytes, 0));
         }
 
         // determine how many bytes to consume...
@@ -89,7 +89,7 @@ impl SegmentStream for RegexSlicer {
         for m in &mut self.matches {
             *m = m.unwind(bytes);
         }
-        Ok(bytes)
+        Ok((bytes, drop_count))
     }
 }
 

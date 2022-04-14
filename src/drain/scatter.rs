@@ -66,8 +66,8 @@ impl ScatterDrain {
     }
 
     fn consume_segments_impl(&mut self) -> Result<usize> {
-        let (stream_len, segment_count) = self.src.fill_segment_buf()?;
-        if stream_len == 0 {
+        let (bytes, count) = self.src.fill_segment_buf()?;
+        if bytes == 0 {
             self.sender.send(None).unwrap();
 
             let drain = self.drain.take().unwrap();
@@ -84,8 +84,8 @@ impl ScatterDrain {
             self.sender.send(Some((child, output))).unwrap();
         }
 
-        self.offset += self.src.consume(stream_len)?;
-        self.lines += segment_count;
+        self.offset += self.src.consume(bytes)?.0;
+        self.lines += count;
 
         Ok(1)
     }

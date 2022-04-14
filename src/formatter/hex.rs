@@ -436,7 +436,7 @@ impl SegmentStream for HexFormatter {
             self.segments.push(Segment { pos, len });
         }
 
-        self.offset += self.src.consume(stream_len)?;
+        self.offset += self.src.consume(stream_len)?.0;
         Ok((stream_len, segment_count))
     }
 
@@ -444,9 +444,9 @@ impl SegmentStream for HexFormatter {
         (self.buf.as_slice(), &self.segments)
     }
 
-    fn consume(&mut self, bytes: usize) -> Result<usize> {
+    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
         if bytes == 0 {
-            return Ok(0);
+            return Ok((0, 0));
         }
 
         // unwind segments
@@ -460,7 +460,7 @@ impl SegmentStream for HexFormatter {
         self.buf.copy_within(range.clone(), 0);
         self.buf.truncate(range.len());
 
-        Ok(bytes)
+        Ok((bytes, 0))
     }
 }
 
