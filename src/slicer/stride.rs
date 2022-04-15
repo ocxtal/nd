@@ -142,12 +142,8 @@ impl ConstStrideSegments {
     fn fill_segment_buf(&mut self, is_eof: bool, len: usize) -> Result<(usize, usize)> {
         if is_eof {
             self.is_eof = true;
+            self.head_clip.rem = std::cmp::min(len, self.head_clip.rem);
             self.segments.clear();  // TODO: we don't need to remove all
-
-            if self.head_clip.rem > 0 {
-                // is still in the head
-                self.head_clip.rem = len;
-            }
             return self.extend_segments_with_clip(len);
         }
 
@@ -244,7 +240,7 @@ impl ConstStrideSegments {
         //      ^
         //      0
 
-        let count = self.count_segments(bytes + phase_offset - self.phase.curr);
+        let count = self.count_segments((bytes + phase_offset).saturating_sub(self.phase.curr));
         let count = std::cmp::min(count, self.in_lend.1);
         let (bytes, count) = self.update_phase(bytes, count, phase_offset);
 
@@ -409,24 +405,21 @@ macro_rules! test_long {
 
             $inner(&s, &bind!((1, 0), 31, 109), &gen_slices((1, 0), 31, 109, s.len()));
             $inner(&s, &bind!((1, 0), 109, 31), &gen_slices((1, 0), 109, 31, s.len()));
-            $inner(&s, &bind!((7, 0), 31, 109), &gen_slices((7, 0), 31, 109, s.len()));
-            $inner(&s, &bind!((7, 0), 109, 31), &gen_slices((7, 0), 109, 31, s.len()));
             $inner(&s, &bind!((15, 0), 31, 109), &gen_slices((15, 0), 31, 109, s.len()));
             $inner(&s, &bind!((15, 0), 109, 31), &gen_slices((15, 0), 109, 31, s.len()));
 
             $inner(&s, &bind!((0, 1), 31, 109), &gen_slices((0, 1), 31, 109, s.len()));
             $inner(&s, &bind!((0, 1), 109, 31), &gen_slices((0, 1), 109, 31, s.len()));
-            $inner(&s, &bind!((0, 7), 31, 109), &gen_slices((0, 7), 31, 109, s.len()));
-            $inner(&s, &bind!((0, 7), 109, 31), &gen_slices((0, 7), 109, 31, s.len()));
             $inner(&s, &bind!((0, 15), 31, 109), &gen_slices((0, 15), 31, 109, s.len()));
             $inner(&s, &bind!((0, 15), 109, 31), &gen_slices((0, 15), 109, 31, s.len()));
 
             $inner(&s, &bind!((1, 1), 31, 109), &gen_slices((1, 1), 31, 109, s.len()));
             $inner(&s, &bind!((1, 1), 109, 31), &gen_slices((1, 1), 109, 31, s.len()));
-            $inner(&s, &bind!((7, 7), 31, 109), &gen_slices((7, 7), 31, 109, s.len()));
-            $inner(&s, &bind!((7, 7), 109, 31), &gen_slices((7, 7), 109, 31, s.len()));
             $inner(&s, &bind!((15, 15), 31, 109), &gen_slices((15, 15), 31, 109, s.len()));
             $inner(&s, &bind!((15, 15), 109, 31), &gen_slices((15, 15), 109, 31, s.len()));
+
+            $inner(&s, &bind!((1500, 1500), 313131, 1091099), &gen_slices((1500, 1500), 313131, 1091099, s.len()));
+            $inner(&s, &bind!((1500, 1500), 1091099, 313131), &gen_slices((1500, 1500), 1091099, 313131, s.len()));
         }
     };
 }
