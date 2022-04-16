@@ -32,6 +32,7 @@ impl<T: SegmentStream + ?Sized> SegmentStream for Box<T> {
     }
 }
 
+#[cfg(test)]
 pub fn test_segment_random_len<F>(pattern: &[u8], slicer: &F, expected: &[Segment])
 where
     F: Fn(&[u8]) -> Box<dyn SegmentStream>,
@@ -67,6 +68,7 @@ where
     assert_eq!(count_acc, expected.len());
 }
 
+#[cfg(test)]
 pub fn test_segment_occasional_consume<F>(pattern: &[u8], slicer: &F, expected: &[Segment])
 where
     F: Fn(&[u8]) -> Box<dyn SegmentStream>,
@@ -108,6 +110,7 @@ where
     assert_eq!(count_acc, expected.len());
 }
 
+#[cfg(test)]
 pub fn test_segment_all_at_once<F>(pattern: &[u8], slicer: &F, expected: &[Segment])
 where
     F: Fn(&[u8]) -> Box<dyn SegmentStream>,
