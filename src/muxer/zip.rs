@@ -118,7 +118,7 @@ impl ZipStream {
 
 impl ByteStream for ZipStream {
     fn fill_buf(&mut self) -> Result<usize> {
-        let len = self.buf.fill_buf(|buf| {
+        self.buf.fill_buf(|buf| {
             let (bytes_per_src, bytes_all) = self.src.fill_buf()?;
             if bytes_per_src == 0 {
                 return Ok(false);
@@ -127,8 +127,7 @@ impl ByteStream for ZipStream {
             buf.fill_uninit(bytes_all, |buf| self.src.gather(bytes_per_src, buf))?;
             self.src.consume(bytes_per_src);
             Ok(false)
-        })?;
-        Ok(len)
+        })
     }
 
     fn as_slice(&self) -> &[u8] {
