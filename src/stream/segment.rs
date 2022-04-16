@@ -15,7 +15,7 @@ pub trait SegmentStream {
     // chunked iterator
     fn fill_segment_buf(&mut self) -> Result<(usize, usize)>; // #bytes, #segments
     fn as_slices(&self) -> (&[u8], &[Segment]);
-    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)>;  // #bytes, #segments
+    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)>; // #bytes, #segments
 }
 
 impl<T: SegmentStream + ?Sized> SegmentStream for Box<T> {
@@ -52,7 +52,6 @@ where
         assert_eq!(&stream[..len], &pattern[len_acc..len_acc + len]);
 
         for (s, e) in segments.iter().zip(&expected[count_acc..]) {
-
             assert_eq!(s.len, e.len);
             assert_eq!(&stream[s.as_range()], &pattern[e.as_range()]);
         }
@@ -93,7 +92,6 @@ where
         }
 
         for (s, e) in segments.iter().zip(&expected[count_acc..]) {
-
             assert_eq!(s.len, e.len);
             assert_eq!(&stream[s.as_range()], &pattern[e.as_range()]);
         }

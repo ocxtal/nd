@@ -3,7 +3,7 @@
 // @date 2022/2/4
 
 use crate::common::FillUninit;
-use crate::stream::ByteStream;
+use crate::stream::{ByteStream, EofStream};
 use crate::streambuf::StreamBuf;
 use std::io::Result;
 
@@ -11,7 +11,7 @@ use std::io::Result;
 use crate::stream::tester::*;
 
 struct Zipper {
-    srcs: Vec<Box<dyn ByteStream>>,
+    srcs: Vec<EofStream<Box<dyn ByteStream>>>,
     ptrs: Vec<*const u8>, // pointer cache (only for use in the fill_buf_impl function)
     mask: usize,
     gather_impl: fn(&mut Self, usize, &mut [u8]) -> Result<usize>,
@@ -52,7 +52,7 @@ impl Zipper {
 
         let len = srcs.len();
         Zipper {
-            srcs,
+            srcs: srcs.into_iter().map(|x| EofStream::new(x)).collect(),
             ptrs: (0..len).map(|_| std::ptr::null::<u8>()).collect(),
             mask: !(word_size - 1),
             gather_impl: gather_impls[index],
@@ -61,28 +61,28 @@ impl Zipper {
 
     fn fill_buf(&mut self) -> Result<(usize, usize)> {
         // bulk_len is the minimum valid slice length among the source buffers
-        let mut prev_len = usize::MAX;
-        loop {
+        let len = loop {
+            let mut is_eof = true;
             let mut len = usize::MAX;
             for src in &mut self.srcs {
-                len = std::cmp::min(len, src.fill_buf()? & self.mask);
+                let (x, y) = src.fill_buf()?;
+                is_eof = is_eof && x;
+                len = std::cmp::min(len, y & self.mask);
             }
 
-            if len > 0 || len == prev_len {
-                prev_len = len;
-                break;
+            if is_eof || len > 0 {
+                break len;
             }
 
             debug_assert!(len == 0);
             self.consume(0);
-            prev_len = 0;
-        }
+        };
 
         // initialize the pointer cache (used in `gather_impl`)
         for (src, ptr) in self.srcs.iter_mut().zip(self.ptrs.iter_mut()) {
             *ptr = src.as_slice().as_ptr();
         }
-        Ok((prev_len, self.srcs.len() * prev_len))
+        Ok((len, self.srcs.len() * len))
     }
 
     gather_impl!(gather_impl_w1, 1);
@@ -118,17 +118,17 @@ impl ZipStream {
 
 impl ByteStream for ZipStream {
     fn fill_buf(&mut self) -> Result<usize> {
-        self.buf.fill_buf(|buf| {
+        let len = self.buf.fill_buf(|buf| {
             let (bytes_per_src, bytes_all) = self.src.fill_buf()?;
             if bytes_per_src == 0 {
                 return Ok(false);
             }
 
             buf.fill_uninit(bytes_all, |buf| self.src.gather(bytes_per_src, buf))?;
-
             self.src.consume(bytes_per_src);
             Ok(false)
-        })
+        })?;
+        Ok(len)
     }
 
     fn as_slice(&self) -> &[u8] {
@@ -162,16 +162,19 @@ macro_rules! test {
             test_impl!($inner, 2, [b"".as_slice()], b"");
             test_impl!($inner, 4, [b"".as_slice()], b"");
             test_impl!($inner, 8, [b"".as_slice()], b"");
+            test_impl!($inner, 16, [b"".as_slice()], b"");
 
             test_impl!($inner, 1, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
             test_impl!($inner, 2, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
             test_impl!($inner, 4, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
             test_impl!($inner, 8, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
+            test_impl!($inner, 16, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
 
             test_impl!($inner, 1, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
             test_impl!($inner, 2, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
             test_impl!($inner, 4, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
             test_impl!($inner, 8, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
+            test_impl!($inner, 16, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
 
             // eight-byte streams
             test_impl!(

@@ -23,11 +23,11 @@ struct Phase {
 }
 
 struct ConstStrideSegments {
-    segments: Vec<Segment>,     // precalculated segment array
+    segments: Vec<Segment>, // precalculated segment array
     head_clip: HeadClip,    // (head_clip, first_segment_tail)
     phase: Phase,           // (curr_phase, prev_phase)
     is_eof: bool,
-    in_lend: (usize, usize),    // (len, count)
+    in_lend: (usize, usize), // (len, count)
     margin: (usize, usize),
     pitch: usize,
     span: usize,
@@ -73,7 +73,10 @@ impl ConstStrideSegments {
         let phase = (pitch - (margin.0 % pitch)) % pitch;
         ConstStrideSegments {
             segments,
-            head_clip: HeadClip { clip: margin.0 + phase, rem: first_segment_tail },
+            head_clip: HeadClip {
+                clip: margin.0 + phase,
+                rem: first_segment_tail,
+            },
             phase: Phase { curr: phase, prev: pitch },
             is_eof: false,
             in_lend: (0, 0),
@@ -143,7 +146,7 @@ impl ConstStrideSegments {
         if is_eof {
             self.is_eof = true;
             self.head_clip.rem = std::cmp::min(len, self.head_clip.rem);
-            self.segments.clear();  // TODO: we don't need to remove all
+            self.segments.clear(); // TODO: we don't need to remove all
             return self.extend_segments_with_clip(len);
         }
 
@@ -321,54 +324,54 @@ macro_rules! test {
             $inner(
                 b"abcdefghij",
                 &bind!((0, 0), 3, 1),
-                &[(0..1).into(), (3..4).into(), (6..7).into(), (9..10).into()]
+                &[(0..1).into(), (3..4).into(), (6..7).into(), (9..10).into()],
             );
             $inner(
                 b"abcdefghij",
                 &bind!((0, 0), 3, 3),
-                &[(0..3).into(), (3..6).into(), (6..9).into()]
+                &[(0..3).into(), (3..6).into(), (6..9).into()],
             );
             $inner(
                 b"abcdefghij",
                 &bind!((0, 0), 3, 4),
-                &[(0..4).into(), (3..7).into(), (6..10).into()]
+                &[(0..4).into(), (3..7).into(), (6..10).into()],
             );
 
             // head / tail margins
             $inner(
                 b"abcdefghij",
                 &bind!((1, 0), 3, 2),
-                &[(0..1).into(), (2..4).into(), (5..7).into(), (8..10).into()]
+                &[(0..1).into(), (2..4).into(), (5..7).into(), (8..10).into()],
             );
             $inner(
                 b"abcdefghij",
                 &bind!((0, 1), 3, 2),
-                &[(0..2).into(), (3..5).into(), (6..8).into(), (9..10).into()]
+                &[(0..2).into(), (3..5).into(), (6..8).into(), (9..10).into()],
             );
             $inner(
                 b"abcdefghij",
                 &bind!((2, 0), 3, 4),
-                &[(0..2).into(), (1..5).into(), (4..8).into()]
+                &[(0..2).into(), (1..5).into(), (4..8).into()],
             );
             $inner(
                 b"abcdefghij",
                 &bind!((3, 0), 3, 4),
-                &[(0..1).into(), (0..4).into(), (3..7).into(), (6..10).into()]
+                &[(0..1).into(), (0..4).into(), (3..7).into(), (6..10).into()],
             );
             $inner(
                 b"abcdefghij",
                 &bind!((2, 1), 3, 4),
-                &[(0..2).into(), (1..5).into(), (4..8).into(), (7..10).into()]
+                &[(0..2).into(), (1..5).into(), (4..8).into(), (7..10).into()],
             );
             $inner(
                 b"abcdefghij",
                 &bind!((2, 2), 3, 5),
-                &[(0..3).into(), (1..6).into(), (4..9).into(), (7..10).into()]
+                &[(0..3).into(), (1..6).into(), (4..9).into(), (7..10).into()],
             );
             $inner(
                 b"abcdefghij",
                 &bind!((2, 2), 5, 3),
-                &[(0..1).into(), (3..6).into(), (8..10).into()]
+                &[(0..1).into(), (3..6).into(), (8..10).into()],
             );
         }
     };
@@ -418,8 +421,16 @@ macro_rules! test_long {
             $inner(&s, &bind!((15, 15), 31, 109), &gen_slices((15, 15), 31, 109, s.len()));
             $inner(&s, &bind!((15, 15), 109, 31), &gen_slices((15, 15), 109, 31, s.len()));
 
-            $inner(&s, &bind!((1500, 1500), 313131, 1091099), &gen_slices((1500, 1500), 313131, 1091099, s.len()));
-            $inner(&s, &bind!((1500, 1500), 1091099, 313131), &gen_slices((1500, 1500), 1091099, 313131, s.len()));
+            $inner(
+                &s,
+                &bind!((1500, 1500), 313131, 1091099),
+                &gen_slices((1500, 1500), 313131, 1091099, s.len()),
+            );
+            $inner(
+                &s,
+                &bind!((1500, 1500), 1091099, 313131),
+                &gen_slices((1500, 1500), 1091099, 313131, s.len()),
+            );
         }
     };
 }
