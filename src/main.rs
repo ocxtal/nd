@@ -277,15 +277,13 @@ fn main() {
     } else if let Some(pattern) = m.value_of("match") {
         (Box::new(HammingSlicer::new(input, pattern)), 0)
     } else {
-        (
-            Box::new(ConstStrideSlicer::new(
-                input,
-                (disp as usize, disp as usize),
-                pitch as usize,
-                len as usize,
-            )),
-            width,
-        )
+        let slicer = Box::new(ConstStrideSlicer::new(
+            input,
+            (disp as usize, disp as usize),
+            pitch as usize,
+            len as usize,
+        ));
+        (slicer, width)
     };
 
     let slicer = if merge != isize::MAX {
