@@ -2,18 +2,26 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
-mod byte;
-mod drain;
+mod binary;
+mod cat;
+mod clip;
+mod common;
 mod eof;
-mod segment;
+mod patch;
+mod text;
+mod zip;
 
 #[cfg(test)]
 mod mock;
 
-pub use self::byte::ByteStream;
-pub use self::drain::StreamDrain;
-pub use self::eof::EofStream;
-pub use self::segment::SegmentStream;
+pub(crate) use self::binary::BinaryStream;
+pub(crate) use self::cat::CatStream;
+pub(crate) use self::clip::ClipStream;
+pub(crate) use self::common::ByteStream;
+pub(crate) use self::eof::EofStream;
+pub(crate) use self::patch::PatchStream;
+pub(crate) use self::text::{GaplessTextStream, TextStream};
+pub(crate) use self::zip::ZipStream;
 
 #[cfg(test)]
 pub mod tester {
@@ -59,12 +67,9 @@ pub mod tester {
         assert_eq!(&v, expected);
     }
 
-    // re-exported for convenience
-    pub(crate) use super::byte::{test_stream_all_at_once, test_stream_random_consume, test_stream_random_len, ByteStream};
+    // re-exported
+    pub(crate) use super::common::{test_stream_all_at_once, test_stream_random_consume, test_stream_random_len, ByteStream};
     pub(crate) use super::mock::MockSource;
-
-    #[allow(unused_imports)]
-    pub(crate) use super::segment::{test_segment_all_at_once, test_segment_occasional_consume, test_segment_random_len, SegmentStream};
 }
 
 // end of mod.rs

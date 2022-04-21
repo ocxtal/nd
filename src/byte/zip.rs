@@ -2,13 +2,13 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
+use super::{ByteStream, EofStream};
 use crate::common::FillUninit;
-use crate::stream::{ByteStream, EofStream};
 use crate::streambuf::StreamBuf;
 use std::io::Result;
 
 #[cfg(test)]
-use crate::stream::tester::*;
+use super::tester::*;
 
 struct Zipper {
     srcs: Vec<EofStream<Box<dyn ByteStream>>>,

@@ -2,14 +2,14 @@
 // @author Hajime Suzuki
 // @date 2022/2/5
 
-use super::parser::TextParser;
+use super::ByteStream;
 use crate::common::InoutFormat;
-use crate::stream::ByteStream;
+use crate::parser::TextParser;
 use crate::streambuf::StreamBuf;
 use std::io::Result;
 
 #[cfg(test)]
-use crate::stream::tester::*;
+use super::tester::*;
 
 struct PatchFeeder {
     src: TextParser,

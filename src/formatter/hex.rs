@@ -11,7 +11,7 @@ use core::arch::aarch64::*;
 use core::arch::x86_64::*;
 
 use crate::common::{FillUninit, Segment, BLOCK_SIZE};
-use crate::stream::SegmentStream;
+use crate::segment::SegmentStream;
 
 fn format_hex_single_naive(dst: &mut [u8], offset: usize, bytes: usize) -> usize {
     eprintln!("{:?}, {:?}", offset, bytes);

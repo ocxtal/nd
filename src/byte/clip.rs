@@ -2,11 +2,11 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
-use crate::stream::ByteStream;
+use super::ByteStream;
 use std::io::Result;
 
 #[cfg(test)]
-use crate::stream::tester::*;
+use super::tester::*;
 
 #[cfg(test)]
 use rand::Rng;

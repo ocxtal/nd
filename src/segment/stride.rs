@@ -2,12 +2,16 @@
 // @author Hajime Suzuki
 // @brief constant-stride slicer
 
+use super::SegmentStream;
+use crate::byte::{ByteStream, EofStream};
 use crate::common::Segment;
-use crate::stream::{ByteStream, EofStream, SegmentStream};
 use std::io::Result;
 
 #[cfg(test)]
-use crate::stream::tester::*;
+use crate::byte::tester::*;
+
+#[cfg(test)]
+use super::tester::*;
 
 #[cfg(test)]
 use rand::Rng;

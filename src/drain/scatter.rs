@@ -2,7 +2,8 @@
 // @author Hajime Suzuki
 
 use crate::common::BLOCK_SIZE;
-use crate::stream::{SegmentStream, StreamDrain};
+use crate::drain::StreamDrain;
+use crate::segment::SegmentStream;
 use std::io::{Read, Result, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::mpsc::{channel, Sender};

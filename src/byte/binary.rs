@@ -2,13 +2,13 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
+use super::ByteStream;
 use crate::common::{FillUninit, InoutFormat, BLOCK_SIZE};
-use crate::stream::ByteStream;
 use crate::streambuf::StreamBuf;
 use std::io::{Read, Result};
 
 #[cfg(test)]
-use crate::stream::tester::*;
+use super::tester::*;
 
 pub struct BinaryStream {
     src: Box<dyn Read>,

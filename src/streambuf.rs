@@ -6,7 +6,7 @@ use crate::common::{BLOCK_SIZE, MARGIN_SIZE};
 use std::io::Result;
 
 #[cfg(test)]
-use crate::stream::tester::*;
+use crate::byte::tester::*;
 
 #[cfg(test)]
 use rand::Rng;

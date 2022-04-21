@@ -1,8 +1,8 @@
 // @file merger.rs
 // @author Hajime Suzuki
 
+use super::SegmentStream;
 use crate::common::Segment;
-use crate::stream::SegmentStream;
 use std::io::Result;
 
 #[allow(dead_code)]

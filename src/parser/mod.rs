@@ -14,8 +14,8 @@ mod x86_64;
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use x86_64::*;
 
+use crate::byte::{ByteStream, EofStream};
 use crate::common::{FillUninit, InoutFormat, ToResult, MARGIN_SIZE};
-use crate::stream::{ByteStream, EofStream};
 use std::io::Result;
 
 mod naive;

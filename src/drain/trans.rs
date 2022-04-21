@@ -1,7 +1,8 @@
 // @file trans.rs
 // @author Hajime Suzuki
 
-use crate::stream::{SegmentStream, StreamDrain};
+use crate::drain::StreamDrain;
+use crate::segment::SegmentStream;
 use std::io::{Result, Write};
 
 pub struct TransparentDrain {

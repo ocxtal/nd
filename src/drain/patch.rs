@@ -1,9 +1,10 @@
 // @file patch.rs
 // @author Hajime Suzuki
 
+use crate::byte::{ByteStream, PatchStream};
 use crate::common::{FillUninit, InoutFormat, Segment, BLOCK_SIZE};
-use crate::source::PatchStream;
-use crate::stream::{ByteStream, SegmentStream, StreamDrain};
+use crate::drain::StreamDrain;
+use crate::segment::SegmentStream;
 use crate::streambuf::StreamBuf;
 use std::io::{Read, Result, Seek, SeekFrom, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};

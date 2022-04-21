@@ -2,14 +2,14 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
-use super::parser::TextParser;
+use super::ByteStream;
 use crate::common::{InoutFormat, BLOCK_SIZE};
-use crate::stream::ByteStream;
+use crate::parser::TextParser;
 use crate::streambuf::StreamBuf;
 use std::io::Result;
 
 #[cfg(test)]
-use crate::stream::tester::*;
+use super::tester::*;
 
 pub struct GaplessTextStream {
     inner: TextParser,

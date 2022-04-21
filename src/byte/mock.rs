@@ -7,7 +7,7 @@ use crate::common::{BLOCK_SIZE, MARGIN_SIZE};
 use std::io::{Read, Result};
 
 #[cfg(test)]
-use crate::stream::tester::*;
+use super::tester::*;
 
 use rand::{rngs::ThreadRng, Rng};
 

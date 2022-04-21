@@ -1,4 +1,4 @@
-// @file byte.rs
+// @file trait.rs
 // @author Hajime Suzuki
 // @date 2022/3/23
 // @brief `trait ByteStream` and test jigs
@@ -132,4 +132,4 @@ where
     // assert_eq!(&stream[..MARGIN_SIZE], [0u8; MARGIN_SIZE]);
 }
 
-// end of byte.rs
+// end of trait.rs

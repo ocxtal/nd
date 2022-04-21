@@ -1,7 +1,9 @@
 // @file binary.rs
 // @author Hajime Suzuki
 
-use crate::common::{ConsumeSegments, SegmentStream, BLOCK_SIZE};
+use crate::common::BLOCK_SIZE;
+use crate::drain::ConsumeSegments;
+use crate::segment::SegmentStream;
 use std::io::Write;
 
 pub struct BinaryDrain {
