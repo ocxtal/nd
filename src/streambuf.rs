@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 // @date 2022/3/23
 
-use crate::common::{BLOCK_SIZE, MARGIN_SIZE};
+use crate::params::{BLOCK_SIZE, MARGIN_SIZE};
 use std::io::Result;
 
 #[cfg(test)]

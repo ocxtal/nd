@@ -3,37 +3,42 @@
 
 use crate::drain::StreamDrain;
 use crate::segment::SegmentStream;
+use crate::text::TextFormatter;
 use std::io::{Result, Write};
 
 pub struct TransparentDrain {
     src: Box<dyn SegmentStream>,
+    offset: usize,
+    formatter: TextFormatter,
+    buf: Vec<u8>,
     dst: Box<dyn Write>,
-    // offset: usize,
-    skip: usize,
 }
 
 impl TransparentDrain {
-    pub fn new(src: Box<dyn SegmentStream>, dst: Box<dyn Write + Send>) -> Self {
+    pub fn new(src: Box<dyn SegmentStream>, offset: usize, formatter: TextFormatter, dst: Box<dyn Write + Send>) -> Self {
         TransparentDrain {
             src,
+            offset,
+            formatter,
+            buf: Vec::new(),
             dst,
-            // offset: 0,
-            skip: 0,
         }
     }
 
     fn consume_segments_impl(&mut self) -> Result<usize> {
         let (bytes, _) = self.src.fill_segment_buf()?;
-        // eprintln!("trans: {:?}, {:?}, {:?}", self.offset, bytes, count);
+        // eprintln!("{:?}, {:?}", bytes, count);
         if bytes == 0 {
             return Ok(0);
         }
 
-        let (stream, _) = self.src.as_slices();
-        self.dst.write_all(&stream[self.skip..bytes]).unwrap();
+        let (stream, segments) = self.src.as_slices();
 
-        let consumed = self.src.consume(bytes)?;
-        self.skip = bytes - consumed.0;
+        self.buf.clear();
+        self.formatter.format_segments(self.offset, stream, segments, &mut self.buf);
+        self.offset += self.src.consume(bytes)?.0;
+
+        self.dst.write_all(&self.buf).unwrap();
 
         Ok(1)
     }

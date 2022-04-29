@@ -3,7 +3,7 @@
 // @date 2022/2/4
 
 use super::{ByteStream, EofStream};
-use crate::common::FillUninit;
+use crate::filluninit::FillUninit;
 use crate::streambuf::StreamBuf;
 use std::io::Result;
 

@@ -14,12 +14,25 @@ mod x86_64;
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use x86_64::*;
 
+use super::InoutFormat;
 use crate::byte::{ByteStream, EofStream};
-use crate::common::{FillUninit, InoutFormat, ToResult, MARGIN_SIZE};
-use std::io::Result;
+use crate::filluninit::FillUninit;
+use crate::params::MARGIN_SIZE;
+use std::io::{Error, ErrorKind, Result};
+// use std::convert::From;
 
 mod naive;
 use naive::*;
+
+pub trait ToResult<T> {
+    fn to_result(self) -> Result<T>;
+}
+
+impl<T> ToResult<T> for Option<T> {
+    fn to_result(self) -> Result<T> {
+        self.ok_or_else(|| Error::from(ErrorKind::Other))
+    }
+}
 
 #[allow(unreachable_code)]
 fn parse_hex_single(src: &[u8]) -> Option<(u64, usize)> {

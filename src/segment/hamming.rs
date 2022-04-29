@@ -2,9 +2,8 @@
 // @author Hajime Suzuki
 // @brief Hamming-distance matcher and slicer
 
-use super::SegmentStream;
+use super::{Segment, SegmentStream};
 use crate::byte::ByteStream;
-use crate::common::Segment;
 use std::io::Result;
 
 #[allow(dead_code)]

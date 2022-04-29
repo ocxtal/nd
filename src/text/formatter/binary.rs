@@ -1,7 +1,7 @@
 // @file binary.rs
 // @author Hajime Suzuki
 
-use crate::common::BLOCK_SIZE;
+use crate::params::BLOCK_SIZE;
 use crate::drain::ConsumeSegments;
 use crate::segment::SegmentStream;
 use std::io::Write;

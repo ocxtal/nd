@@ -3,8 +3,10 @@
 // @date 2022/2/4
 
 use super::ByteStream;
-use crate::common::{FillUninit, InoutFormat, BLOCK_SIZE};
+use crate::filluninit::FillUninit;
+use crate::params::BLOCK_SIZE;
 use crate::streambuf::StreamBuf;
+use crate::text::InoutFormat;
 use std::io::{Read, Result};
 
 #[cfg(test)]

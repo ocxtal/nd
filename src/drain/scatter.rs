@@ -1,9 +1,10 @@
 // @file scatter.rs
 // @author Hajime Suzuki
 
-use crate::common::BLOCK_SIZE;
 use crate::drain::StreamDrain;
+use crate::params::BLOCK_SIZE;
 use crate::segment::SegmentStream;
+use crate::text::TextFormatter;
 use std::io::{Read, Result, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::mpsc::{channel, Sender};
@@ -29,13 +30,15 @@ pub struct ScatterDrain {
     src: Box<dyn SegmentStream>,
     offset: usize,
     lines: usize,
+    formatter: TextFormatter,
+    buf: Vec<u8>,
     command: String,
     sender: Sender<Option<(Child, ChildStdout)>>,
     drain: Option<JoinHandle<()>>,
 }
 
 impl ScatterDrain {
-    pub fn new(src: Box<dyn SegmentStream>, dst: Box<dyn Write + Send>, command: &str) -> Self {
+    pub fn new(src: Box<dyn SegmentStream>, offset: usize, formatter: TextFormatter, dst: Box<dyn Write + Send>, command: &str) -> Self {
         let command = command.to_string();
         let (sender, reciever) = channel::<Option<(Child, ChildStdout)>>();
 
@@ -58,8 +61,10 @@ impl ScatterDrain {
 
         ScatterDrain {
             src,
-            offset: 0,
-            lines: 0,
+            offset,
+            lines: 0, // TODO: parameterize?
+            formatter,
+            buf: Vec::new(),
             command,
             sender,
             drain,
@@ -77,16 +82,23 @@ impl ScatterDrain {
         }
 
         let (stream, segments) = self.src.as_slices();
-        for (i, s) in segments.iter().enumerate() {
-            let (child, input, output) = create_pipe(&self.command, self.offset + s.pos, self.lines + i);
+        for (i, s) in segments.chunks(1).enumerate() {
+            // format to text
+            self.buf.clear();
+            self.formatter.format_segments(self.offset, stream, s, &mut self.buf);
+
+            // dump
+            let (child, input, output) = create_pipe(&self.command, self.offset + s[0].pos, self.lines + i);
             let mut input = input;
 
-            input.write_all(&stream[s.as_range()]).unwrap();
+            input.write_all(&self.buf).unwrap();
             self.sender.send(Some((child, output))).unwrap();
         }
 
-        self.offset += self.src.consume(bytes)?.0;
-        self.lines += count;
+        let consumed = self.src.consume(bytes)?;
+        debug_assert!(consumed.1 == count);
+        self.offset += consumed.0;
+        self.lines += consumed.1;
 
         Ok(1)
     }

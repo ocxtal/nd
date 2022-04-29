@@ -1,8 +1,7 @@
 // @file merger.rs
 // @author Hajime Suzuki
 
-use super::SegmentStream;
-use crate::common::Segment;
+use super::{Segment, SegmentStream};
 use std::io::Result;
 
 #[allow(dead_code)]
@@ -15,7 +14,7 @@ pub struct SliceMerger {
 }
 
 impl SliceMerger {
-    pub fn new(src: Box<dyn SegmentStream>, margin: (isize, isize), merge: isize, _intersection: isize, _width: isize) -> Self {
+    pub fn new(src: Box<dyn SegmentStream>, margin: (isize, isize), merge: isize, _intersection: usize) -> Self {
         SliceMerger {
             src,
             segments: Vec::new(),

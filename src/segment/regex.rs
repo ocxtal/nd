@@ -2,9 +2,8 @@
 // @author Hajime Suzuki
 // @brief regex slicer
 
-use super::SegmentStream;
+use super::{Segment, SegmentStream};
 use crate::byte::{ByteStream, EofStream};
-use crate::common::Segment;
 use regex::bytes::{Match, Regex};
 use std::io::Result;
 

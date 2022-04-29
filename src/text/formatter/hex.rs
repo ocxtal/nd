@@ -2,19 +2,14 @@
 // @author Hajime Suzuki
 // @brief hex formatter
 
-use std::io::Result;
-
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 use core::arch::aarch64::*;
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use core::arch::x86_64::*;
 
-use crate::common::{FillUninit, Segment, BLOCK_SIZE};
-use crate::segment::SegmentStream;
-
 fn format_hex_single_naive(dst: &mut [u8], offset: usize, bytes: usize) -> usize {
-    eprintln!("{:?}, {:?}", offset, bytes);
+    // eprintln!("{:?}, {:?}", offset, bytes);
     for (i, x) in dst[..2 * bytes].iter_mut().enumerate() {
         let y = (offset >> (4 * (2 * bytes - i - 1))) & 0x0f;
         *x = b"0123456789abcdef"[y];
@@ -348,7 +343,7 @@ fn test_format_mosaic() {
     test!(b"0123456789abcdef".as_slice(), "0123456789abcdef");
 }
 
-unsafe fn format_line(dst: &mut [u8], src: &[u8], offset: usize, width: usize) -> usize {
+pub unsafe fn format_line(dst: &mut [u8], src: &[u8], offset: usize, width: usize) -> usize {
     let mut dst = dst;
 
     // header; p is the current offset in the dst buffer
@@ -386,82 +381,6 @@ unsafe fn format_line(dst: &mut [u8], src: &[u8], offset: usize, width: usize) -
     }
 
     21 + 4 * width
-}
-
-pub struct HexFormatter {
-    src: Box<dyn SegmentStream>,
-    buf: Vec<u8>,
-    offset: usize,
-    segments: Vec<Segment>,
-    base: usize,
-    width: usize,
-}
-
-impl HexFormatter {
-    pub fn new(src: Box<dyn SegmentStream>, base: usize, width: usize) -> Self {
-        HexFormatter {
-            src,
-            buf: Vec::with_capacity(6 * BLOCK_SIZE),
-            offset: 0,
-            segments: Vec::with_capacity(BLOCK_SIZE),
-            base,
-            width,
-        }
-    }
-}
-
-impl SegmentStream for HexFormatter {
-    fn fill_segment_buf(&mut self) -> Result<(usize, usize)> {
-        let (stream_len, segment_count) = self.src.fill_segment_buf()?;
-        if stream_len == 0 {
-            return Ok((0, 0));
-        }
-
-        let (stream, segments) = self.src.as_slices();
-
-        let base = self.base + self.offset;
-        for s in segments {
-            let src = &stream[s.as_range()];
-            let base = base + s.pos;
-            let width = s.len.max(self.width);
-
-            let pos = self.buf.len();
-
-            let reserve = 4 * ((s.len + 15) & !15) + 4 * 32;
-            let len = self.buf.fill_uninit(reserve, |dst: &mut [u8]| {
-                let len = unsafe { format_line(dst, src, base, width) };
-                Ok(len)
-            })?;
-
-            self.segments.push(Segment { pos, len });
-        }
-
-        self.offset += self.src.consume(stream_len)?.0;
-        Ok((stream_len, segment_count))
-    }
-
-    fn as_slices(&self) -> (&[u8], &[Segment]) {
-        (self.buf.as_slice(), &self.segments)
-    }
-
-    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
-        if bytes == 0 {
-            return Ok((0, 0));
-        }
-
-        // unwind segments
-        let tail = self.segments.len();
-        for (i, j) in (bytes..tail).enumerate() {
-            self.segments[i] = self.segments[j].unwind(bytes);
-        }
-
-        // unwind buf, forward offset
-        let range = bytes..self.buf.len();
-        self.buf.copy_within(range.clone(), 0);
-        self.buf.truncate(range.len());
-
-        Ok((bytes, 0))
-    }
 }
 
 // end of hex.rs

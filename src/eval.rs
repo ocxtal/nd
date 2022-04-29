@@ -101,6 +101,10 @@ fn parse_char(c: char) -> Option<i64> {
     if ('A'..='F').contains(&c) {
         return Some((c as i64) - ('A' as i64) + 10);
     }
+
+    // if c == '.' {
+    //     eprintln!("fractional numbers are not supported for this option.");
+    // }
     None
 }
 
@@ -184,7 +188,7 @@ fn tokenize(input: &str) -> Option<Vec<Token>> {
                 tokens.push(parse_val(x, &mut it)?);
             }
             _ => {
-                eprintln!("unexpected char found: {}", x);
+                // eprintln!("unexpected char found: {}", x);
                 return None;
             }
         }
@@ -214,7 +218,7 @@ fn mark_prefices(tokens: &mut [Token]) -> Option<()> {
             (Token::Paren('('), Token::Paren('(')) => {}
             (Token::Paren(')'), Token::Paren(')')) => {}
             _ => {
-                eprintln!("invalid tokens");
+                // eprintln!("invalid tokens");
                 return None;
             }
         }
@@ -276,7 +280,7 @@ fn eval_rpn(tokens: &[Token]) -> Option<i64> {
             '-' => Some(-x),
             '!' | '~' => Some(!x),
             _ => {
-                eprintln!("unknown op: {:?}", c);
+                // eprintln!("unknown op: {:?}", c);
                 None
             }
         }
@@ -303,7 +307,7 @@ fn eval_rpn(tokens: &[Token]) -> Option<i64> {
             }),
             '@' => Some(if y >= 0 { x.pow(y as u32) } else { 0 }), // FIXME
             _ => {
-                eprintln!("unknown op: {:?}", c);
+                // eprintln!("unknown op: {:?}", c);
                 None
             }
         }
@@ -325,7 +329,7 @@ fn eval_rpn(tokens: &[Token]) -> Option<i64> {
                 *x = apply_op(op, *x, y)?;
             }
             _ => {
-                eprintln!("unexpected token: {:?}", token);
+                // eprintln!("unexpected token: {:?}", token);
                 return None;
             }
         }
@@ -436,19 +440,218 @@ fn test_parse() {
     assert_eq!(parse_int("4,3"), None);
 }
 
-pub fn parse_range(s: &str) -> Option<Range<usize>> {
-    for (i, x) in s.bytes().enumerate() {
-        if x == b':' {
-            let (start, rem) = s.split_at(i);
-            let (_, end) = rem.split_at(1);
-
-            let start = if start.is_empty() { 0 } else { parse_int(start)? as usize };
-            let end = if end.is_empty() { usize::MAX } else { parse_int(end)? as usize };
-
-            return Some(start..end);
-        }
+pub fn parse_usize(s: &str) -> Result<usize, String> {
+    let val = parse_int(s);
+    if val.is_none() {
+        return Err(format!("failed to evaluate \'{}\' as an integer.", s));
     }
-    None
+
+    let val = val.unwrap();
+    let converted = val.try_into();
+    if converted.is_err() {
+        return Err(format!(
+            "negative value is not allowed for this option (\'{}\' gave \'{}\').",
+            s, val
+        ));
+    }
+    Ok(converted.unwrap())
+}
+
+#[test]
+fn test_parse_usize() {
+    assert!(parse_usize("").is_err());
+    assert_eq!(parse_usize("0"), Ok(0));
+    assert_eq!(parse_usize("100000"), Ok(100000));
+    assert_eq!(parse_usize("4Gi"), Ok(1usize << 32));
+    assert_eq!(parse_usize("-0"), Ok(0));
+    assert!(parse_usize("-1").is_err());
+}
+
+pub fn parse_isize(s: &str) -> Result<isize, String> {
+    let val = parse_int(s);
+    if val.is_none() {
+        return Err(format!("failed to evaluate \'{}\' as an integer.", s));
+    }
+
+    let val = val.unwrap().try_into();
+    if val.is_err() {
+        return Err(format!("failed to interpret \'{}\' as a signed integer.", s));
+    }
+    Ok(val.unwrap())
+}
+
+#[test]
+fn test_parse_isize() {
+    assert!(parse_isize("").is_err());
+    assert_eq!(parse_isize("0"), Ok(0));
+    assert_eq!(parse_isize("100000"), Ok(100000));
+    assert_eq!(parse_isize("4Gi"), Ok(1isize << 32));
+
+    assert_eq!(parse_isize("-0"), Ok(0));
+    assert_eq!(parse_isize("-1"), Ok(-1));
+    assert_eq!(parse_isize("-4Gi"), Ok(-1isize << 32));
+}
+
+pub fn parse_delimited(s: &str) -> Result<Vec<Option<i64>>, String> {
+    // let parse = |x: &str| {
+    //     if x.len() == 0 {
+    //         return Ok(None); // not an error
+    //     }
+
+    //     let val = parse_int(x);
+    //     if val.is_none() {
+    //         return Err(format!("at \'{}\'", s, x));
+    //     }
+    //     Ok(val)
+    // };
+
+    let mut v = Vec::new();
+    for x in s.split(':') {
+        if x.len() == 0 {
+            v.push(None);
+            continue;
+        }
+
+        let val = parse_int(x);
+        if val.is_none() {
+            return Err(format!("failed to parse \'{}\' at \'{}\'", s, x));
+        }
+        v.push(val);
+    }
+
+    // let v = s.split(':').map(|x| parse(x)).collect::<Vec<_>>();
+    // if v.iter().any(|x| x.is_none()) {
+    //     return None;
+    // }
+
+    // let v = v.iter().map(|x| x.flatten()).collect::<Vec<_>>();
+    Ok(v)
+}
+
+#[test]
+fn test_parse_delimited() {
+    assert_eq!(parse_delimited(""), Ok(vec![None]));
+    assert_eq!(parse_delimited(":"), Ok(vec![None, None]));
+    assert_eq!(parse_delimited("::"), Ok(vec![None, None, None]));
+
+    assert_eq!(parse_delimited("0"), Ok(vec![Some(0)]));
+    assert_eq!(parse_delimited(":1"), Ok(vec![None, Some(1)]));
+    assert_eq!(parse_delimited("2:"), Ok(vec![Some(2), None]));
+    assert_eq!(parse_delimited("4::5:2:"), Ok(vec![Some(4), None, Some(5), Some(2), None]));
+
+    assert!(parse_delimited("a").is_err());
+    assert!(parse_delimited(":-").is_err());
+    assert!(parse_delimited("+:").is_err());
+}
+
+pub fn parse_usize_pair(s: &str) -> Result<(usize, usize), String> {
+    let vals = parse_delimited(s)?;
+    if vals.len() != 2 {
+        return Err(format!("\"head:tail\" format expected for this option."));
+    }
+
+    let head_raw = vals[0].unwrap_or(0);
+    let tail_raw = vals[1].unwrap_or(0);
+
+    let head = head_raw.try_into();
+    let tail = tail_raw.try_into();
+
+    if head.is_err() || tail.is_err() {
+        return Err(format!(
+            "negative values are not allowed for this option (\'{}\' gave \'{}\' and \'{}\').",
+            s, head_raw, tail_raw
+        ));
+    }
+
+    Ok((head.unwrap(), tail.unwrap()))
+}
+
+#[test]
+fn test_parse_usize_pair() {
+    assert!(parse_usize_pair("").is_err());
+    assert_eq!(parse_usize_pair(":"), Ok((0, 0)));
+    assert_eq!(parse_usize_pair("1:"), Ok((1, 0)));
+    assert_eq!(parse_usize_pair(":3"), Ok((0, 3)));
+    assert_eq!(parse_usize_pair("4:5"), Ok((4, 5)));
+
+    assert!(parse_usize_pair("-1:").is_err());
+    assert!(parse_usize_pair("1:-1").is_err());
+}
+
+pub fn parse_isize_pair(s: &str) -> Result<(isize, isize), String> {
+    let vals = parse_delimited(s)?;
+    if vals.len() != 2 {
+        return Err(format!("\"head:tail\" format expected for this option."));
+    }
+
+    let head_raw = vals[0].unwrap_or(0);
+    let tail_raw = vals[1].unwrap_or(0);
+
+    let head = head_raw.try_into();
+    let tail = tail_raw.try_into();
+
+    if head.is_err() || tail.is_err() {
+        return Err(format!(
+            "failed to interpret {:?}, which gave \'{}\' and \'{}\', as an isize pair.",
+            s, head_raw, tail_raw
+        ));
+    }
+
+    Ok((head.unwrap(), tail.unwrap()))
+}
+
+#[test]
+fn test_parse_isize_pair() {
+    assert!(parse_isize_pair("").is_err());
+    assert_eq!(parse_isize_pair(":"), Ok((0, 0)));
+    assert_eq!(parse_isize_pair("1:"), Ok((1, 0)));
+    assert_eq!(parse_isize_pair(":3"), Ok((0, 3)));
+    assert_eq!(parse_isize_pair("4:5"), Ok((4, 5)));
+
+    assert_eq!(parse_isize_pair("-1:"), Ok((-1, 0)));
+    assert_eq!(parse_isize_pair("1:-1"), Ok((1, -1)));
+
+    assert!(parse_isize_pair("-:").is_err());
+    assert!(parse_isize_pair("1:-").is_err());
+}
+
+pub fn parse_range(s: &str) -> Result<Range<usize>, String> {
+    let vals = parse_delimited(s)?;
+    if vals.len() != 2 {
+        return Err(format!("\"start:end\" format expected for this option (got: \'{}\').", s));
+    }
+
+    if vals.iter().map(|x| x.unwrap_or(0)).any(|x| x < 0) {
+        return Err(format!(
+            "negative values are not allowed for this option (\'{}\' gave \'{}\' and \'{}\').",
+            s,
+            vals[0].unwrap_or(0),
+            vals[1].map_or("inf".to_string(), |x| format!("{}", x)),
+        ));
+    }
+
+    let start = vals[0].map_or(Ok(0), |x| x.try_into()).unwrap();
+    let end = vals[1].map_or(Ok(usize::MAX), |x| x.try_into()).unwrap();
+    if start > end {
+        return Err(format!(
+            "start pos must not be greater than end pos (\'{}\' gave \'{}\' and \'{}\').",
+            s, start, end
+        ));
+    }
+    Ok(start..end)
+}
+
+#[test]
+fn test_parse_range() {
+    assert!(parse_range("").is_err());
+    assert_eq!(parse_range(":"), Ok(0..usize::MAX));
+    assert_eq!(parse_range("1:"), Ok(1..usize::MAX));
+    assert_eq!(parse_range(":3"), Ok(0..3));
+    assert_eq!(parse_range("4:5"), Ok(4..5));
+
+    assert!(parse_range("-1:0").is_err());
+    assert!(parse_range(":-1").is_err());
+    assert!(parse_range("3:0").is_err());
 }
 
 // end of eval.rs

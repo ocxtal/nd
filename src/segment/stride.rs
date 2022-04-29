@@ -2,9 +2,8 @@
 // @author Hajime Suzuki
 // @brief constant-stride slicer
 
-use super::SegmentStream;
+use super::{Segment, SegmentStream};
 use crate::byte::{ByteStream, EofStream};
-use crate::common::Segment;
 use std::io::Result;
 
 #[cfg(test)]
@@ -26,7 +25,7 @@ struct Phase {
     prev: usize,
 }
 
-struct ConstStrideSegments {
+struct ConstSegments {
     segments: Vec<Segment>, // precalculated segment array
     head_clip: HeadClip,    // (head_clip, first_segment_tail)
     phase: Phase,           // (curr_phase, prev_phase)
@@ -37,7 +36,7 @@ struct ConstStrideSegments {
     span: usize,
 }
 
-impl ConstStrideSegments {
+impl ConstSegments {
     fn new(margin: (usize, usize), pitch: usize, span: usize) -> Self {
         assert!(margin.0 < span && margin.1 < span);
 
@@ -75,7 +74,7 @@ impl ConstStrideSegments {
         //
 
         let phase = (pitch - (margin.0 % pitch)) % pitch;
-        ConstStrideSegments {
+        ConstSegments {
             segments,
             head_clip: HeadClip {
                 clip: margin.0 + phase,
@@ -259,24 +258,24 @@ impl ConstStrideSegments {
     }
 }
 
-pub struct ConstStrideSlicer {
+pub struct ConstSlicer {
     src: EofStream<Box<dyn ByteStream>>,
-    segments: ConstStrideSegments,
+    segments: ConstSegments,
 }
 
-impl ConstStrideSlicer {
-    pub fn new(src: Box<dyn ByteStream>, margin: (usize, usize), pitch: usize, len: usize) -> Self {
+impl ConstSlicer {
+    pub fn new(src: Box<dyn ByteStream>, margin: (usize, usize), pitch: usize, span: usize) -> Self {
         assert!(pitch > 0);
-        assert!(len > 0);
+        assert!(span > 0);
 
-        ConstStrideSlicer {
+        ConstSlicer {
             src: EofStream::new(src),
-            segments: ConstStrideSegments::new(margin, pitch, len),
+            segments: ConstSegments::new(margin, pitch, span),
         }
     }
 }
 
-impl SegmentStream for ConstStrideSlicer {
+impl SegmentStream for ConstSlicer {
     fn fill_segment_buf(&mut self) -> Result<(usize, usize)> {
         loop {
             let (is_eof, len) = self.src.fill_buf()?;
@@ -306,7 +305,7 @@ macro_rules! bind {
     ( $margin: expr, $pitch: expr, $span: expr ) => {
         |pattern: &[u8]| -> Box<dyn SegmentStream> {
             let src = Box::new(MockSource::new(pattern));
-            Box::new(ConstStrideSlicer::new(src, $margin, $pitch, $span))
+            Box::new(ConstSlicer::new(src, $margin, $pitch, $span))
         }
     };
 }

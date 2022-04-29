@@ -3,9 +3,10 @@
 // @date 2022/2/4
 
 use super::ByteStream;
-use crate::common::{InoutFormat, BLOCK_SIZE};
-use crate::parser::TextParser;
+use crate::params::BLOCK_SIZE;
 use crate::streambuf::StreamBuf;
+use crate::text::parser::TextParser;
+use crate::text::InoutFormat;
 use std::io::Result;
 
 #[cfg(test)]
@@ -49,7 +50,7 @@ impl ByteStream for GaplessTextStream {
 macro_rules! test_gapless_impl {
     ( $inner: ident, $input: expr, $expected: expr ) => {{
         let src = Box::new(MockSource::new($input.as_slice()));
-        let src = GaplessTextStream::new(src, 1, &InoutFormat::new("nnx"));
+        let src = GaplessTextStream::new(src, 1, &InoutFormat::from_str("nnx").unwrap());
         $inner(src, $expected);
     }};
 }
@@ -210,7 +211,7 @@ impl ByteStream for TextStream {
 macro_rules! test_text_impl {
     ( $inner: ident, $input: expr, $expected: expr ) => {{
         let src = Box::new(MockSource::new($input.as_slice()));
-        let src = TextStream::new(src, 1, &InoutFormat::new("xxx"));
+        let src = TextStream::new(src, 1, &InoutFormat::from_str("xxx").unwrap());
         $inner(src, $expected);
     }};
 }

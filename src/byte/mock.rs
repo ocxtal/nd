@@ -3,7 +3,7 @@
 // @date 2022/3/23
 
 use super::ByteStream;
-use crate::common::{BLOCK_SIZE, MARGIN_SIZE};
+use crate::params::{BLOCK_SIZE, MARGIN_SIZE};
 use std::io::{Read, Result};
 
 #[cfg(test)]

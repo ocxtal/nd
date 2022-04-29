@@ -2,10 +2,12 @@
 // @author Hajime Suzuki
 
 use crate::byte::{ByteStream, PatchStream};
-use crate::common::{FillUninit, InoutFormat, Segment, BLOCK_SIZE};
 use crate::drain::StreamDrain;
-use crate::segment::SegmentStream;
+use crate::filluninit::FillUninit;
+use crate::params::BLOCK_SIZE;
+use crate::segment::{Segment, SegmentStream};
 use crate::streambuf::StreamBuf;
+use crate::text::TextFormatter;
 use std::io::{Read, Result, Seek, SeekFrom, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -162,14 +164,16 @@ impl ByteStream for BashPipeReader {
 
 pub struct PatchDrain {
     src: Box<dyn SegmentStream>,
+    offset: usize,
+    formatter: TextFormatter,
     buf: Vec<u8>,
     pipe: BashPipe,
     drain: Option<JoinHandle<()>>,
 }
 
 impl PatchDrain {
-    pub fn new(src: Box<dyn SegmentStream>, dst: Box<dyn Write + Send>, format: &InoutFormat, command: &str) -> Self {
-        let format = *format;
+    pub fn new(src: Box<dyn SegmentStream>, offset: usize, formatter: TextFormatter, dst: Box<dyn Write + Send>, command: &str) -> Self {
+        let format = formatter.format();
 
         let src = Box::new(CacheStream::new(src));
         let cache_reader = src.spawn_reader();
@@ -193,6 +197,8 @@ impl PatchDrain {
 
         PatchDrain {
             src,
+            offset,
+            formatter,
             buf: Vec::new(),
             pipe,
             drain: Some(drain),
@@ -203,8 +209,8 @@ impl PatchDrain {
         debug_assert!(!self.buf.is_empty());
 
         while self.buf.len() < BLOCK_SIZE {
-            let (stream_len, _) = self.src.fill_segment_buf()?;
-            if stream_len == 0 {
+            let (bytes, _) = self.src.fill_segment_buf()?;
+            if bytes == 0 {
                 self.pipe.write_all(&self.buf).unwrap();
                 self.pipe.close();
 
@@ -213,10 +219,8 @@ impl PatchDrain {
             }
 
             let (stream, segments) = self.src.as_slices();
-            for s in segments {
-                self.buf.extend_from_slice(&stream[s.as_range()]);
-            }
-            self.src.consume(stream_len)?;
+            self.formatter.format_segments(self.offset, stream, segments, &mut self.buf);
+            self.offset += self.src.consume(bytes)?.0;
         }
 
         self.pipe.write_all(&self.buf).unwrap();

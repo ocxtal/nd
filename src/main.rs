@@ -2,23 +2,23 @@
 #![feature(slice_split_at_unchecked)]
 
 mod byte;
-mod common;
 mod drain;
 mod eval;
-mod formatter;
-mod parser;
+mod filluninit;
+mod params;
 mod segment;
 mod streambuf;
+mod text;
 
 use clap::{App, AppSettings, Arg, ColorChoice};
 use std::io::{Read, Write};
+use std::ops::Range;
 
-use byte::{BinaryStream, ByteStream, CatStream, ClipStream, GaplessTextStream, PatchStream, TextStream, ZipStream};
-use common::{InoutFormat, BLOCK_SIZE};
+use byte::{BinaryStream, ByteStream, CatStream, ClipStream, GaplessTextStream, PatchStream, TextStream, ZeroStream, ZipStream};
 use drain::{PatchDrain, ScatterDrain, StreamDrain, TransparentDrain};
-use eval::{parse_int, parse_range};
-use formatter::HexFormatter;
-use segment::{ConstStrideSlicer, HammingSlicer, RegexSlicer, SegmentStream, SliceMerger};
+use eval::*;
+use segment::{ConstSlicer, HammingSlicer, RegexSlicer, SegmentStream, SliceMerger};
+use text::{InoutFormat, TextFormatter};
 
 fn create_source(name: &str) -> Box<dyn Read> {
     if name == "-" {
@@ -46,9 +46,9 @@ OPTIONS:
 
   Input and output formats (apply to all input / output streams)
 
-    -f, --out-format XYZ    output format signatures [xxx]
-    -F, --in-format XYZ     input format signatures [b]
-    -P, --patch-format XYZ  patch file / stream format signatures [xxx]
+    -f, --out-format XYZ    output format signature [xxx]
+    -F, --in-format XYZ     input format signature [b]
+    -P, --patch-format XYZ  patch file / stream format signature [xxx]
 
   Constructing input stream
 
@@ -65,12 +65,12 @@ OPTIONS:
 
     -w, --width N           slice into N bytes (default) [16]
     -m, --match PATTERN[:K] slice out every matches that have <= K different bits from the pattern
-    -g, --regex PATTERN     slice out every matches with regular expression
+    -g, --regex PATTERN[:N] slice out every matches with regular expression within N-byte window
     -r, --slice FILE        slice out [pos, pos + len) ranges loaded from the file
     -k, --walk W:EXPR,...   evaluate the expressions on the stream and split it at the obtained indices
                             (repeated until the end; W-byte word on eval and 1-byte word on split)
 
-    -e, --margin N:M        extend slices left and right by N and M bytes [0:0]
+    -e, --extend N:M        extend slices left and right by N and M bytes [0:0]
     -u, --union N           iteratively merge two slices with an overlap >= N bytes [-inf]
     -x, --intersection N    take intersection of two slices with an overlap >= N bytes [-inf]
     -b, --bridge N:M        create a new slice from two adjoining slices,
@@ -90,8 +90,171 @@ OPTIONS:
     -v, --version           print version information
 ";
 
+fn clamp_diff(x: usize, y: usize) -> (usize, usize) {
+    if x > y {
+        (x - y, 0)
+    } else {
+        (0, y - x)
+    }
+}
+
+struct RawStreamParams {
+    pad: Option<(usize, usize)>,
+    seek: Option<usize>,
+    range: Option<Range<usize>>,
+}
+
+struct StreamParams {
+    pad: (usize, usize),
+    skip: usize,
+    len: usize,
+}
+
+impl StreamParams {
+    fn from_raw(params: &RawStreamParams) -> Self {
+        let pad = params.pad.unwrap_or((0, 0));
+        let seek = params.seek.unwrap_or(0);
+        let range = params.range.clone().unwrap_or(0..usize::MAX);
+
+        // range: drop bytes out of the range
+        let (skip, len) = (seek + range.start, range.len());
+
+        // head padding, applied *before* clipping, may remove the head skip
+        let (head_pad, tail_pad) = pad;
+        let (head_pad, skip) = clamp_diff(head_pad, skip);
+        let pad = (head_pad, tail_pad);
+
+        eprintln!("pad({:?}), skip({:?}), len({:?})", pad, skip, len);
+
+        StreamParams { pad, skip, len }
+    }
+
+    fn add_skip(&mut self, amount: usize) {
+        self.skip += amount;
+
+        if self.len != usize::MAX {
+            self.len = self.len.saturating_sub(amount);
+        }
+    }
+}
+
+struct RawSlicerParams {
+    width: usize,
+    extend: Option<(isize, isize)>,
+    merge: Option<isize>,
+    intersection: Option<usize>,
+    bridge: Option<(isize, isize)>,
+}
+
+struct ConstSlicerParams {
+    skip: usize,
+    margin: (usize, usize),
+    pitch: usize,
+    span: usize,
+}
+
+impl ConstSlicerParams {
+    fn from_raw(params: &RawSlicerParams) -> Self {
+        let inf = isize::MAX;
+        let width = params.width as isize;
+        let extend = params.extend.unwrap_or((0, 0));
+
+        // apply "extend"
+        let overlap = extend.0 + extend.1;
+        let (vanish, overlap, pitch, span) = if width + overlap <= 0 {
+            (true, 0, inf, inf)
+        } else {
+            (false, overlap, width, width + overlap)
+        };
+
+        let tail_margin = if extend.1 < 0 {
+            std::cmp::max(span - 1 + extend.1, 0)
+        } else {
+            span - 1
+        };
+
+        // apply "merge"
+        let merge = params.merge.unwrap_or(isize::MAX);
+        let (vanish, overlap, pitch, span, tail_margin) = if vanish {
+            (true, 0, inf, inf, 0)
+        } else if overlap >= merge {
+            // fallen into a single contiguous section
+            (false, 0, inf, inf, 0)
+        } else {
+            (false, overlap, pitch, span, tail_margin)
+        };
+
+        // then apply "intersection"
+        let (vanish, start, span, tail_margin) = if let Some(is) = params.intersection {
+            if vanish || overlap == 0 || overlap < is as isize {
+                (true, 0, inf, 0)
+            } else {
+                (false, pitch - extend.0, overlap, overlap - 1)
+            }
+        } else {
+            (false, -extend.0, span, tail_margin)
+        };
+        debug_assert!(span > 0);
+
+        // apply "bridge"
+        let (vanish, start, span, tail_margin) = if let Some(bridge) = params.bridge {
+            let bridge = if vanish { (0, 0) } else { (bridge.0 % span, bridge.1 % span) };
+            (vanish, start + bridge.0, pitch + bridge.1 - bridge.0, 0)
+        } else {
+            (vanish, start, span, tail_margin)
+        };
+
+        let span = std::cmp::max(span, 0) as usize;
+        let (skip, head_margin) = if vanish {
+            (usize::MAX, 0)
+        } else if start < 0 {
+            (0, -start as usize)
+        } else {
+            (start as usize, 0)
+        };
+        let head_margin = head_margin % span;
+        let tail_margin = std::cmp::max(tail_margin, 0) as usize;
+
+        eprintln!(
+            "skip({:?}), margin({:?}, {:?}), pitch({:?}), span({:?})",
+            skip, head_margin, tail_margin, pitch, span
+        );
+
+        debug_assert!(pitch >= 0);
+        ConstSlicerParams {
+            skip,
+            margin: (head_margin, tail_margin),
+            pitch: pitch as usize,
+            span,
+        }
+    }
+}
+
+struct InoutFormats {
+    input: InoutFormat,
+    output: InoutFormat,
+    patch: InoutFormat,
+}
+
+fn is_allowed_wordsize(x: &str) -> Result<(), String> {
+    let is_numeric = x.parse::<usize>().is_ok();
+    let is_allowed = match x {
+        "1" | "2" | "4" | "8" | "16" => true,
+        _ => false,
+    };
+
+    if !is_numeric || !is_allowed {
+        return Err(format!(
+            "\'{:}\' is not {:} as a word size. possible values are 1, 2, 4, 8, and 16.",
+            x,
+            if is_numeric { "allowed" } else { "recognized" }
+        ));
+    }
+    Ok(())
+}
+
 fn main() {
-    #[rustfmt::skip]
+    // #[rustfmt::skip]
     let m = App::new("zd")
         .version("0.0.1")
         .about("streamed binary processor")
@@ -102,58 +265,191 @@ fn main() {
         .setting(AppSettings::DontDelimitTrailingValues)
         .setting(AppSettings::InferLongArgs)
         .args([
-            Arg::new("inputs").help("input files").value_name("input.bin").multiple_occurrences(true).default_value("-"),
-            Arg::new("out-format").short('f').long("out-format").help("output format signatures [xxx]").takes_value(true).number_of_values(1),
-            Arg::new("in-format").short('F').long("in-format").help("input format signatures [b]").takes_value(true).number_of_values(1),
-            Arg::new("patch-format").short('P').long("patch-format").help("patch file / stream format signatures [xxx]").takes_value(true).number_of_values(1),
-            Arg::new("cat").short('c').long("cat").help("concat all input streams into one with W-byte words (default) [1]").takes_value(true).min_values(0).possible_values(["1", "2", "4", "8", "16"]).default_missing_value("1"),
-            Arg::new("zip").short('z').long("zip").help("zip all input streams into one with W-byte words").takes_value(true).min_values(0).possible_values(["1", "2", "4", "8", "16"]).default_missing_value("1").conflicts_with("cat"),
-            Arg::new("inplace").short('i').long("inplace").help("edit each input file in-place").takes_value(true).number_of_values(1),
-            Arg::new("pad").short('a').long("pad").help("add N and M bytes of B at the head and tail [0:0:0]").takes_value(true).number_of_values(1),
-            Arg::new("seek").short('s').long("seek").help("skip first N bytes and clear stream offset [0]").takes_value(true).number_of_values(1),
-            Arg::new("patch").short('p').long("patch").help("patch the input stream with the patchfile (after --seek)").takes_value(true),
-            Arg::new("bytes").short('n').long("bytes").help("drop bytes out of the range (after --seek and --patch) [0:inf]").takes_value(true),
-            Arg::new("width").short('w').long("width").help("slice into N bytes (default) [16]").takes_value(true),
-            Arg::new("match").short('m').long("match").help("slice out every matches that have <= K different bits from the pattern").takes_value(true),
-            Arg::new("regex").short('g').long("regex").help("slice out every matches with regular expression").takes_value(true),
-            Arg::new("slice").short('r').long("slice").help("slice out [pos, pos + len) ranges loaded from the file").takes_value(true),
-            Arg::new("margin").short('e').long("margin").help("extend slices left and right by N and M bytes [0:0]").takes_value(true),
-            Arg::new("union").short('u').long("union").help("take union of slices whose overlap is >= N bytes [0]").takes_value(true),
-            Arg::new("intersection").short('x').long("intersection").help("take intersection of two slices whose overlap is >= N bytes [0]").takes_value(true),
-            Arg::new("bridge").short('b').long("bridge").help("create a new slice from two adjoining slices, between offset N of the former to M of the latter [-1,-1]").takes_value(true),
-            Arg::new("lines").short('l').long("lines").help("drop slices out of the range [0:inf]").takes_value(true),
-            Arg::new("offset").short('j').long("offset").help("add N and M respectively to offset and length when formatting [0:0]").takes_value(true),
-            Arg::new("scatter").short('d').long("scatter").help("invoke shell command on each formatted slice []").takes_value(true),
-            Arg::new("patch-back").short('o').long("patch-back").help("pipe formatted slices to command then patch back to the original stream []").takes_value(true),
+            Arg::new("inputs")
+                .help("input files")
+                .value_name("input.bin")
+                .multiple_occurrences(true)
+                .default_value("-"),
+            Arg::new("out-format")
+                .short('f')
+                .long("out-format")
+                .help("output format signature [xxx]")
+                .takes_value(true)
+                .number_of_values(1)
+                .default_value("xxx")
+                .validator(InoutFormat::from_str),
+            Arg::new("in-format")
+                .short('F')
+                .long("in-format")
+                .help("input format signature [b]")
+                .takes_value(true)
+                .number_of_values(1)
+                .default_value("b")
+                .validator(InoutFormat::from_str),
+            Arg::new("patch-format")
+                .short('P')
+                .long("patch-format")
+                .help("patch file / stream format signature [xxx]")
+                .takes_value(true)
+                .number_of_values(1)
+                .default_value("xxx")
+                .validator(InoutFormat::from_str),
+            Arg::new("cat")
+                .short('c')
+                .long("cat")
+                .help("concat all input streams into one with W-byte words (default) [1]")
+                .takes_value(true)
+                .min_values(0)
+                .default_missing_value("1")
+                .validator(is_allowed_wordsize),
+            Arg::new("zip")
+                .short('z')
+                .long("zip")
+                .help("zip all input streams into one with W-byte words")
+                .takes_value(true)
+                .min_values(0)
+                .default_missing_value("1")
+                .validator(is_allowed_wordsize)
+                .conflicts_with("cat"),
+            Arg::new("inplace")
+                .short('i')
+                .long("inplace")
+                .help("edit each input file in-place")
+                .takes_value(true)
+                .number_of_values(1),
+            Arg::new("pad")
+                .short('a')
+                .long("pad")
+                .help("add N and M bytes of B at the head and tail [0:0:0]")
+                .takes_value(true)
+                .number_of_values(1),
+            Arg::new("seek")
+                .short('s')
+                .long("seek")
+                .help("skip first N bytes and clear stream offset [0]")
+                .takes_value(true)
+                .validator(parse_usize)
+                .number_of_values(1),
+            Arg::new("patch")
+                .short('p')
+                .long("patch")
+                .help("patch the input stream with the patchfile (after --seek)")
+                .takes_value(true),
+            Arg::new("bytes")
+                .short('n')
+                .long("bytes")
+                .help("drop bytes out of the range (after --seek and --patch) [0:inf]")
+                .takes_value(true)
+                .validator(parse_range),
+            Arg::new("width")
+                .short('w')
+                .long("width")
+                .help("slice into N bytes (default) [16]")
+                .takes_value(true)
+                .validator(parse_usize),
+            Arg::new("match")
+                .short('m')
+                .long("match")
+                .help("slice out every matches that have <= K different bits from the pattern")
+                .takes_value(true),
+            Arg::new("regex")
+                .short('g')
+                .long("regex")
+                .help("slice out every matches with regular expression")
+                .takes_value(true),
+            Arg::new("slice")
+                .short('r')
+                .long("slice")
+                .help("slice out [pos, pos + len) ranges loaded from the file")
+                .takes_value(true),
+            Arg::new("walk")
+                .short('k')
+                .long("walk")
+                .help("evaluate the expressions on the stream and split it at the obtained indices")
+                .takes_value(true),
+            Arg::new("extend")
+                .short('e')
+                .long("extend")
+                .help("extend slices left and right by N and M bytes [0:0]")
+                .takes_value(true)
+                .validator(parse_isize_pair),
+            Arg::new("union")
+                .short('u')
+                .long("union")
+                .help("take union of slices whose overlap is >= N bytes [0]")
+                .takes_value(true)
+                .validator(parse_isize),
+            Arg::new("intersection")
+                .short('x')
+                .long("intersection")
+                .help("take intersection of two slices whose overlap is >= N bytes [0]")
+                .takes_value(true)
+                .validator(parse_usize),
+            Arg::new("bridge")
+                .short('b')
+                .long("bridge")
+                .help("create a new slice from two adjoining slices, between offset N of the former to M of the latter [-1,-1]")
+                .takes_value(true)
+                .validator(parse_isize_pair),
+            Arg::new("lines")
+                .short('l')
+                .long("lines")
+                .help("drop slices out of the range [0:inf]")
+                .takes_value(true)
+                .validator(parse_range),
+            Arg::new("offset")
+                .short('j')
+                .long("offset")
+                .help("add N and M respectively to offset and length when formatting [0:0]")
+                .takes_value(true)
+                .validator(parse_usize),
+            Arg::new("scatter")
+                .short('d')
+                .long("scatter")
+                .help("invoke shell command on each formatted slice []")
+                .takes_value(true),
+            Arg::new("patch-back")
+                .short('o')
+                .long("patch-back")
+                .help("pipe formatted slices to command then patch back to the original stream []")
+                .takes_value(true),
             Arg::new("help").short('h').long("help").help("print help (this) message"),
             Arg::new("version").short('v').long("version").help("print version information"),
         ])
         .get_matches();
 
     // determine input, output, and patch formats
-    let input_format = if let Some(x) = m.value_of("in-format") {
-        InoutFormat::new(x)
-    } else {
-        InoutFormat::input_default()
+    let formats = InoutFormats {
+        input: InoutFormat::from_str(m.value_of("in-format").unwrap()).unwrap(),
+        output: InoutFormat::from_str(m.value_of("out-format").unwrap()).unwrap(),
+        patch: InoutFormat::from_str(m.value_of("patch-format").unwrap()).unwrap(),
     };
 
-    let output_format = if let Some(x) = m.value_of("out-format") {
-        InoutFormat::new(x)
-    } else {
-        InoutFormat::output_default()
-    };
+    let mut stream_params = StreamParams::from_raw(&RawStreamParams {
+        pad: m.value_of("pad").map(|x| parse_usize_pair(x).unwrap()),
+        seek: m.value_of("seek").map(|x| parse_usize(x).unwrap()),
+        range: m.value_of("bytes").map(|x| parse_range(x).unwrap()),
+    });
 
-    let patch_format = if let Some(x) = m.value_of("patch-format") {
-        InoutFormat::new(x)
-    } else {
-        InoutFormat::output_default()
+    let raw_slicer_params = RawSlicerParams {
+        width: m.value_of("width").map_or(16, |x| parse_usize(x).unwrap()),
+        extend: m.value_of("extend").map(|x| parse_isize_pair(x).unwrap()),
+        merge: m.value_of("union").map(|x| parse_isize(x).unwrap()),
+        intersection: m.value_of("intersection").map(|x| parse_usize(x).unwrap()),
+        bridge: m.value_of("bridge").map(|x| parse_isize_pair(x).unwrap()),
+    };
+    let const_slicer_params = ConstSlicerParams::from_raw(&raw_slicer_params);
+
+    let is_constant_stride = ["match", "regex", "slice", "walk"].iter().all(|x| m.value_of(x).is_none());
+    if is_constant_stride {
+        stream_params.add_skip(const_slicer_params.skip);
     };
 
     let word_size = if let Some(word_size) = m.value_of("zip") {
-        parse_int(word_size).unwrap() as usize
+        parse_usize(word_size).unwrap()
     } else {
         let word_size = m.value_of("cat").unwrap_or("1");
-        parse_int(word_size).unwrap() as usize
+        parse_usize(word_size).unwrap()
     };
 
     let inputs: Vec<&str> = m.values_of("inputs").unwrap().collect();
@@ -162,12 +458,12 @@ fn main() {
         .map(|x| -> Box<dyn ByteStream> {
             let src = create_source(x);
             let src = Box::new(BinaryStream::new(src, word_size, &InoutFormat::input_default()));
-            if input_format.is_binary() {
+            if formats.input.is_binary() {
                 src
-            } else if input_format.is_gapless() {
-                Box::new(GaplessTextStream::new(src, word_size, &input_format))
+            } else if formats.input.is_gapless() {
+                Box::new(GaplessTextStream::new(src, word_size, &formats.input))
             } else {
-                Box::new(TextStream::new(src, word_size, &input_format))
+                Box::new(TextStream::new(src, word_size, &formats.input))
             }
         })
         .collect();
@@ -178,33 +474,25 @@ fn main() {
         Box::new(CatStream::new(inputs))
     };
 
-    let (pad, skip) = if let Some(seek) = m.value_of("seek") {
-        let seek = parse_int(seek).unwrap();
-        if seek > 0 {
-            (0, seek as usize)
-        } else {
-            (-seek as usize, 0)
+    assert!(stream_params.skip == 0 || stream_params.pad.0 == 0);
+    let input = if stream_params.skip > 0 || stream_params.len != usize::MAX {
+        Box::new(ClipStream::new(input, stream_params.skip, stream_params.len, 0))
+    } else {
+        input
+    };
+
+    let input = if stream_params.pad.0 != 0 || stream_params.pad.1 != 0 {
+        let mut inputs: Vec<Box<dyn ByteStream>> = Vec::new();
+
+        if stream_params.pad.0 != 0 {
+            inputs.push(Box::new(ZeroStream::new(stream_params.pad.0)));
         }
-    } else {
-        (0, 0)
-    };
+        inputs.push(input);
+        if stream_params.pad.1 != 0 {
+            inputs.push(Box::new(ZeroStream::new(stream_params.pad.1)));
+        }
 
-    let (offset, len) = if let Some(r) = m.value_of("bytes") {
-        let r = parse_range(r).unwrap();
-        (r.start, r.len())
-    } else {
-        (0, usize::MAX)
-    };
-
-    let (pad, adj) = (pad.max(offset) - offset, pad.max(offset) - pad);
-    let (_pad, skip, len) = if len == usize::MAX {
-        (pad.min(len), skip + adj, usize::MAX)
-    } else {
-        (pad.min(len), skip + adj, pad.max(len) - pad)
-    };
-
-    let input = if skip > 0 || len != usize::MAX {
-        Box::new(ClipStream::new(input, skip, len))
+        Box::new(CatStream::new(inputs))
     } else {
         input
     };
@@ -212,100 +500,59 @@ fn main() {
     let input = if let Some(x) = m.value_of("patch") {
         let src = create_source(x);
         let src = Box::new(BinaryStream::new(src, word_size, &InoutFormat::input_default()));
-        let format = m.value_of("patch-format").unwrap_or("xxx");
-        let format = InoutFormat::new(format);
-        Box::new(PatchStream::new(input, src, &format))
+        Box::new(PatchStream::new(input, src, &formats.patch))
     } else {
         input
     };
 
-    let width = if let Some(width) = m.value_of("width") {
-        parse_int(width).unwrap() as isize
-    } else if output_format.is_binary() {
-        BLOCK_SIZE as isize
-    } else {
-        16
-    };
-
-    let margin = if let Some(margin) = m.value_of("margin") {
-        let range = parse_range(margin).unwrap();
-        (range.start as isize, range.end as isize)
-    } else {
-        (0, 0)
-    };
-
-    let merge = if let Some(merge) = m.value_of("union") {
-        parse_int(merge).unwrap() as isize
-    } else {
-        isize::MAX
-    };
-
-    let intersection = if let Some(intersection) = m.value_of("intersection") {
-        parse_int(intersection).unwrap() as isize
-    } else {
-        isize::MAX
-    };
-
-    let (disp, pitch, len) = if margin.0 + margin.1 >= merge {
-        (0, isize::MAX, isize::MAX)
-    } else if margin.0 + margin.1 >= intersection {
-        (-margin.0, width, margin.0 + margin.1)
-    } else {
-        (-margin.0, width, width + margin.0 + margin.1)
-    };
-
-    let (disp, len) = if let Some(bridge) = m.value_of("bridge") {
-        let range = parse_range(bridge).unwrap();
-        let (head, tail) = (range.start as isize, range.end as isize);
-
-        let head = if head < 0 { len + head } else { head };
-        assert!((0..len).contains(&head));
-
-        let tail = if tail < 0 { len + tail } else { tail };
-        assert!((0..len).contains(&tail));
-
-        (disp + head, len + tail - head)
-    } else {
-        (disp, len)
-    };
-
-    let (slicer, min_width): (Box<dyn SegmentStream>, _) = if let Some(pattern) = m.value_of("regex") {
-        (Box::new(RegexSlicer::new(input, width as usize, pattern)), 0)
-    } else if let Some(pattern) = m.value_of("match") {
-        (Box::new(HammingSlicer::new(input, pattern)), 0)
-    } else {
-        let slicer = Box::new(ConstStrideSlicer::new(
+    let slicer: Box<dyn SegmentStream> = if is_constant_stride {
+        Box::new(ConstSlicer::new(
             input,
-            (disp as usize, disp as usize),
-            pitch as usize,
-            len as usize,
-        ));
-        (slicer, width)
-    };
-
-    let slicer = if merge != isize::MAX {
-        Box::new(SliceMerger::new(slicer, margin, merge, intersection, width))
+            const_slicer_params.margin,
+            const_slicer_params.pitch,
+            const_slicer_params.span,
+        ))
     } else {
-        slicer
+        let slicer: Box<dyn SegmentStream> = if let Some(pattern) = m.value_of("regex") {
+            Box::new(RegexSlicer::new(input, raw_slicer_params.width, pattern))
+        } else if let Some(pattern) = m.value_of("match") {
+            Box::new(HammingSlicer::new(input, pattern))
+        } else {
+            assert!(false);
+            Box::new(ConstSlicer::new(
+                input,
+                const_slicer_params.margin,
+                const_slicer_params.pitch,
+                const_slicer_params.span,
+            ))
+        };
+        Box::new(SliceMerger::new(
+            slicer,
+            raw_slicer_params.extend.unwrap(),
+            raw_slicer_params.merge.unwrap(),
+            raw_slicer_params.intersection.unwrap(),
+        ))
     };
-
-    // eprintln!("c: {:?}, {:?}, {:?}", disp, len, min_width);
 
     // dump all
-    let formatter: Box<dyn SegmentStream> = if output_format.is_binary() {
-        slicer
-    } else {
-        Box::new(HexFormatter::new(slicer, offset, min_width as usize))
-    };
+    let min_width = if is_constant_stride { const_slicer_params.span } else { 0 };
+    let formatter = TextFormatter::new(&formats.output, min_width);
 
     // postprocess
+    let offset = m.value_of("offset").map_or(0, |x| parse_usize(x).unwrap());
+    let offset = if is_constant_stride {
+        offset + const_slicer_params.skip
+    } else {
+        offset
+    };
+
     let output: Box<dyn Write + Send> = Box::new(std::io::stdout());
     let mut output: Box<dyn StreamDrain> = if let Some(scatter) = m.value_of("scatter") {
-        Box::new(ScatterDrain::new(formatter, output, scatter))
+        Box::new(ScatterDrain::new(slicer, offset, formatter, output, scatter))
     } else if let Some(patch_back) = m.value_of("patch-back") {
-        Box::new(PatchDrain::new(formatter, output, &patch_format, patch_back))
+        Box::new(PatchDrain::new(slicer, offset, formatter, output, patch_back))
     } else {
-        Box::new(TransparentDrain::new(formatter, output))
+        Box::new(TransparentDrain::new(slicer, offset, formatter, output))
     };
     output.consume_segments().unwrap();
 }

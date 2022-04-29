@@ -3,9 +3,9 @@
 // @date 2022/2/5
 
 use super::ByteStream;
-use crate::common::InoutFormat;
-use crate::parser::TextParser;
 use crate::streambuf::StreamBuf;
+use crate::text::parser::TextParser;
+use crate::text::InoutFormat;
 use std::io::Result;
 
 #[cfg(test)]
@@ -171,7 +171,7 @@ macro_rules! test_impl {
     ( $inner: ident, $input: expr, $patch: expr, $expected: expr ) => {{
         let input = Box::new(MockSource::new($input.as_slice()));
         let patch = Box::new(MockSource::new($patch.as_slice()));
-        let src = PatchStream::new(input, patch, &InoutFormat::new("xxx"));
+        let src = PatchStream::new(input, patch, &InoutFormat::from_str("xxx").unwrap());
         $inner(src, $expected);
     }};
 }
