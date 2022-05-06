@@ -15,9 +15,9 @@ use super::tester::*;
 #[cfg(test)]
 use rand::Rng;
 
-struct HeadClip {
-    clip: usize,
-    rem: usize,
+struct InitState {
+    phase_offset: usize,
+    min_bytes_to_escape: usize,
 }
 
 struct Phase {
@@ -27,63 +27,108 @@ struct Phase {
 
 struct ConstSegments {
     segments: Vec<Segment>, // precalculated segment array
-    head_clip: HeadClip,    // (head_clip, first_segment_tail)
+    init_state: InitState,  // (phase_offset, min_bytes_to_escape)
     phase: Phase,           // (curr_phase, prev_phase)
     is_eof: bool,
     in_lend: (usize, usize), // (len, count)
-    margin: (usize, usize),
+    offset_margin: (usize, usize),
     pitch: usize,
     span: usize,
 }
 
 impl ConstSegments {
-    fn new(margin: (usize, usize), pitch: usize, span: usize) -> Self {
-        assert!(margin.0 < span && margin.1 < span);
+    fn new(margin: (isize, isize), pitch: usize, span: usize) -> Self {
+        // margin.0 is the head of the first segment. convert it to the tail of that.
+        // TODO: use saturating_add_signed
+        let offset_margin = (margin.0 + span as isize, margin.1 + span as isize);
+        assert!(offset_margin.0 > 0 && offset_margin.1 > 0);
 
-        let first_segment_tail = span - margin.0;
+        let offset_margin = (offset_margin.0 as usize, offset_margin.1 as usize);
         let segments = vec![Segment {
             pos: 0,
-            len: first_segment_tail,
+            len: offset_margin.0,
         }];
 
-        // for head-clipped segments:
+        // case 1. the first segment is clipped at the head (margin.0 < 0):
         //
         // segments:
         //
-        //                            first_segment_tail
-        //                           /
-        //        <-- head_clip --><-->
+        //        <-- pitch --><-- pitch --><-- pitch --><-- pitch -->...
+        //        <-- -margin.0 -->
+        // [0]:   .................<--->
+        // [1]:                ....<---------------->
+        // [2]:                             <------- span ------->
+        // [3]:                                          <------- span ------->
+        //                                                            ...
+        //       ------------------------------------------------------------------------------------------>
+        //                         ^    ^
+        //                         0    offset_margin.0 (tail of the first segment)
         //
-        // [0]:   .................<-->
-        // [1]:                ....<--------------->
-        // [2]:                             <------- len ------->
-        // [3]:                                     <------- len ------->
-        //                                                       ...
+        // initial states:
+        //                                 phase.curr (== #bytes to eat until the head of the next segment)
+        //                                   (phase.curr is always in 0..pitch, setting the first
+        //                                   `prev_phase >= pitch` makes it the head sentinel)
+        //                                /
+        //                         <------->
+        //         <----------------------->
+        //                                \
+        //                                 phase_offset is for include clipped segments in #segments to consume
+        //                                   (it also includes the phase, that's to be subtracted from #bytes
+        //                                   requested to consume)
         //
-        //                             <-- pitch --><-- pitch --><-- pitch -->...
-        //       ----------------------------------------------------------------------->
-        //                         ^
-        //                         0
+        // on counting segments to consume:
         //
-        // states:
-        //                     <-->
-        //                      \
-        //                       curr_phase
+        //                         <--------------- bytes --------------->
+        //                         <-------> - phase.curr
+        //         <-----------------------> - phase_offset
+        //         <-- pitch --><-- pitch --><-- pitch --><-- pitch -->
         //
-        // * `curr_phase` is always in 0..pitch, setting the first `prev_phase == pitch` behaves as the head sentinel
+        //                                 #segments to consume (4 in this example) is calculated as
+        //                                 `(bytes - phase.curr + phase_offset) / pitch`
+        //
+        //
+        //
+        // case 2. the first segment is offset (margin.0 > 0):
+        //
+        // segments:
+        //
+        //        <-- margin.0 --><-- pitch --><-- pitch --><-- pitch -->...
+        // [0]:                   <------- span ------->
+        // [1]:                                <------- span ------->
+        // [2]:                                             <------- span ------->
+        //                                                               ...
+        //       ------------------------------------------------------------------------------------------>
+        //        ^                                     ^
+        //        0                                     offset_margin.0 (tail of the first segment)
+        //
+        // initial states:
+        //        <- phase.curr ->
+        //
+        // on counting segments to consume:
+        //
+        //         <------------------------ bytes ------------------------>
+        //         <-------------> - phase.curr
+        //                        <-- pitch --><-- pitch --><-- pitch -->
+        //
+        //          (phase_offset is set zero for this case, as `(bytes - phase.curr) / pitch` gives #segments)
         //
 
-        let phase = (pitch - (margin.0 % pitch)) % pitch;
+        let (curr_phase, phase_offset, min_bytes_to_escape) = if margin.0 < 0 {
+            eprintln!("margin({:?})", margin);
+            let phase = margin.0.rem_euclid(pitch as isize);
+            (phase as usize, (phase - margin.0) as usize, offset_margin.0)
+        } else {
+            (margin.0 as usize, 0, 0)
+        };
+        eprintln!("curr_phase({:?}), phase_offset({:?}), min_bytes_to_escape({:?})", curr_phase, phase_offset, min_bytes_to_escape);
+
         ConstSegments {
             segments,
-            head_clip: HeadClip {
-                clip: margin.0 + phase,
-                rem: first_segment_tail,
-            },
-            phase: Phase { curr: phase, prev: pitch },
+            init_state: InitState { phase_offset, min_bytes_to_escape },
+            phase: Phase { curr: curr_phase, prev: usize::MAX },
             is_eof: false,
             in_lend: (0, 0),
-            margin,
+            offset_margin,
             pitch,
             span,
         }
@@ -94,14 +139,15 @@ impl ConstSegments {
     }
 
     fn min_fill_len(&self) -> usize {
-        std::cmp::max(self.span, self.head_clip.rem)
+        std::cmp::max(self.span, self.init_state.min_bytes_to_escape)
     }
 
     fn get_next_tail(&mut self) -> usize {
         if let Some(x) = self.segments.last() {
             x.tail() + self.pitch
         } else {
-            self.phase.curr + self.span - self.head_clip.clip
+            eprintln!("phase({:?}, {:?}), span({:?}), phase_offset({:?})", self.phase.curr, self.phase.prev, self.span, self.init_state.phase_offset);
+            self.phase.curr + self.span - self.init_state.phase_offset
         }
     }
 
@@ -119,7 +165,7 @@ impl ConstSegments {
     fn extend_segments_with_clip(&mut self, len: usize) -> Result<(usize, usize)> {
         let mut next_tail = self.get_next_tail();
 
-        while next_tail <= len + self.margin.1 {
+        while next_tail + self.offset_margin.1 <= len + self.span {
             let pos = next_tail.saturating_sub(self.span);
             let len = std::cmp::min(next_tail, len) - pos;
             self.segments.push(Segment { pos, len });
@@ -148,7 +194,7 @@ impl ConstSegments {
     fn fill_segment_buf(&mut self, is_eof: bool, len: usize) -> Result<(usize, usize)> {
         if is_eof {
             self.is_eof = true;
-            self.head_clip.rem = std::cmp::min(len, self.head_clip.rem);
+            self.init_state.min_bytes_to_escape = std::cmp::min(len, self.init_state.min_bytes_to_escape);
             self.segments.clear(); // TODO: we don't need to remove all
             return self.extend_segments_with_clip(len);
         }
@@ -203,48 +249,25 @@ impl ConstSegments {
     }
 
     fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
-        if bytes < self.head_clip.rem {
-            // still in the head or no bytes consumed
+        if bytes < self.init_state.min_bytes_to_escape {
+            // still in the head
             return Ok((0, 0));
         }
 
         // got out of the head. forward the state
-        if self.head_clip.rem > 0 {
-            self.head_clip.rem = 0;
+        if self.init_state.min_bytes_to_escape > 0 {
+            self.init_state.min_bytes_to_escape = 0;
             self.segments.clear();
         }
 
-        let phase_offset = std::mem::replace(&mut self.head_clip.clip, 0);
+        // clear the phase offset
+        let phase_offset = std::mem::replace(&mut self.init_state.phase_offset, 0);
         self.phase.prev = self.phase.curr;
 
         // maximum consume length is clipped by the start pos of the next segment
         if self.is_eof && bytes >= self.in_lend.0 {
             return Ok(self.in_lend);
         }
-
-        //
-        //                   <----- segment ----->
-        //                                <----- segment ----->
-        //                                             <----- segment ----->
-        //                                                          ...
-        //      <-- phase -->
-        //
-        //      <----------- bytes ----------->
-        // ----------------------------------------------------------------------->
-        //      ^
-        //      0
-        //
-        //
-        //                   <------->
-        //                                <------->
-        //                                             <------->
-        //                                                          ...
-        //      <-- phase -->
-        //
-        //      <----------- bytes ----------->
-        // ----------------------------------------------------------------------->
-        //      ^
-        //      0
 
         let count = self.count_segments((bytes + phase_offset).saturating_sub(self.phase.curr));
         let count = std::cmp::min(count, self.in_lend.1);
@@ -264,7 +287,7 @@ pub struct ConstSlicer {
 }
 
 impl ConstSlicer {
-    pub fn new(src: Box<dyn ByteStream>, margin: (usize, usize), pitch: usize, span: usize) -> Self {
+    pub fn new(src: Box<dyn ByteStream>, margin: (isize, isize), pitch: usize, span: usize) -> Self {
         assert!(pitch > 0);
         assert!(span > 0);
 
@@ -340,42 +363,96 @@ macro_rules! test {
                 &[(0..4).into(), (3..7).into(), (6..10).into()],
             );
 
-            // head / tail margins
+            // head / tail positive margins
             $inner(
                 b"abcdefghij",
-                &bind!((1, 0), 3, 2),
-                &[(0..1).into(), (2..4).into(), (5..7).into(), (8..10).into()],
+                &bind!((2, 0), 3, 2),
+                &[(2..4).into(), (5..7).into(), (8..10).into()],
             );
             $inner(
                 b"abcdefghij",
-                &bind!((0, 1), 3, 2),
-                &[(0..2).into(), (3..5).into(), (6..8).into(), (9..10).into()],
+                &bind!((0, 2), 3, 2),
+                &[(0..2).into(), (3..5).into(), (6..8).into()],
+            );
+            $inner(
+                b"abcdefghij",
+                &bind!((3, 0), 3, 2),
+                &[(3..5).into(), (6..8).into()],
+            );
+            $inner(
+                b"abcdefghij",
+                &bind!((0, 3), 3, 2),
+                &[(0..2).into(), (3..5).into()],
             );
             $inner(
                 b"abcdefghij",
                 &bind!((2, 0), 3, 4),
+                &[(2..6).into(), (5..9).into()],
+            );
+            $inner(
+                b"abcdefghij",
+                &bind!((0, 2), 3, 4),
+                &[(0..4).into(), (3..7).into()],
+            );
+
+            // head / tail negative margins
+            $inner(
+                b"abcdefghij",
+                &bind!((-1, 0), 3, 2),
+                &[(0..1).into(), (2..4).into(), (5..7).into(), (8..10).into()],
+            );
+            $inner(
+                b"abcdefghij",
+                &bind!((0, -1), 3, 2),
+                &[(0..2).into(), (3..5).into(), (6..8).into(), (9..10).into()],
+            );
+            $inner(
+                b"abcdefghij",
+                &bind!((-2, 0), 3, 4),
                 &[(0..2).into(), (1..5).into(), (4..8).into()],
             );
             $inner(
                 b"abcdefghij",
-                &bind!((3, 0), 3, 4),
+                &bind!((-3, 0), 3, 4),
                 &[(0..1).into(), (0..4).into(), (3..7).into(), (6..10).into()],
             );
             $inner(
                 b"abcdefghij",
-                &bind!((2, 1), 3, 4),
+                &bind!((-2, -1), 3, 4),
                 &[(0..2).into(), (1..5).into(), (4..8).into(), (7..10).into()],
             );
             $inner(
                 b"abcdefghij",
-                &bind!((2, 2), 3, 5),
+                &bind!((-2, -2), 3, 5),
                 &[(0..3).into(), (1..6).into(), (4..9).into(), (7..10).into()],
             );
             $inner(
                 b"abcdefghij",
-                &bind!((2, 2), 5, 3),
+                &bind!((-2, -2), 5, 3),
                 &[(0..1).into(), (3..6).into(), (8..10).into()],
             );
+
+            // both
+            $inner(
+                b"abcdefghij",
+                &bind!((2, -2), 3, 4),
+                &[(2..6).into(), (5..9).into(), (8..10).into()],
+            );
+            $inner(
+                b"abcdefghij",
+                &bind!((-2, 2), 3, 4),
+                &[(0..2).into(), (1..5).into(), (4..8).into()],
+            );
+
+            // large margins
+            $inner(b"abcdefghij", &bind!((10, 0), 3, 4), &[]);
+            $inner(b"abcdefghij", &bind!((10, -2), 3, 4), &[]);
+            $inner(b"abcdefghij", &bind!((100, 0), 3, 4), &[]);
+            $inner(b"abcdefghij", &bind!((100, -2), 3, 4), &[]);
+            $inner(b"abcdefghij", &bind!((0, 10), 3, 4), &[]);
+            $inner(b"abcdefghij", &bind!((-2, 12), 3, 4), &[]);
+            $inner(b"abcdefghij", &bind!((0, 100), 3, 4), &[]);
+            $inner(b"abcdefghij", &bind!((-2, 100), 3, 4), &[]);
         }
     };
 }
@@ -385,14 +462,17 @@ test!(test_stride_random_len, test_segment_random_len);
 test!(test_stride_occasional_consume, test_segment_occasional_consume);
 
 #[cfg(test)]
-fn gen_slices(margin: (usize, usize), pitch: usize, span: usize, stream_len: usize) -> Vec<Segment> {
-    let mut v = Vec::new();
+fn gen_slices(margin: (isize, isize), pitch: usize, span: usize, stream_len: usize) -> Vec<Segment> {
+    let pitch = pitch as isize;
+    let span = span as isize;
+    let stream_len = stream_len as isize;
 
-    let mut tail = span - margin.0;
-    while tail <= stream_len + margin.1 {
-        let pos = tail.saturating_sub(span);
+    let mut v = Vec::new();
+    let mut tail = span + margin.0;
+    while tail <= stream_len - margin.1 {
+        let pos = if tail < span { 0 } else { tail - span };
         let len = std::cmp::min(tail, stream_len) - pos;
-        v.push(Segment { pos, len });
+        v.push(Segment { pos: pos as usize, len: len as usize });
         tail += pitch;
     }
     v
@@ -409,30 +489,30 @@ macro_rules! test_long {
             $inner(&s, &bind!((0, 0), 31, 109), &gen_slices((0, 0), 31, 109, s.len()));
             $inner(&s, &bind!((0, 0), 109, 31), &gen_slices((0, 0), 109, 31, s.len()));
 
-            $inner(&s, &bind!((1, 0), 31, 109), &gen_slices((1, 0), 31, 109, s.len()));
-            $inner(&s, &bind!((1, 0), 109, 31), &gen_slices((1, 0), 109, 31, s.len()));
-            $inner(&s, &bind!((15, 0), 31, 109), &gen_slices((15, 0), 31, 109, s.len()));
-            $inner(&s, &bind!((15, 0), 109, 31), &gen_slices((15, 0), 109, 31, s.len()));
+            $inner(&s, &bind!((-1, 0), 31, 109), &gen_slices((-1, 0), 31, 109, s.len()));
+            $inner(&s, &bind!((-1, 0), 109, 31), &gen_slices((-1, 0), 109, 31, s.len()));
+            $inner(&s, &bind!((-15, 0), 31, 109), &gen_slices((-15, 0), 31, 109, s.len()));
+            $inner(&s, &bind!((-15, 0), 109, 31), &gen_slices((-15, 0), 109, 31, s.len()));
 
-            $inner(&s, &bind!((0, 1), 31, 109), &gen_slices((0, 1), 31, 109, s.len()));
-            $inner(&s, &bind!((0, 1), 109, 31), &gen_slices((0, 1), 109, 31, s.len()));
-            $inner(&s, &bind!((0, 15), 31, 109), &gen_slices((0, 15), 31, 109, s.len()));
-            $inner(&s, &bind!((0, 15), 109, 31), &gen_slices((0, 15), 109, 31, s.len()));
+            $inner(&s, &bind!((0, -1), 31, 109), &gen_slices((0, -1), 31, 109, s.len()));
+            $inner(&s, &bind!((0, -1), 109, 31), &gen_slices((0, -1), 109, 31, s.len()));
+            $inner(&s, &bind!((0, -15), 31, 109), &gen_slices((0, -15), 31, 109, s.len()));
+            $inner(&s, &bind!((0, -15), 109, 31), &gen_slices((0, -15), 109, 31, s.len()));
 
-            $inner(&s, &bind!((1, 1), 31, 109), &gen_slices((1, 1), 31, 109, s.len()));
-            $inner(&s, &bind!((1, 1), 109, 31), &gen_slices((1, 1), 109, 31, s.len()));
-            $inner(&s, &bind!((15, 15), 31, 109), &gen_slices((15, 15), 31, 109, s.len()));
-            $inner(&s, &bind!((15, 15), 109, 31), &gen_slices((15, 15), 109, 31, s.len()));
+            $inner(&s, &bind!((-1, -1), 31, 109), &gen_slices((-1, -1), 31, 109, s.len()));
+            $inner(&s, &bind!((-1, -1), 109, 31), &gen_slices((-1, -1), 109, 31, s.len()));
+            $inner(&s, &bind!((-15, -15), 31, 109), &gen_slices((-15, -15), 31, 109, s.len()));
+            $inner(&s, &bind!((-15, -15), 109, 31), &gen_slices((-15, -15), 109, 31, s.len()));
 
             $inner(
                 &s,
-                &bind!((1500, 1500), 313131, 1091099),
-                &gen_slices((1500, 1500), 313131, 1091099, s.len()),
+                &bind!((-1500, -1500), 313131, 1091099),
+                &gen_slices((-1500, -1500), 313131, 1091099, s.len()),
             );
             $inner(
                 &s,
-                &bind!((1500, 1500), 1091099, 313131),
-                &gen_slices((1500, 1500), 1091099, 313131, s.len()),
+                &bind!((-1500, -1500), 1091099, 313131),
+                &gen_slices((-1500, -1500), 1091099, 313131, s.len()),
             );
         }
     };

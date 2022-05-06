@@ -19,12 +19,13 @@ pub struct ClipStream {
 }
 
 impl ClipStream {
-    pub fn new(src: Box<dyn ByteStream>, skip: usize, len: usize, strip: usize) -> Self {
+    pub fn new(src: Box<dyn ByteStream>, clip: (usize, usize), len: usize) -> Self {
+        eprintln!("init, clip({:?})", clip);
         ClipStream {
             src: EofStream::new(src),
-            skip,
+            skip: clip.0,
             rem: len,
-            strip,
+            strip: clip.1,
         }
     }
 }
@@ -44,6 +45,7 @@ impl ByteStream for ClipStream {
 
         loop {
             let (is_eof, len) = self.src.fill_buf()?;
+            eprintln!("is_eof({}), len({}), rem({}), strip({})", is_eof, len, self.rem, self.strip);
             if is_eof || len > self.strip {
                 let len = std::cmp::min(self.rem, len.saturating_sub(self.strip));
                 return Ok(len);
@@ -58,6 +60,7 @@ impl ByteStream for ClipStream {
     }
 
     fn consume(&mut self, amount: usize) {
+        eprintln!("consume({:?})", amount);
         debug_assert!(self.rem >= amount);
 
         self.rem -= amount;
@@ -75,80 +78,86 @@ macro_rules! test {
 
             // all
             $inner(
-                ClipStream::new(Box::new(MockSource::new(&pattern)), 0, pattern.len(), 0),
+                ClipStream::new(Box::new(MockSource::new(&pattern)), (0, 0), pattern.len()),
                 &pattern,
             );
 
             // head clip
             $inner(
-                ClipStream::new(Box::new(MockSource::new(&pattern)), 1, pattern.len(), 0),
+                ClipStream::new(Box::new(MockSource::new(&pattern)), (1, 0), pattern.len()),
                 &pattern[1..],
             );
             $inner(
-                ClipStream::new(Box::new(MockSource::new(&pattern)), 1000, pattern.len(), 0),
+                ClipStream::new(Box::new(MockSource::new(&pattern)), (1000, 0), pattern.len()),
                 &pattern[1000..],
             );
 
             // tail clip
             $inner(
-                ClipStream::new(Box::new(MockSource::new(&pattern)), 0, pattern.len(), 1),
+                ClipStream::new(Box::new(MockSource::new(&pattern)), (0, 1), pattern.len()),
                 &pattern[..pattern.len() - 1],
             );
             $inner(
-                ClipStream::new(Box::new(MockSource::new(&pattern)), 0, pattern.len(), 1000),
+                ClipStream::new(Box::new(MockSource::new(&pattern)), (0, 1000), pattern.len()),
                 &pattern[..pattern.len() - 1000],
             );
 
             // length limit
-            $inner(ClipStream::new(Box::new(MockSource::new(&pattern)), 0, 1, 0), &pattern[..1]);
+            $inner(ClipStream::new(Box::new(MockSource::new(&pattern)), (0, 0), 1), &pattern[..1]);
             $inner(
-                ClipStream::new(Box::new(MockSource::new(&pattern)), 0, 1000, 0),
+                ClipStream::new(Box::new(MockSource::new(&pattern)), (0, 0), 1000),
                 &pattern[..1000],
             );
 
             // both
             $inner(
-                ClipStream::new(Box::new(MockSource::new(&pattern)), 1, 1, 1000),
+                ClipStream::new(Box::new(MockSource::new(&pattern)), (1, 1000), 1),
                 &pattern[1..2],
             );
             $inner(
-                ClipStream::new(Box::new(MockSource::new(&pattern)), 1000, 100, 1000),
+                ClipStream::new(Box::new(MockSource::new(&pattern)), (1000, 1000), 100),
                 &pattern[1000..1100],
             );
             $inner(
-                ClipStream::new(Box::new(MockSource::new(&pattern)), 3000, pattern.len() - 100, 1000),
+                ClipStream::new(Box::new(MockSource::new(&pattern)), (3000, 1000), pattern.len() - 100),
                 &pattern[3000..pattern.len() - 1000],
             );
             $inner(
-                ClipStream::new(Box::new(MockSource::new(&pattern)), 3000, pattern.len() - 3000, 10000),
+                ClipStream::new(Box::new(MockSource::new(&pattern)), (3000, 10000), pattern.len() - 3000),
                 &pattern[3000..pattern.len() - 10000],
             );
 
             // none
-            $inner(ClipStream::new(Box::new(MockSource::new(&pattern)), 0, 0, 0), b"");
-            $inner(ClipStream::new(Box::new(MockSource::new(&pattern)), 10, 0, 0), b"");
-            $inner(ClipStream::new(Box::new(MockSource::new(&pattern)), pattern.len(), 0, 0), b"");
-            $inner(ClipStream::new(Box::new(MockSource::new(&pattern)), 0, 0, pattern.len()), b"");
+            $inner(ClipStream::new(Box::new(MockSource::new(&pattern)), (0, 0), 0), b"");
+            $inner(ClipStream::new(Box::new(MockSource::new(&pattern)), (10, 0), 0), b"");
             $inner(
-                ClipStream::new(Box::new(MockSource::new(&pattern)), pattern.len(), 0, pattern.len()),
+                ClipStream::new(Box::new(MockSource::new(&pattern)), (pattern.len(), 0), 0),
+                b"",
+            );
+            $inner(
+                ClipStream::new(Box::new(MockSource::new(&pattern)), (0, pattern.len()), 0),
+                b"",
+            );
+            $inner(
+                ClipStream::new(Box::new(MockSource::new(&pattern)), (pattern.len(), pattern.len()), 0),
                 b"",
             );
 
             // clip longer than the stream
             $inner(
-                ClipStream::new(Box::new(MockSource::new(&pattern)), pattern.len() + 1, pattern.len(), 0),
+                ClipStream::new(Box::new(MockSource::new(&pattern)), (pattern.len() + 1, 0), pattern.len()),
                 b"",
             );
             $inner(
-                ClipStream::new(Box::new(MockSource::new(&pattern)), pattern.len() + 1, usize::MAX, 0),
+                ClipStream::new(Box::new(MockSource::new(&pattern)), (pattern.len() + 1, 0), usize::MAX),
                 b"",
             );
             $inner(
-                ClipStream::new(Box::new(MockSource::new(&pattern)), 0, pattern.len(), pattern.len() + 1),
+                ClipStream::new(Box::new(MockSource::new(&pattern)), (0, pattern.len() + 1), pattern.len()),
                 b"",
             );
             $inner(
-                ClipStream::new(Box::new(MockSource::new(&pattern)), 0, usize::MAX, pattern.len() + 1),
+                ClipStream::new(Box::new(MockSource::new(&pattern)), (0, pattern.len() + 1), usize::MAX),
                 b"",
             );
         }

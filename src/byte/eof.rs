@@ -59,10 +59,12 @@ impl<T: Sized + ByteStream> EofStream<T> {
         self.len -= amount;
 
         if amount == 0 {
-            self.request = (self.len + self.len / 2).next_power_of_two();
+            self.request = (self.len + (self.len + 1) / 2).next_power_of_two();
+            debug_assert!(self.request > self.len);
         } else {
             self.request = std::cmp::max(self.len + 1, BLOCK_SIZE);
         }
+        eprintln!("request({:?})", self.request);
     }
 }
 

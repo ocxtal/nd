@@ -106,7 +106,7 @@ struct RawStreamParams {
 
 struct StreamParams {
     pad: (usize, usize),
-    skip: usize,
+    clip: (usize, usize),
     len: usize,
 }
 
@@ -117,23 +117,26 @@ impl StreamParams {
         let range = params.range.clone().unwrap_or(0..usize::MAX);
 
         // range: drop bytes out of the range
-        let (skip, len) = (seek + range.start, range.len());
+        let (head_clip, len) = (seek + range.start, range.len());
 
-        // head padding, applied *before* clipping, may remove the head skip
+        // head padding, applied *before* clipping, may remove the head clip
         let (head_pad, tail_pad) = pad;
-        let (head_pad, skip) = clamp_diff(head_pad, skip);
+        let (head_pad, head_clip) = clamp_diff(head_pad, head_clip);
+
         let pad = (head_pad, tail_pad);
+        let clip = (head_clip, 0);
+        eprintln!("pad({:?}), clip({:?}), len({:?})", pad, clip, len);
 
-        eprintln!("pad({:?}), skip({:?}), len({:?})", pad, skip, len);
-
-        StreamParams { pad, skip, len }
+        StreamParams { pad, clip, len }
     }
 
-    fn add_skip(&mut self, amount: usize) {
-        self.skip += amount;
+    fn add_clip(&mut self, amount: (usize, usize)) {
+        self.clip.0 += amount.0;
+        self.clip.1 += amount.1;
 
         if self.len != usize::MAX {
-            self.len = self.len.saturating_sub(amount);
+            self.len = self.len.saturating_sub(amount.0);
+            self.len = self.len.saturating_sub(amount.1);
         }
     }
 }
@@ -146,88 +149,318 @@ struct RawSlicerParams {
     bridge: Option<(isize, isize)>,
 }
 
+trait ShiftRange {
+    fn overlap(&self, pitch: isize) -> isize;
+    fn shift(self, amount: isize) -> Self;
+    fn extend(self, amount: (isize, isize)) -> Self;
+}
+
+// TODO: panic on overflow
+impl ShiftRange for Range<isize> {
+    fn overlap(&self, pitch: isize) -> isize {
+        debug_assert!(pitch > 0);
+        (self.len() as isize).saturating_sub(pitch)
+    }
+
+    fn shift(self, amount: isize) -> Range<isize> {
+        self.start + amount..self.end + amount
+    }
+
+    fn extend(self, amount: (isize, isize)) -> Range<isize> {
+        self.start - amount.0..self.end + amount.1
+    }
+}
+
+#[derive(Debug, PartialEq)]
 struct ConstSlicerParams {
-    skip: usize,
-    margin: (usize, usize),
+    infinite: bool,
+    vanished: bool,
+    clip: (usize, usize),
+    margin: (isize, isize),
     pitch: usize,
     span: usize,
 }
 
 impl ConstSlicerParams {
-    fn from_raw(params: &RawSlicerParams) -> Self {
-        let inf = isize::MAX;
-        let width = params.width as isize;
-        let extend = params.extend.unwrap_or((0, 0));
+    fn make_infinite(vanished: bool, has_intersection: bool, has_bridge: bool) -> Self {
+        let mut vanished = vanished;
 
-        // apply "extend"
-        let overlap = extend.0 + extend.1;
-        let (vanish, overlap, pitch, span) = if width + overlap <= 0 {
-            (true, 0, inf, inf)
-        } else {
-            (false, overlap, width, width + overlap)
-        };
+        // intersection on an infinite stream always clears the segment
+        if has_intersection {
+            vanished = true;
+        }
 
-        let tail_margin = if extend.1 < 0 {
-            std::cmp::max(span - 1 + extend.1, 0)
-        } else {
-            span - 1
-        };
+        // bridge operation inverts the stream
+        if has_bridge {
+            vanished = !vanished;
+        }
+        eprintln!("infinite, vanished({:?})", vanished);
 
-        // apply "merge"
-        let merge = params.merge.unwrap_or(isize::MAX);
-        let (vanish, overlap, pitch, span, tail_margin) = if vanish {
-            (true, 0, inf, inf, 0)
-        } else if overlap >= merge {
-            // fallen into a single contiguous section
-            (false, 0, inf, inf, 0)
-        } else {
-            (false, overlap, pitch, span, tail_margin)
-        };
-
-        // then apply "intersection"
-        let (vanish, start, span, tail_margin) = if let Some(is) = params.intersection {
-            if vanish || overlap == 0 || overlap < is as isize {
-                (true, 0, inf, 0)
-            } else {
-                (false, pitch - extend.0, overlap, overlap - 1)
-            }
-        } else {
-            (false, -extend.0, span, tail_margin)
-        };
-        debug_assert!(span > 0);
-
-        // apply "bridge"
-        let (vanish, start, span, tail_margin) = if let Some(bridge) = params.bridge {
-            let bridge = if vanish { (0, 0) } else { (bridge.0 % span, bridge.1 % span) };
-            (vanish, start + bridge.0, pitch + bridge.1 - bridge.0, 0)
-        } else {
-            (vanish, start, span, tail_margin)
-        };
-
-        let span = std::cmp::max(span, 0) as usize;
-        let (skip, head_margin) = if vanish {
-            (usize::MAX, 0)
-        } else if start < 0 {
-            (0, -start as usize)
-        } else {
-            (start as usize, 0)
-        };
-        let head_margin = head_margin % span;
-        let tail_margin = std::cmp::max(tail_margin, 0) as usize;
-
-        eprintln!(
-            "skip({:?}), margin({:?}, {:?}), pitch({:?}), span({:?})",
-            skip, head_margin, tail_margin, pitch, span
-        );
-
-        debug_assert!(pitch >= 0);
         ConstSlicerParams {
-            skip,
-            margin: (head_margin, tail_margin),
-            pitch: pitch as usize,
-            span,
+            infinite: true,
+            vanished,
+            clip: (0, 0),
+            margin: (0, 0),
+            pitch: 0,
+            span: 0,
         }
     }
+
+    fn from_raw(params: &RawSlicerParams) -> Self {
+        let has_intersection = params.intersection.is_some();
+        let has_bridge = params.bridge.is_some();
+
+        // apply "extend" and "merge" to phantom segment
+        let pitch = params.width as isize;
+        let extend = params.extend.unwrap_or((0, 0));
+
+        let mut segment = (0..pitch).extend(extend);
+        if segment.len() == 0 {
+            // segment diminished after extension
+            return Self::make_infinite(true, has_intersection, has_bridge);
+        }
+
+        let merge = params.merge.unwrap_or(isize::MAX);
+        if segment.overlap(pitch) >= merge {
+            // fallen into a single contiguous section
+            return Self::make_infinite(false, has_intersection, has_bridge);
+        }
+
+        // adjust relative position after extension
+        let mut clip = (std::cmp::max(segment.start, 0), std::cmp::max(1 - segment.end, 0));
+
+        if segment.start > 0 {
+            segment = segment.shift(-clip.0);
+        } else if segment.start < 0 {
+            let count = -segment.start / pitch;
+            segment = segment.shift(pitch * count);
+        }
+        eprintln!("segment({:?})", segment);
+
+        let mut margin = (std::cmp::max(-segment.start, 0), pitch - 1);
+
+        // then apply "intersection"
+        if let Some(intersection) = params.intersection {
+            let span = segment.overlap(pitch);
+            if span < intersection as isize {
+                return Self::make_infinite(true, false, has_bridge);
+            }
+
+            clip = (clip.0 + segment.start + pitch, clip.1 + pitch + 1 - segment.end);
+            margin = (0, span - 1);
+            segment = 0..span;
+        }
+        debug_assert!(segment.len() > 0);
+
+        // apply "bridge"
+        if let Some(bridge) = params.bridge {
+            let span = segment.len() as isize;
+            let bridge = (bridge.0.rem_euclid(span), bridge.1.rem_euclid(span));
+            if span + bridge.1 - bridge.0 <= 0 {
+                return Self::make_infinite(true, false, false);
+            }
+
+            clip = (clip.0 + bridge.0, clip.1 + pitch - bridge.1);
+            margin = (0, span + bridge.1 - bridge.0 - 1);
+        }
+        eprintln!("segment({:?}), clip({:?}), margin({:?})", segment, clip, margin);
+
+        // let span = std::cmp::max(span, 0) as usize;
+
+        // // convert start and end displacements to clip and margin pairs
+        // let (head_clip, head_margin) = if start < 0 {
+        //     (0, -start as usize)
+        // } else {
+        //     (start as usize, 0)
+        // };
+        // let (tail_clip, tail_margin) = if end < 0 {
+        //     (-end as usize, 0)
+        // } else {
+        //     (0, std::cmp::max(pitch + extend.1 - 1, 0) as usize)
+        // };
+        // eprintln!("clip({:?}), margin({:?})", (head_clip, tail_clip), (head_margin, tail_margin));
+
+        // debug_assert!(pitch >= 0);
+        // let pitch = pitch as usize;
+        // let head_margin = head_margin % span;
+        // let tail_margin = std::cmp::min(tail_margin, span - 1);
+
+        // let clip = (head_clip, tail_clip);
+        // let margin = (head_margin, tail_margin);
+
+        // eprintln!("clip({:?}), margin({:?}), pitch({:?}), span({:?})", clip, margin, pitch, span);
+        ConstSlicerParams {
+            infinite: false,
+            vanished: false,
+            clip: (clip.0 as usize, clip.1 as usize),
+            margin: (-margin.0, -margin.1),
+            pitch: pitch as usize,
+            span: segment.len(),
+        }
+    }
+}
+
+#[test]
+fn test_const_slicer_params() {
+    assert_eq!(
+        ConstSlicerParams::from_raw(&RawSlicerParams {
+            width: 4,
+            extend: None,
+            merge: None,
+            intersection: None,
+            bridge: None,
+        }),
+        ConstSlicerParams {
+            infinite: false,
+            vanished: false,
+            clip: (0, 0),
+            margin: (0, -3),
+            pitch: 4,
+            span: 4,
+        }
+    );
+
+    // extend left
+    assert_eq!(
+        ConstSlicerParams::from_raw(&RawSlicerParams {
+            width: 4,
+            extend: Some((0, 1)),
+            merge: None,
+            intersection: None,
+            bridge: None,
+        }),
+        ConstSlicerParams {
+            infinite: false,
+            vanished: false,
+            clip: (0, 0),
+            margin: (0, -4),
+            pitch: 4,
+            span: 5,
+        }
+    );
+    assert_eq!(
+        ConstSlicerParams::from_raw(&RawSlicerParams {
+            width: 4,
+            extend: Some((0, 2)),
+            merge: None,
+            intersection: None,
+            bridge: None,
+        }),
+        ConstSlicerParams {
+            infinite: false,
+            vanished: false,
+            clip: (0, 0),
+            margin: (0, -5),
+            pitch: 4,
+            span: 6,
+        }
+    );
+    assert_eq!(
+        ConstSlicerParams::from_raw(&RawSlicerParams {
+            width: 4,
+            extend: Some((0, 5)),
+            merge: None,
+            intersection: None,
+            bridge: None,
+        }),
+        ConstSlicerParams {
+            infinite: false,
+            vanished: false,
+            clip: (0, 0),
+            margin: (0, -8),
+            pitch: 4,
+            span: 9,
+        }
+    );
+
+    // extend right
+    assert_eq!(
+        ConstSlicerParams::from_raw(&RawSlicerParams {
+            width: 4,
+            extend: Some((1, 0)),
+            merge: None,
+            intersection: None,
+            bridge: None,
+        }),
+        ConstSlicerParams {
+            infinite: false,
+            vanished: false,
+            clip: (0, 0),
+            margin: (-1, -3),
+            pitch: 4,
+            span: 5,
+        }
+    );
+    assert_eq!(
+        ConstSlicerParams::from_raw(&RawSlicerParams {
+            width: 4,
+            extend: Some((2, 0)),
+            merge: None,
+            intersection: None,
+            bridge: None,
+        }),
+        ConstSlicerParams {
+            infinite: false,
+            vanished: false,
+            clip: (0, 0),
+            margin: (-2, -3),
+            pitch: 4,
+            span: 6,
+        }
+    );
+    assert_eq!(
+        ConstSlicerParams::from_raw(&RawSlicerParams {
+            width: 4,
+            extend: Some((5, 0)),
+            merge: None,
+            intersection: None,
+            bridge: None,
+        }),
+        ConstSlicerParams {
+            infinite: false,
+            vanished: false,
+            clip: (0, 0),
+            margin: (-5, -3),
+            pitch: 4,
+            span: 9,
+        }
+    );
+
+    // extend both
+    assert_eq!(
+        ConstSlicerParams::from_raw(&RawSlicerParams {
+            width: 4,
+            extend: Some((1, 1)),
+            merge: None,
+            intersection: None,
+            bridge: None,
+        }),
+        ConstSlicerParams {
+            infinite: false,
+            vanished: false,
+            clip: (0, 0),
+            margin: (-1, -4),
+            pitch: 4,
+            span: 6,
+        }
+    );
+    assert_eq!(
+        ConstSlicerParams::from_raw(&RawSlicerParams {
+            width: 4,
+            extend: Some((5, 5)),
+            merge: None,
+            intersection: None,
+            bridge: None,
+        }),
+        ConstSlicerParams {
+            infinite: false,
+            vanished: false,
+            clip: (0, 0),
+            margin: (-5, -8),
+            pitch: 4,
+            span: 14,
+        }
+    );
 }
 
 struct InoutFormats {
@@ -442,7 +675,7 @@ fn main() {
 
     let is_constant_stride = ["match", "regex", "slice", "walk"].iter().all(|x| m.value_of(x).is_none());
     if is_constant_stride {
-        stream_params.add_skip(const_slicer_params.skip);
+        stream_params.add_clip(const_slicer_params.clip);
     };
 
     let word_size = if let Some(word_size) = m.value_of("zip") {
@@ -474,9 +707,9 @@ fn main() {
         Box::new(CatStream::new(inputs))
     };
 
-    assert!(stream_params.skip == 0 || stream_params.pad.0 == 0);
-    let input = if stream_params.skip > 0 || stream_params.len != usize::MAX {
-        Box::new(ClipStream::new(input, stream_params.skip, stream_params.len, 0))
+    assert!(stream_params.clip.0 == 0 || stream_params.pad.0 == 0);
+    let input = if stream_params.clip != (0, 0) || stream_params.len != usize::MAX {
+        Box::new(ClipStream::new(input, stream_params.clip, stream_params.len))
     } else {
         input
     };
@@ -541,7 +774,7 @@ fn main() {
     // postprocess
     let offset = m.value_of("offset").map_or(0, |x| parse_usize(x).unwrap());
     let offset = if is_constant_stride {
-        offset + const_slicer_params.skip
+        offset + const_slicer_params.clip.0
     } else {
         offset
     };

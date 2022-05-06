@@ -145,7 +145,8 @@ impl StreamBuf {
         // if `consume` is called `amount == 0`, it regards the caller needs
         // more stream to forward its state.
         if amount == 0 {
-            self.request = (self.len + self.len / 2).next_power_of_two();
+            self.request = (self.len + (self.len + 1) / 2).next_power_of_two();
+            debug_assert!(self.request > self.len);
 
             let additional = self.request.saturating_sub(self.buf.capacity());
             self.buf.reserve(additional);
