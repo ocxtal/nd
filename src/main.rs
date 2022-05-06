@@ -177,6 +177,7 @@ struct ConstSlicerParams {
     vanished: bool,
     clip: (usize, usize),
     margin: (isize, isize),
+    pin: (bool, bool),
     pitch: usize,
     span: usize,
 }
@@ -201,6 +202,7 @@ impl ConstSlicerParams {
             vanished,
             clip: (0, 0),
             margin: (0, 0),
+            pin: (false, false),
             pitch: 0,
             span: 0,
         }
@@ -214,89 +216,67 @@ impl ConstSlicerParams {
         let pitch = params.width as isize;
         let extend = params.extend.unwrap_or((0, 0));
 
-        let mut segment = (0..pitch).extend(extend);
-        if segment.len() == 0 {
-            // segment diminished after extension
+        let mut head = (0..pitch).extend(extend);
+        let mut tail = (0..pitch).extend(extend);
+        if head.len() == 0 {
+            // segments diminished after extension
             return Self::make_infinite(true, has_intersection, has_bridge);
         }
+        eprintln!("segment({:?}, {:?})", head, tail);
 
         let merge = params.merge.unwrap_or(isize::MAX);
-        if segment.overlap(pitch) >= merge {
+        if head.overlap(pitch) >= merge {
             // fallen into a single contiguous section
             return Self::make_infinite(false, has_intersection, has_bridge);
         }
 
-        // adjust relative position after extension
-        let mut clip = (std::cmp::max(segment.start, 0), std::cmp::max(1 - segment.end, 0));
-
-        if segment.start > 0 {
-            segment = segment.shift(-clip.0);
-        } else if segment.start < 0 {
-            let count = -segment.start / pitch;
-            segment = segment.shift(pitch * count);
-        }
-        eprintln!("segment({:?})", segment);
-
-        let mut margin = (std::cmp::max(-segment.start, 0), pitch - 1);
-
         // then apply "intersection"
-        if let Some(intersection) = params.intersection {
-            let span = segment.overlap(pitch);
-            if span < intersection as isize {
+        if has_intersection {
+            let span = head.overlap(pitch);
+            if span < params.intersection.unwrap() as isize {
                 return Self::make_infinite(true, false, has_bridge);
             }
-
-            clip = (clip.0 + segment.start + pitch, clip.1 + pitch + 1 - segment.end);
-            margin = (0, span - 1);
-            segment = 0..span;
+            head = head.end - span..head.end;
+            tail = tail.start..tail.start + span;
         }
-        debug_assert!(segment.len() > 0);
+        eprintln!("segment({:?}, {:?})", head, tail);
+        debug_assert!(head.len() > 0);
 
         // apply "bridge"
-        if let Some(bridge) = params.bridge {
-            let span = segment.len() as isize;
+        if has_bridge {
+            let span = head.len() as isize;
+
+            let bridge = params.bridge.unwrap();
             let bridge = (bridge.0.rem_euclid(span), bridge.1.rem_euclid(span));
+
             if span + bridge.1 - bridge.0 <= 0 {
                 return Self::make_infinite(true, false, false);
             }
-
-            clip = (clip.0 + bridge.0, clip.1 + pitch - bridge.1);
-            margin = (0, span + bridge.1 - bridge.0 - 1);
+            head = head.start + bridge.0..head.start + pitch + bridge.1;
+            tail = tail.start - pitch + bridge.0..tail.start + bridge.1;
         }
-        eprintln!("segment({:?}), clip({:?}), margin({:?})", segment, clip, margin);
+        eprintln!("segment({:?}, {:?})", head, tail);
 
-        // let span = std::cmp::max(span, 0) as usize;
+        let (head_clip, head_margin) = if head.start < 0 { (0, head.start) } else { (head.start, 0) };
 
-        // // convert start and end displacements to clip and margin pairs
-        // let (head_clip, head_margin) = if start < 0 {
-        //     (0, -start as usize)
-        // } else {
-        //     (start as usize, 0)
-        // };
-        // let (tail_clip, tail_margin) = if end < 0 {
-        //     (-end as usize, 0)
-        // } else {
-        //     (0, std::cmp::max(pitch + extend.1 - 1, 0) as usize)
-        // };
-        // eprintln!("clip({:?}), margin({:?})", (head_clip, tail_clip), (head_margin, tail_margin));
+        let tail_margin = if tail.end < 1 {
+            1 - tail.end
+        } else {
+            std::cmp::max(1 - tail.end, 1 - tail.len() as isize)
+        };
 
-        // debug_assert!(pitch >= 0);
-        // let pitch = pitch as usize;
-        // let head_margin = head_margin % span;
-        // let tail_margin = std::cmp::min(tail_margin, span - 1);
-
-        // let clip = (head_clip, tail_clip);
-        // let margin = (head_margin, tail_margin);
-
-        // eprintln!("clip({:?}), margin({:?}), pitch({:?}), span({:?})", clip, margin, pitch, span);
-        ConstSlicerParams {
+        let params = ConstSlicerParams {
             infinite: false,
             vanished: false,
-            clip: (clip.0 as usize, clip.1 as usize),
-            margin: (-margin.0, -margin.1),
+            clip: (head_clip as usize, 0),
+            margin: (head_margin, tail_margin),
+            pin: (has_bridge, has_bridge),
             pitch: pitch as usize,
-            span: segment.len(),
-        }
+            span: head.len(),
+        };
+        eprintln!("params({:?})", params);
+
+        params
     }
 }
 
@@ -315,6 +295,7 @@ fn test_const_slicer_params() {
             vanished: false,
             clip: (0, 0),
             margin: (0, -3),
+            pin: (false, false),
             pitch: 4,
             span: 4,
         }
@@ -334,6 +315,7 @@ fn test_const_slicer_params() {
             vanished: false,
             clip: (0, 0),
             margin: (0, -4),
+            pin: (false, false),
             pitch: 4,
             span: 5,
         }
@@ -351,6 +333,7 @@ fn test_const_slicer_params() {
             vanished: false,
             clip: (0, 0),
             margin: (0, -5),
+            pin: (false, false),
             pitch: 4,
             span: 6,
         }
@@ -368,6 +351,7 @@ fn test_const_slicer_params() {
             vanished: false,
             clip: (0, 0),
             margin: (0, -8),
+            pin: (false, false),
             pitch: 4,
             span: 9,
         }
@@ -387,6 +371,7 @@ fn test_const_slicer_params() {
             vanished: false,
             clip: (0, 0),
             margin: (-1, -3),
+            pin: (false, false),
             pitch: 4,
             span: 5,
         }
@@ -404,6 +389,7 @@ fn test_const_slicer_params() {
             vanished: false,
             clip: (0, 0),
             margin: (-2, -3),
+            pin: (false, false),
             pitch: 4,
             span: 6,
         }
@@ -421,6 +407,7 @@ fn test_const_slicer_params() {
             vanished: false,
             clip: (0, 0),
             margin: (-5, -3),
+            pin: (false, false),
             pitch: 4,
             span: 9,
         }
@@ -440,6 +427,7 @@ fn test_const_slicer_params() {
             vanished: false,
             clip: (0, 0),
             margin: (-1, -4),
+            pin: (false, false),
             pitch: 4,
             span: 6,
         }
@@ -457,6 +445,7 @@ fn test_const_slicer_params() {
             vanished: false,
             clip: (0, 0),
             margin: (-5, -8),
+            pin: (false, false),
             pitch: 4,
             span: 14,
         }
@@ -742,6 +731,7 @@ fn main() {
         Box::new(ConstSlicer::new(
             input,
             const_slicer_params.margin,
+            const_slicer_params.pin,
             const_slicer_params.pitch,
             const_slicer_params.span,
         ))
@@ -755,6 +745,7 @@ fn main() {
             Box::new(ConstSlicer::new(
                 input,
                 const_slicer_params.margin,
+                const_slicer_params.pin,
                 const_slicer_params.pitch,
                 const_slicer_params.span,
             ))
