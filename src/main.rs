@@ -14,11 +14,11 @@ use clap::{App, AppSettings, Arg, ColorChoice};
 use std::io::{Read, Write};
 use std::ops::Range;
 
-use byte::{BinaryStream, ByteStream, CatStream, ClipStream, GaplessTextStream, PatchStream, TextStream, ZeroStream, ZipStream};
-use drain::{PatchDrain, ScatterDrain, StreamDrain, TransparentDrain};
+use byte::*;
+use drain::*;
 use eval::*;
-use segment::{ConstSlicer, HammingSlicer, RegexSlicer, SegmentStream, SliceMerger};
-use text::{InoutFormat, TextFormatter};
+use segment::*;
+use text::*;
 
 fn create_source(name: &str) -> Box<dyn Read> {
     if name == "-" {
@@ -125,7 +125,7 @@ impl StreamParams {
 
         let pad = (head_pad, tail_pad);
         let clip = (head_clip, 0);
-        eprintln!("pad({:?}), clip({:?}), len({:?})", pad, clip, len);
+        // eprintln!("pad({:?}), clip({:?}), len({:?})", pad, clip, len);
 
         StreamParams { pad, clip, len }
     }
@@ -195,7 +195,7 @@ impl ConstSlicerParams {
         if has_bridge {
             vanished = !vanished;
         }
-        eprintln!("infinite, vanished({:?})", vanished);
+        // eprintln!("infinite, vanished({:?})", vanished);
 
         ConstSlicerParams {
             infinite: true,
@@ -222,7 +222,6 @@ impl ConstSlicerParams {
             // segments diminished after extension
             return Self::make_infinite(true, has_intersection, has_bridge);
         }
-        eprintln!("segment({:?}, {:?})", head, tail);
 
         let merge = params.merge.unwrap_or(isize::MAX);
         if head.overlap(pitch) >= merge {
@@ -239,7 +238,6 @@ impl ConstSlicerParams {
             head = head.end - span..head.end;
             tail = tail.start..tail.start + span;
         }
-        eprintln!("segment({:?}, {:?})", head, tail);
         debug_assert!(head.len() > 0);
 
         // apply "bridge"
@@ -252,12 +250,15 @@ impl ConstSlicerParams {
             if span + bridge.1 - bridge.0 <= 0 {
                 return Self::make_infinite(true, false, false);
             }
-            head = head.start + bridge.0..head.start + pitch + bridge.1;
-            tail = tail.start - pitch + bridge.0..tail.start + bridge.1;
+            head = head.start - pitch + bridge.0..head.start + bridge.1;
+            tail = tail.start + bridge.0..tail.start + pitch + bridge.1;
         }
-        eprintln!("segment({:?}, {:?})", head, tail);
 
-        let (head_clip, head_margin) = if head.start < 0 { (0, head.start) } else { (head.start, 0) };
+        let (head_clip, head_margin) = if has_bridge || head.start < 0 {
+            (0, head.start)
+        } else {
+            (head.start, 0)
+        };
 
         let tail_margin = if tail.end < 1 {
             1 - tail.end
@@ -274,7 +275,6 @@ impl ConstSlicerParams {
             pitch: pitch as usize,
             span: head.len(),
         };
-        eprintln!("params({:?})", params);
 
         params
     }

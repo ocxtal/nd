@@ -64,7 +64,6 @@ impl<T: Sized + ByteStream> EofStream<T> {
         } else {
             self.request = std::cmp::max(self.len + 1, BLOCK_SIZE);
         }
-        eprintln!("request({:?})", self.request);
     }
 }
 

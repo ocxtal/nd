@@ -20,7 +20,6 @@ pub struct ClipStream {
 
 impl ClipStream {
     pub fn new(src: Box<dyn ByteStream>, clip: (usize, usize), len: usize) -> Self {
-        eprintln!("init, clip({:?})", clip);
         ClipStream {
             src: EofStream::new(src),
             skip: clip.0,
@@ -45,7 +44,6 @@ impl ByteStream for ClipStream {
 
         loop {
             let (is_eof, len) = self.src.fill_buf()?;
-            eprintln!("is_eof({}), len({}), rem({}), strip({})", is_eof, len, self.rem, self.strip);
             if is_eof || len > self.strip {
                 let len = std::cmp::min(self.rem, len.saturating_sub(self.strip));
                 return Ok(len);
@@ -60,7 +58,6 @@ impl ByteStream for ClipStream {
     }
 
     fn consume(&mut self, amount: usize) {
-        eprintln!("consume({:?})", amount);
         debug_assert!(self.rem >= amount);
 
         self.rem -= amount;
