@@ -242,175 +242,49 @@ impl ConstSlicerParams {
 }
 
 #[test]
+#[rustfmt::skip]
 fn test_const_slicer_params() {
-    assert_eq!(
-        ConstSlicerParams::from_raw(&RawSlicerParams {
-            width: 4,
-            extend: None,
-            merge: None,
-            intersection: None,
-            bridge: None,
-        }),
-        ConstSlicerParams {
-            infinite: false,
-            vanished: false,
-            clip: (0, 0),
-            margin: (0, -3),
-            pin: (false, false),
-            pitch: 4,
-            span: 4,
-        }
-    );
+    macro_rules! test {
+        ( $input: expr, $expected: expr ) => {
+            let input: (usize, Option<(isize, isize)>, Option<isize>, Option<usize>, Option<(isize, isize)>) = $input;
+            let expected = $expected;
+            assert_eq!(
+                ConstSlicerParams::from_raw(&RawSlicerParams {
+                    width: input.0,
+                    extend: input.1,
+                    merge: input.2,
+                    intersection: input.3,
+                    bridge: input.4,
+                }),
+                ConstSlicerParams {
+                    infinite: expected.0,
+                    vanished: expected.1,
+                    clip: expected.2,
+                    margin: expected.3,
+                    pin: expected.4,
+                    pitch: expected.5,
+                    span: expected.6,
+                }
+            );
+        };
+    }
+
+    // default
+    test!((4, None, None, None, None), (false, false, (0, 0), (0, -3), (false, false), 4, 4));
 
     // extend left
-    assert_eq!(
-        ConstSlicerParams::from_raw(&RawSlicerParams {
-            width: 4,
-            extend: Some((0, 1)),
-            merge: None,
-            intersection: None,
-            bridge: None,
-        }),
-        ConstSlicerParams {
-            infinite: false,
-            vanished: false,
-            clip: (0, 0),
-            margin: (0, -4),
-            pin: (false, false),
-            pitch: 4,
-            span: 5,
-        }
-    );
-    assert_eq!(
-        ConstSlicerParams::from_raw(&RawSlicerParams {
-            width: 4,
-            extend: Some((0, 2)),
-            merge: None,
-            intersection: None,
-            bridge: None,
-        }),
-        ConstSlicerParams {
-            infinite: false,
-            vanished: false,
-            clip: (0, 0),
-            margin: (0, -5),
-            pin: (false, false),
-            pitch: 4,
-            span: 6,
-        }
-    );
-    assert_eq!(
-        ConstSlicerParams::from_raw(&RawSlicerParams {
-            width: 4,
-            extend: Some((0, 5)),
-            merge: None,
-            intersection: None,
-            bridge: None,
-        }),
-        ConstSlicerParams {
-            infinite: false,
-            vanished: false,
-            clip: (0, 0),
-            margin: (0, -8),
-            pin: (false, false),
-            pitch: 4,
-            span: 9,
-        }
-    );
+    test!((4, Some((0, 1)), None, None, None), (false, false, (0, 0), (0, -4), (false, false), 4, 5));
+    test!((4, Some((0, 2)), None, None, None), (false, false, (0, 0), (0, -5), (false, false), 4, 6));
+    test!((4, Some((0, 5)), None, None, None), (false, false, (0, 0), (0, -8), (false, false), 4, 9));
 
     // extend right
-    assert_eq!(
-        ConstSlicerParams::from_raw(&RawSlicerParams {
-            width: 4,
-            extend: Some((1, 0)),
-            merge: None,
-            intersection: None,
-            bridge: None,
-        }),
-        ConstSlicerParams {
-            infinite: false,
-            vanished: false,
-            clip: (0, 0),
-            margin: (-1, -3),
-            pin: (false, false),
-            pitch: 4,
-            span: 5,
-        }
-    );
-    assert_eq!(
-        ConstSlicerParams::from_raw(&RawSlicerParams {
-            width: 4,
-            extend: Some((2, 0)),
-            merge: None,
-            intersection: None,
-            bridge: None,
-        }),
-        ConstSlicerParams {
-            infinite: false,
-            vanished: false,
-            clip: (0, 0),
-            margin: (-2, -3),
-            pin: (false, false),
-            pitch: 4,
-            span: 6,
-        }
-    );
-    assert_eq!(
-        ConstSlicerParams::from_raw(&RawSlicerParams {
-            width: 4,
-            extend: Some((5, 0)),
-            merge: None,
-            intersection: None,
-            bridge: None,
-        }),
-        ConstSlicerParams {
-            infinite: false,
-            vanished: false,
-            clip: (0, 0),
-            margin: (-5, -3),
-            pin: (false, false),
-            pitch: 4,
-            span: 9,
-        }
-    );
+    test!((4, Some((1, 0)), None, None, None), (false, false, (0, 0), (-1, -3), (false, false), 4, 5));
+    test!((4, Some((2, 0)), None, None, None), (false, false, (0, 0), (-2, -3), (false, false), 4, 6));
+    test!((4, Some((5, 0)), None, None, None), (false, false, (0, 0), (-5, -3), (false, false), 4, 9));
 
     // extend both
-    assert_eq!(
-        ConstSlicerParams::from_raw(&RawSlicerParams {
-            width: 4,
-            extend: Some((1, 1)),
-            merge: None,
-            intersection: None,
-            bridge: None,
-        }),
-        ConstSlicerParams {
-            infinite: false,
-            vanished: false,
-            clip: (0, 0),
-            margin: (-1, -4),
-            pin: (false, false),
-            pitch: 4,
-            span: 6,
-        }
-    );
-    assert_eq!(
-        ConstSlicerParams::from_raw(&RawSlicerParams {
-            width: 4,
-            extend: Some((5, 5)),
-            merge: None,
-            intersection: None,
-            bridge: None,
-        }),
-        ConstSlicerParams {
-            infinite: false,
-            vanished: false,
-            clip: (0, 0),
-            margin: (-5, -8),
-            pin: (false, false),
-            pitch: 4,
-            span: 14,
-        }
-    );
+    test!((4, Some((1, 1)), None, None, None), (false, false, (0, 0), (-1, -4), (false, false), 4, 6));
+    test!((4, Some((5, 5)), None, None, None), (false, false, (0, 0), (-5, -8), (false, false), 4, 14));
 }
 
 // end of params.rs
