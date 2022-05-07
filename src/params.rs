@@ -11,40 +11,48 @@ pub const BLOCK_SIZE: usize = 2 * 1024 * 1024;
 
 pub const MARGIN_SIZE: usize = 256;
 
-pub struct RawStreamParams {
+pub struct RawClipperParams {
     pub pad: Option<(usize, usize)>,
     pub seek: Option<usize>,
     pub range: Option<Range<usize>>,
 }
 
-pub struct StreamParams {
+#[derive(Debug, PartialEq)]
+pub struct ClipperParams {
     pub pad: (usize, usize),
     pub clip: (usize, usize),
     pub len: usize,
 }
 
-impl StreamParams {
-    pub fn from_raw(params: &RawStreamParams) -> Self {
+impl ClipperParams {
+    pub fn from_raw(params: &RawClipperParams) -> Self {
         let pad = params.pad.unwrap_or((0, 0));
         let seek = params.seek.unwrap_or(0);
         let range = params.range.clone().unwrap_or(0..usize::MAX);
 
-        // range: drop bytes out of the range
-        let (head_clip, len) = (seek + range.start, range.len());
-
-        // head padding, applied *before* clipping, may remove the head clip
+        // apply "pad"
         let (head_pad, tail_pad) = pad;
-        let (head_pad, head_clip) = if head_pad > head_clip {
-            (head_pad - head_clip, 0)
+
+        // apply seek and head clip, after padding
+        let seek = seek + range.start;
+        let (head_pad, head_clip) = if seek > head_pad {
+            (0, seek - head_pad)
         } else {
-            (0, head_clip - head_pad)
+            (head_pad - seek, 0)
+        };
+
+        // apply tail clip (after head clip)
+        let len = if head_pad > range.len() {
+            0
+        } else if range.len() != usize::MAX {
+            range.len() - head_pad
+        } else {
+            usize::MAX
         };
 
         let pad = (head_pad, tail_pad);
         let clip = (head_clip, 0);
-        // eprintln!("pad({:?}), clip({:?}), len({:?})", pad, clip, len);
-
-        StreamParams { pad, clip, len }
+        ClipperParams { pad, clip, len }
     }
 
     pub fn add_clip(&mut self, amount: (usize, usize)) {
@@ -56,6 +64,44 @@ impl StreamParams {
             self.len = self.len.saturating_sub(amount.1);
         }
     }
+}
+
+#[test]
+#[rustfmt::skip]
+fn test_stream_params() {
+    macro_rules! test {
+        ( $input: expr, $expected: expr ) => {
+            let input: (Option<(usize, usize)>, Option<usize>, Option<Range<usize>>) = $input;
+            let expected = $expected;
+            assert_eq!(
+                ClipperParams::from_raw(&RawClipperParams {
+                    pad: input.0,
+                    seek: input.1,
+                    range: input.2,
+                }),
+                ClipperParams {
+                    pad: expected.0,
+                    clip: expected.1,
+                    len: expected.2,
+                }
+            );
+        };
+    }
+
+    //    (pad,             seek,      range)     ->     (pad,     clip,     len)
+    test!((None,            None,      None),           ((0, 0),   (0, 0),   usize::MAX));
+    test!((Some((10, 20)),  None,      None),           ((10, 20), (0, 0),   usize::MAX));
+    test!((None,            Some(15),  None),           ((0, 0),   (15, 0),  usize::MAX));
+    test!((Some((10, 20)),  Some(15),  None),           ((0, 20),  (5, 0),   usize::MAX));
+    test!((Some((10, 20)),  Some(5),   None),           ((5, 20),  (0, 0),   usize::MAX));
+    test!((None,            None,      Some(100..200)), ((0, 0),   (100, 0), 100));
+    test!((Some((40, 0)),   None,      Some(100..200)), ((0, 0),   (60, 0),  100));
+    test!((Some((40, 0)),   Some(30),  Some(100..200)), ((0, 0),   (90, 0),  100));
+    test!((Some((40, 0)),   Some(50),  Some(100..200)), ((0, 0),   (110, 0), 100));
+    test!((Some((40, 0)),   None,      Some(20..100)),  ((20, 0),  (0, 0),   60));
+    test!((Some((40, 0)),   Some(10),  Some(20..100)),  ((10, 0),  (0, 0),   70));
+    test!((Some((40, 0)),   Some(30),  Some(20..100)),  ((0, 0),   (10, 0),  80));
+    test!((Some((40, 0)),   Some(50),  Some(20..100)),  ((0, 0),   (30, 0),  80));
 }
 
 pub trait ShiftRange {

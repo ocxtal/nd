@@ -9,18 +9,18 @@ pub struct SliceMerger {
     src: Box<dyn SegmentStream>,
     segments: Vec<Segment>,
     offset: usize,
-    margin: (isize, isize),
-    merge: isize,
+    // margin: (isize, isize),
+    // merge: isize,
 }
 
 impl SliceMerger {
-    pub fn new(src: Box<dyn SegmentStream>, margin: (isize, isize), merge: isize, _intersection: usize) -> Self {
+    pub fn new(src: Box<dyn SegmentStream>, _margin: Option<(isize, isize)>, _merge: Option<isize>, _intersection: Option<usize>) -> Self {
         SliceMerger {
             src,
             segments: Vec::new(),
             offset: 0,
-            margin,
-            merge,
+            // margin,
+            // merge,
         }
     }
 }

@@ -39,6 +39,70 @@ struct ConstSegments {
 }
 
 impl ConstSegments {
+    // case 1. the first segment is clipped at the head (margin.0 < 0):
+    //
+    // segments:
+    //
+    //        <-- pitch --><-- pitch --><-- pitch --><-- pitch -->...
+    //        <-- -margin.0 -->
+    // [0]:   .................<--->
+    // [1]:                ....<---------------->
+    // [2]:                             <------- span ------->
+    // [3]:                                          <------- span ------->
+    //                                                            ...
+    //       ------------------------------------------------------------------------------------------>
+    //                         ^    ^
+    //                         0    offset_margin.0 (tail of the first segment)
+    //
+    // initial states:
+    //                                 phase.curr (== #bytes to eat until the head of the next segment)
+    //                                   (phase.curr is always in 0..pitch, setting the first
+    //                                   `prev_phase >= pitch` makes it the head sentinel)
+    //                                /
+    //                         <------->
+    //         <----------------------->
+    //                                \
+    //                                 phase_offset is for include clipped segments in #segments to consume
+    //                                   (it also includes the phase, that's to be subtracted from #bytes
+    //                                   requested to consume)
+    //
+    // on counting segments to consume:
+    //
+    //                         <--------------- bytes --------------->
+    //                         <-------> - phase.curr
+    //         <-----------------------> - phase_offset
+    //         <-- pitch --><-- pitch --><-- pitch --><-- pitch -->
+    //
+    //                                 #segments to consume (4 in this example) is calculated as
+    //                                 `(bytes - phase.curr + phase_offset) / pitch`
+    //
+    //
+    //
+    // case 2. the first segment is offset (margin.0 > 0):
+    //
+    // segments:
+    //
+    //        <-- margin.0 --><-- pitch --><-- pitch --><-- pitch -->...
+    // [0]:                   <------- span ------->
+    // [1]:                                <------- span ------->
+    // [2]:                                             <------- span ------->
+    //                                                               ...
+    //       ------------------------------------------------------------------------------------------>
+    //        ^                                     ^
+    //        0                                     offset_margin.0 (tail of the first segment)
+    //
+    // initial states:
+    //        <- phase.curr ->
+    //
+    // on counting segments to consume:
+    //
+    //         <------------------------ bytes ------------------------>
+    //         <-------------> - phase.curr
+    //                        <-- pitch --><-- pitch --><-- pitch -->
+    //
+    //          (phase_offset is set zero for this case, as `(bytes - phase.curr) / pitch` gives #segments)
+    //
+
     fn new(margin: (isize, isize), open_ended: (bool, bool), pitch: usize, span: usize) -> Self {
         // margin.0 is the head of the first segment. convert it to the tail of that.
         // TODO: use saturating_add_signed
@@ -46,70 +110,6 @@ impl ConstSegments {
         assert!(offset_margin.0 > 0 && offset_margin.1 > 0);
 
         let offset_margin = (offset_margin.0 as usize, offset_margin.1 as usize);
-        // case 1. the first segment is clipped at the head (margin.0 < 0):
-        //
-        // segments:
-        //
-        //        <-- pitch --><-- pitch --><-- pitch --><-- pitch -->...
-        //        <-- -margin.0 -->
-        // [0]:   .................<--->
-        // [1]:                ....<---------------->
-        // [2]:                             <------- span ------->
-        // [3]:                                          <------- span ------->
-        //                                                            ...
-        //       ------------------------------------------------------------------------------------------>
-        //                         ^    ^
-        //                         0    offset_margin.0 (tail of the first segment)
-        //
-        // initial states:
-        //                                 phase.curr (== #bytes to eat until the head of the next segment)
-        //                                   (phase.curr is always in 0..pitch, setting the first
-        //                                   `prev_phase >= pitch` makes it the head sentinel)
-        //                                /
-        //                         <------->
-        //         <----------------------->
-        //                                \
-        //                                 phase_offset is for include clipped segments in #segments to consume
-        //                                   (it also includes the phase, that's to be subtracted from #bytes
-        //                                   requested to consume)
-        //
-        // on counting segments to consume:
-        //
-        //                         <--------------- bytes --------------->
-        //                         <-------> - phase.curr
-        //         <-----------------------> - phase_offset
-        //         <-- pitch --><-- pitch --><-- pitch --><-- pitch -->
-        //
-        //                                 #segments to consume (4 in this example) is calculated as
-        //                                 `(bytes - phase.curr + phase_offset) / pitch`
-        //
-        //
-        //
-        // case 2. the first segment is offset (margin.0 > 0):
-        //
-        // segments:
-        //
-        //        <-- margin.0 --><-- pitch --><-- pitch --><-- pitch -->...
-        // [0]:                   <------- span ------->
-        // [1]:                                <------- span ------->
-        // [2]:                                             <------- span ------->
-        //                                                               ...
-        //       ------------------------------------------------------------------------------------------>
-        //        ^                                     ^
-        //        0                                     offset_margin.0 (tail of the first segment)
-        //
-        // initial states:
-        //        <- phase.curr ->
-        //
-        // on counting segments to consume:
-        //
-        //         <------------------------ bytes ------------------------>
-        //         <-------------> - phase.curr
-        //                        <-- pitch --><-- pitch --><-- pitch -->
-        //
-        //          (phase_offset is set zero for this case, as `(bytes - phase.curr) / pitch` gives #segments)
-        //
-
         let (curr_phase, phase_offset, min_bytes_to_escape) = if margin.0 < 0 {
             let phase = margin.0.rem_euclid(pitch as isize);
             (phase as usize, (phase - margin.0) as usize, offset_margin.0)
