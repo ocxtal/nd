@@ -303,11 +303,9 @@ fn main() {
             seek: m.value_of("seek").map(|x| parse_usize(x).unwrap()),
             range: m.value_of("bytes").map(|x| parse_range(x).unwrap()),
         }),
-        patch: m.value_of("patch").map(|file| {
-            PatchParams {
-                file,
-                format: InoutFormat::from_str(m.value_of("patch-format").unwrap()).unwrap(),
-            }
+        patch: m.value_of("patch").map(|file| PatchParams {
+            file,
+            format: InoutFormat::from_str(m.value_of("patch-format").unwrap()).unwrap(),
         }),
     };
 
@@ -326,9 +324,7 @@ fn main() {
             (None, Some(pattern), None, None) => SlicerMode::Regex(pattern),
             (None, None, Some(file), None) => SlicerMode::Slice(file),
             (None, None, None, Some(expr)) => SlicerMode::Walk(expr),
-            (None, None, None, None) => {
-                SlicerMode::Const(ConstSlicerParams::from_raw(&raw_slicer_params))
-            },
+            (None, None, None, None) => SlicerMode::Const(ConstSlicerParams::from_raw(&raw_slicer_params)),
             _ => panic!("slicer parameter conflict detected."),
         },
         raw: raw_slicer_params,
@@ -350,7 +346,7 @@ fn main() {
             input_params.clipper.add_clip(params.clip);
             output_params.offset += params.clip.0;
             output_params.min_width = params.span;
-        },
+        }
         _ => (),
     };
 
@@ -372,11 +368,11 @@ fn main() {
 
                 process(input.stream, output);
                 std::fs::rename(&tmpfile, &input.name).unwrap();
-            },
+            }
             _ => {
                 let output = Box::new(std::io::stdout());
                 process(input.stream, output);
-            },
+            }
         }
     }
 }
@@ -398,7 +394,7 @@ struct InputParams<'a> {
     format: InoutFormat,
     mode: InputMode,
     word_size: usize,
-    clipper: ClipperParams,     // in params.rs, as it needs some optimization
+    clipper: ClipperParams, // in params.rs, as it needs some optimization
     patch: Option<PatchParams<'a>>,
 }
 
@@ -483,15 +479,16 @@ fn build_inputs<'a>(params: &'a InputParams) -> Vec<Input<'a>> {
     let inputs: Vec<_> = inputs.into_iter().map(|x| apply_clipper(x, &params.clipper)).collect();
     let inputs: Vec<_> = inputs.into_iter().map(|x| apply_patch(x, params.patch.as_ref())).collect();
 
-    params.files.iter().zip(inputs).map(|(name, stream)| Input { name, stream }).collect()
+    let compose_input = |(&name, stream)| -> Input { Input { name, stream } };
+    params.files.iter().zip(inputs).map(compose_input).collect()
 }
 
 enum SlicerMode<'a> {
     Const(ConstSlicerParams),
-    Match(&'a str),    // pattern
-    Regex(&'a str),    // pattern
-    Slice(&'a str),    // filename
-    Walk(&'a str),     // expression
+    Match(&'a str), // pattern
+    Regex(&'a str), // pattern
+    Slice(&'a str), // filename
+    Walk(&'a str),  // expression
 }
 
 struct SlicerParams<'a> {
@@ -501,15 +498,9 @@ struct SlicerParams<'a> {
 
 fn apply_slicer(stream: Box<dyn ByteStream>, params: &SlicerParams) -> Box<dyn SegmentStream> {
     let slicer: Box<dyn SegmentStream> = match &params.mode {
-        SlicerMode::Const(params) => {
-            Box::new(ConstSlicer::new(stream, params.margin, params.pin, params.pitch, params.span))
-        },
-        SlicerMode::Match(pattern) => {
-            Box::new(HammingSlicer::new(stream, pattern))
-        },
-        SlicerMode::Regex(pattern) => {
-            Box::new(RegexSlicer::new(stream, params.raw.width, pattern))
-        },
+        SlicerMode::Const(params) => Box::new(ConstSlicer::new(stream, params.margin, params.pin, params.pitch, params.span)),
+        SlicerMode::Match(pattern) => Box::new(HammingSlicer::new(stream, pattern)),
+        SlicerMode::Regex(pattern) => Box::new(RegexSlicer::new(stream, params.raw.width, pattern)),
         SlicerMode::Slice(_) | SlicerMode::Walk(_) => unimplemented!(),
     };
 
@@ -518,7 +509,7 @@ fn apply_slicer(stream: Box<dyn ByteStream>, params: &SlicerParams) -> Box<dyn S
         _ => {
             let params = &params.raw;
             Box::new(SliceMerger::new(slicer, params.extend, params.merge, params.intersection))
-        },
+        }
     }
 }
 
