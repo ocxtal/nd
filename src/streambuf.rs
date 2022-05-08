@@ -59,7 +59,7 @@ impl StreamBuf {
         self.buf.resize(self.len + MARGIN_SIZE, 0);
     }
 
-    pub fn mark_eof(&mut self) {
+    fn mark_eof(&mut self) {
         // at this point the buffer does not have the tail margin
         // debug_assert!(self.buf.len() < self.request);
 
@@ -70,6 +70,10 @@ impl StreamBuf {
         let tail = self.offset + self.buf.len();
         let rounded = (tail + self.align - 1) / self.align * self.align;
         self.buf.resize(rounded - self.offset, 0);
+    }
+
+    pub fn clear_eof(&mut self) {
+        self.is_eof = false;
     }
 
     pub fn fill_buf<F>(&mut self, f: F) -> Result<usize>

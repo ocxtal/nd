@@ -7,6 +7,7 @@ mod cat;
 mod clip;
 mod eof;
 mod patch;
+mod tee;
 mod text;
 mod zero;
 mod zip;
@@ -19,6 +20,7 @@ pub use self::cat::CatStream;
 pub use self::clip::ClipStream;
 pub use self::eof::EofStream;
 pub use self::patch::PatchStream;
+pub use self::tee::TeeStream;
 pub use self::text::{GaplessTextStream, TextStream};
 pub use self::zero::ZeroStream;
 pub use self::zip::ZipStream;
@@ -59,7 +61,7 @@ impl<T: ByteStream + ?Sized> ByteStream for Box<T> {
 
 // concatenation of random-length chunks
 #[cfg(test)]
-pub fn test_stream_random_len<T>(src: T, expected: &[u8])
+pub fn test_stream_random_len<T>(src: T, expected: &[u8]) -> T
 where
     T: Sized + ByteStream,
 {
@@ -82,11 +84,12 @@ where
     }
 
     assert_eq!(&v, expected);
+    src
 }
 
 // random selection of consume-some or request-more
 #[cfg(test)]
-pub fn test_stream_random_consume<T>(src: T, expected: &[u8])
+pub fn test_stream_random_consume<T>(src: T, expected: &[u8]) -> T
 where
     T: Sized + ByteStream,
 {
@@ -112,11 +115,12 @@ where
     }
 
     assert_eq!(&v, expected);
+    src
 }
 
 // iteratively request more bytes
 #[cfg(test)]
-pub fn test_stream_all_at_once<T>(src: T, expected: &[u8])
+pub fn test_stream_all_at_once<T>(src: T, expected: &[u8]) -> T
 where
     T: Sized + ByteStream,
 {
@@ -150,6 +154,7 @@ where
 
     // we don't necessarily require the tail margin being cleared
     // assert_eq!(&stream[..MARGIN_SIZE], [0u8; MARGIN_SIZE]);
+    src
 }
 
 #[cfg(test)]
