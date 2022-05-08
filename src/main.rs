@@ -366,22 +366,17 @@ fn main() {
     assert!(input_params.mode == InputMode::Inplace || inputs.len() == 1);
 
     for input in inputs {
-        let process = |stream: Box<dyn ByteStream>, output: Box<dyn Write + Send>| {
-            let mut stream = build_stream(stream, output, &stream_params);
-            stream.consume_segments().unwrap();
-        };
-
         match input_params.mode {
             InputMode::Inplace => {
                 let tmpfile = format!("{:?}.tmp", &input.name);
                 let output = Box::new(File::create(&tmpfile).unwrap());
 
-                process(input.stream, output);
+                build_stream(input.stream, output, &stream_params).consume_segments().unwrap();
                 std::fs::rename(&tmpfile, &input.name).unwrap();
             }
             _ => {
                 let output = Box::new(std::io::stdout());
-                process(input.stream, output);
+                build_stream(input.stream, output, &stream_params).consume_segments().unwrap();
             }
         }
     }
