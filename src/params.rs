@@ -158,7 +158,6 @@ impl ConstSlicerParams {
         if has_bridge {
             vanished = !vanished;
         }
-        // eprintln!("infinite, vanished({:?})", vanished);
 
         ConstSlicerParams {
             infinite: true,
@@ -218,7 +217,11 @@ impl ConstSlicerParams {
         }
 
         let (head_clip, head_margin) = if has_bridge || head.start < 0 {
-            (0, head.start)
+            let mut margin = -head.start;
+            while margin > head.len() as isize {
+                margin -= pitch;
+            }
+            (0, -margin)
         } else {
             (head.start, 0)
         };
@@ -272,12 +275,12 @@ fn test_const_slicer_params() {
     // default
     test!((4, None, None, None, None), (false, false, (0, 0), (0, -3), (false, false), 4, 4));
 
-    // extend left
+    // extend right
     test!((4, Some((0, 1)), None, None, None), (false, false, (0, 0), (0, -4), (false, false), 4, 5));
     test!((4, Some((0, 2)), None, None, None), (false, false, (0, 0), (0, -5), (false, false), 4, 6));
     test!((4, Some((0, 5)), None, None, None), (false, false, (0, 0), (0, -8), (false, false), 4, 9));
 
-    // extend right
+    // extend left
     test!((4, Some((1, 0)), None, None, None), (false, false, (0, 0), (-1, -3), (false, false), 4, 5));
     test!((4, Some((2, 0)), None, None, None), (false, false, (0, 0), (-2, -3), (false, false), 4, 6));
     test!((4, Some((5, 0)), None, None, None), (false, false, (0, 0), (-5, -3), (false, false), 4, 9));
@@ -285,6 +288,31 @@ fn test_const_slicer_params() {
     // extend both
     test!((4, Some((1, 1)), None, None, None), (false, false, (0, 0), (-1, -4), (false, false), 4, 6));
     test!((4, Some((5, 5)), None, None, None), (false, false, (0, 0), (-5, -8), (false, false), 4, 14));
+
+    // move left
+    test!((4, Some((7, -7)), None, None, None), (false, false, (0, 0), (-3, 4), (false, false), 4, 4));
+    test!((4, Some((9, -9)), None, None, None), (false, false, (0, 0), (-1, 6), (false, false), 4, 4));
+    test!((4, Some((9, -7)), None, None, None), (false, false, (0, 0), (-5, 4), (false, false), 4, 6));
+
+    // merge without extension
+    test!((4, None, Some(1), None, None), (false, false, (0, 0), (0, -3), (false, false), 4, 4));
+    test!((4, None, Some(0), None, None), (true, false, (0, 0), (0, 0), (false, false), 0, 0));
+    test!((4, None, Some(-1), None, None), (true, false, (0, 0), (0, 0), (false, false), 0, 0));
+
+    // merge with extension
+    test!((4, Some((1, 1)), Some(3), None, None), (false, false, (0, 0), (-1, -4), (false, false), 4, 6));
+    test!((4, Some((1, 1)), Some(2), None, None), (true, false, (0, 0), (0, 0), (false, false), 0, 0));
+    test!((4, Some((1, 1)), Some(1), None, None), (true, false, (0, 0), (0, 0), (false, false), 0, 0));
+
+    // intersection without extension
+    test!((4, None, None, Some(1), None), (true, true, (0, 0), (0, 0), (false, false), 0, 0));
+    test!((4, None, None, Some(5), None), (true, true, (0, 0), (0, 0), (false, false), 0, 0));
+
+    // intersection with extension
+    test!((4, Some((1, 1)), None, Some(1), None), (false, false, (3, 0), (0, 0), (false, false), 4, 2));
+    test!((4, Some((1, 1)), None, Some(5), None), (true, true, (0, 0), (0, 0), (false, false), 0, 0));
+
+    // bridge
 }
 
 // end of params.rs
