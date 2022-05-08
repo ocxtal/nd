@@ -6,11 +6,13 @@ mod hamming;
 mod merger;
 mod regex;
 mod stride;
+mod strip;
 
 pub use self::hamming::HammingSlicer;
 pub use self::merger::SliceMerger;
 pub use self::regex::RegexSlicer;
 pub use self::stride::ConstSlicer;
+pub use self::strip::SliceStripper;
 
 use std::io::Result;
 use std::ops::Range;

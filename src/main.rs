@@ -142,6 +142,7 @@ fn main() {
                 .help("concat all input streams into one with W-byte words (default) [1]")
                 .value_name("W")
                 .takes_value(true)
+                .number_of_values(1)
                 .default_missing_value("1")
                 .validator(is_allowed_wordsize)
                 .conflicts_with_all(&["zip", "inplace"]),
@@ -151,6 +152,7 @@ fn main() {
                 .help("zip all input streams into one with W-byte words")
                 .value_name("W")
                 .takes_value(true)
+                .number_of_values(1)
                 .default_missing_value("1")
                 .validator(is_allowed_wordsize)
                 .conflicts_with_all(&["cat", "inplace"]),
@@ -166,34 +168,38 @@ fn main() {
                 .help("add N and M bytes of zeros at the head and tail [0:0]")
                 .value_name("N:M")
                 .takes_value(true)
-                .number_of_values(1),
+                .number_of_values(1)
+                .validator(parse_usize_pair),
             Arg::new("seek")
                 .short('s')
                 .long("seek")
                 .help("skip first N bytes and clear stream offset [0]")
                 .value_name("N")
                 .takes_value(true)
-                .validator(parse_usize)
-                .number_of_values(1),
+                .number_of_values(1)
+                .validator(parse_usize),
             Arg::new("patch")
                 .short('p')
                 .long("patch")
                 .help("patch the input stream with the patchfile (after --seek)")
                 .value_name("patch.txt")
-                .takes_value(true),
+                .takes_value(true)
+                .number_of_values(1),
             Arg::new("bytes")
                 .short('n')
                 .long("bytes")
                 .help("drop bytes out of the range (after --seek and --patch) [0:inf]")
                 .value_name("N:M")
                 .takes_value(true)
-                .validator(parse_range),
+                .validator(parse_range)
+                .number_of_values(1),
             Arg::new("width")
                 .short('w')
                 .long("width")
                 .help("slice into N bytes (default) [16]")
                 .value_name("W")
                 .takes_value(true)
+                .number_of_values(1)
                 .validator(parse_usize)
                 .conflicts_with_all(&["match", "regex", "slice", "walk"]),
             Arg::new("match")
@@ -202,6 +208,7 @@ fn main() {
                 .help("slice out every matches that have <= K different bits from the pattern")
                 .value_name("PATTERN[:K]")
                 .takes_value(true)
+                .number_of_values(1)
                 .conflicts_with_all(&["width", "regex", "slice", "walk"]),
             Arg::new("regex")
                 .short('g')
@@ -209,6 +216,7 @@ fn main() {
                 .help("slice out every matches with regular expression")
                 .value_name("PATTERN[:N]")
                 .takes_value(true)
+                .number_of_values(1)
                 .conflicts_with_all(&["width", "match", "slice", "walk"]),
             Arg::new("slice")
                 .short('r')
@@ -216,6 +224,7 @@ fn main() {
                 .help("slice out [pos, pos + len) ranges loaded from the file")
                 .value_name("slices.txt")
                 .takes_value(true)
+                .number_of_values(1)
                 .conflicts_with_all(&["width", "match", "regex", "walk"]),
             Arg::new("walk")
                 .short('k')
@@ -223,6 +232,7 @@ fn main() {
                 .help("evaluate the expressions on the stream and split it at the obtained indices")
                 .value_name("W:EXPR")
                 .takes_value(true)
+                .number_of_values(1)
                 .conflicts_with_all(&["width", "match", "regex", "slice"]),
             Arg::new("extend")
                 .short('e')
@@ -230,6 +240,7 @@ fn main() {
                 .help("extend slices left and right by N and M bytes [0:0]")
                 .value_name("N:M")
                 .takes_value(true)
+                .number_of_values(1)
                 .validator(parse_isize_pair),
             Arg::new("union")
                 .short('u')
@@ -237,6 +248,7 @@ fn main() {
                 .help("take union of slices whose overlap is >= N bytes [0]")
                 .value_name("N")
                 .takes_value(true)
+                .number_of_values(1)
                 .validator(parse_isize),
             Arg::new("intersection")
                 .short('x')
@@ -244,6 +256,7 @@ fn main() {
                 .help("take intersection of two slices whose overlap is >= N bytes [0]")
                 .value_name("N")
                 .takes_value(true)
+                .number_of_values(1)
                 .validator(parse_usize),
             Arg::new("bridge")
                 .short('b')
@@ -251,6 +264,7 @@ fn main() {
                 .help("create a new slice from two adjoining slices, between offset N of the former to M of the latter [-1,-1]")
                 .value_name("N:M")
                 .takes_value(true)
+                .number_of_values(1)
                 .validator(parse_isize_pair),
             Arg::new("lines")
                 .short('l')
@@ -258,6 +272,7 @@ fn main() {
                 .help("drop slices out of the range [0:inf]")
                 .value_name("N:M")
                 .takes_value(true)
+                .number_of_values(1)
                 .validator(parse_range),
             Arg::new("offset")
                 .short('j')
@@ -265,19 +280,22 @@ fn main() {
                 .help("add N and M respectively to offset and length when formatting [0:0]")
                 .value_name("N:M")
                 .takes_value(true)
-                .validator(parse_usize),
+                .number_of_values(1)
+                .validator(parse_usize_pair),
             Arg::new("scatter")
                 .short('d')
                 .long("scatter")
                 .help("invoke shell command on each formatted slice []")
                 .value_name("COMMAND")
-                .takes_value(true),
+                .takes_value(true)
+                .number_of_values(1),
             Arg::new("patch-back")
                 .short('o')
                 .long("patch-back")
                 .help("pipe formatted slices to command then patch back to the original stream []")
                 .value_name("COMMAND")
-                .takes_value(true),
+                .takes_value(true)
+                .number_of_values(1),
             Arg::new("help").short('h').long("help").help("print help (this) message"),
             Arg::new("version").short('v').long("version").help("print version information"),
         ])
@@ -326,11 +344,11 @@ fn main() {
             _ => panic!("slicer parameter conflict detected."),
         },
         raw: raw_slicer_params,
+        lines: m.value_of("lines").map_or(0..usize::MAX, |x| parse_range(x).unwrap()),
         // formatter
         format: InoutFormat::from_str(m.value_of("out-format").unwrap()).unwrap(),
+        offset: m.value_of("offset").map_or((0, 0), |x| parse_usize_pair(x).unwrap()),
         min_width: 0,
-        offset: m.value_of("offset").map_or(0, |x| parse_usize(x).unwrap()),
-        lines: m.value_of("lines").map_or(0..usize::MAX, |x| parse_range(x).unwrap()),
         // destination control
         scatter: m.value_of("scatter"),
         patch: m.value_of("patch"),
@@ -339,7 +357,7 @@ fn main() {
     // patch parameters for constant-stride slicer
     if let SlicerMode::Const(params) = &stream_params.mode {
         input_params.clipper.add_clip(params.clip);
-        stream_params.offset += params.clip.0;
+        stream_params.offset.0 += params.clip.0;
         stream_params.min_width = params.span;
     }
 
@@ -395,7 +413,6 @@ struct Input<'a> {
     stream: Box<dyn ByteStream>,
 }
 
-// stream construction
 fn create_source(name: &str) -> Box<dyn Read> {
     if name == "-" {
         return Box::new(std::io::stdin());
@@ -421,28 +438,22 @@ fn apply_parser(input: &str, params: &InputParams) -> Box<dyn ByteStream> {
 fn apply_clipper(input: Box<dyn ByteStream>, params: &ClipperParams) -> Box<dyn ByteStream> {
     assert!(params.clip.0 == 0 || params.pad.0 == 0);
 
-    let input = if params.clip != (0, 0) || params.len != usize::MAX {
-        Box::new(ClipStream::new(input, params.clip, params.len))
-    } else {
-        input
+    let input = match (params.clip, params.len) {
+        ((0, 0), usize::MAX) => input,
+        (clip, len) => Box::new(ClipStream::new(input, clip, len)),
     };
 
-    if params.pad.0 == 0 && params.pad.1 == 0 {
-        return input;
-    }
-
     // if padding(s) exist, concat ZeroStream(s)
-    let mut inputs: Vec<Box<dyn ByteStream>> = Vec::new();
-
-    if params.pad.0 != 0 {
-        inputs.push(Box::new(ZeroStream::new(params.pad.0)));
+    match params.pad {
+        (0, 0) => input,
+        (0, tail) => Box::new(CatStream::new(vec![input, Box::new(ZeroStream::new(tail))])),
+        (head, 0) => Box::new(CatStream::new(vec![Box::new(ZeroStream::new(head)), input])),
+        (head, tail) => Box::new(CatStream::new(vec![
+            Box::new(ZeroStream::new(head)),
+            input,
+            Box::new(ZeroStream::new(tail)),
+        ])),
     }
-    inputs.push(input);
-    if params.pad.1 != 0 {
-        inputs.push(Box::new(ZeroStream::new(params.pad.1)));
-    }
-
-    Box::new(CatStream::new(inputs))
 }
 
 fn apply_patch(input: Box<dyn ByteStream>, patch: Option<&PatchParams>) -> Box<dyn ByteStream> {
@@ -488,11 +499,11 @@ struct StreamParams<'a> {
     // slicer
     mode: SlicerMode<'a>,
     raw: RawSlicerParams,
+    lines: Range<usize>,
     // formatter
     format: InoutFormat,
+    offset: (usize, usize),
     min_width: usize,
-    offset: usize,
-    lines: Range<usize>,
     // destination control
     scatter: Option<&'a str>,
     patch: Option<&'a str>,
@@ -522,6 +533,11 @@ fn build_stream(stream: Box<dyn ByteStream>, output: Box<dyn Write + Send>, para
             let params = &params.raw;
             Box::new(SliceMerger::new(slicer, params.extend, params.merge, params.intersection))
         }
+    };
+
+    let stream = match (params.lines.start, params.lines.end) {
+        (0, usize::MAX) => stream,
+        (start, end) => Box::new(SliceStripper::new(stream, start..end)),
     };
 
     // build drain

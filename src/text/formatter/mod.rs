@@ -11,12 +11,12 @@ use crate::segment::Segment;
 
 pub struct TextFormatter {
     format: InoutFormat,
-    offset: usize,
+    offset: (usize, usize),
     min_width: usize,
 }
 
 impl TextFormatter {
-    pub fn new(format: &InoutFormat, offset: usize, min_width: usize) -> Self {
+    pub fn new(format: &InoutFormat, offset: (usize, usize), min_width: usize) -> Self {
         TextFormatter {
             format: *format,
             offset,
@@ -35,7 +35,7 @@ impl TextFormatter {
             let reserve = 8 * ((s.len + 15) & !15) + 8 * 32;
 
             buf.fill_uninit(reserve, |dst: &mut [u8]| {
-                let offset = self.offset + offset + s.pos;
+                let offset = self.offset.0 + offset + s.pos;
                 let len = unsafe { format_line(dst, src, offset, s.len.max(self.min_width)) };
                 Ok(len)
             })
