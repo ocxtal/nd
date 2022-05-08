@@ -493,21 +493,9 @@ fn test_parse_isize() {
 }
 
 pub fn parse_delimited(s: &str) -> Result<Vec<Option<i64>>, String> {
-    // let parse = |x: &str| {
-    //     if x.len() == 0 {
-    //         return Ok(None); // not an error
-    //     }
-
-    //     let val = parse_int(x);
-    //     if val.is_none() {
-    //         return Err(format!("at \'{}\'", s, x));
-    //     }
-    //     Ok(val)
-    // };
-
     let mut v = Vec::new();
     for x in s.split(':') {
-        if x.len() == 0 {
+        if x.is_empty() {
             v.push(None);
             continue;
         }
@@ -518,13 +506,6 @@ pub fn parse_delimited(s: &str) -> Result<Vec<Option<i64>>, String> {
         }
         v.push(val);
     }
-
-    // let v = s.split(':').map(|x| parse(x)).collect::<Vec<_>>();
-    // if v.iter().any(|x| x.is_none()) {
-    //     return None;
-    // }
-
-    // let v = v.iter().map(|x| x.flatten()).collect::<Vec<_>>();
     Ok(v)
 }
 
@@ -547,7 +528,7 @@ fn test_parse_delimited() {
 pub fn parse_usize_pair(s: &str) -> Result<(usize, usize), String> {
     let vals = parse_delimited(s)?;
     if vals.len() != 2 {
-        return Err(format!("\"head:tail\" format expected for this option."));
+        return Err("\"head:tail\" format expected for this option.".to_string());
     }
 
     let head_raw = vals[0].unwrap_or(0);
@@ -581,7 +562,7 @@ fn test_parse_usize_pair() {
 pub fn parse_isize_pair(s: &str) -> Result<(isize, isize), String> {
     let vals = parse_delimited(s)?;
     if vals.len() != 2 {
-        return Err(format!("\"head:tail\" format expected for this option."));
+        return Err("\"head:tail\" format expected for this option.".to_string());
     }
 
     let head_raw = vals[0].unwrap_or(0);

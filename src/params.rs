@@ -180,7 +180,7 @@ impl ConstSlicerParams {
 
         let mut head = (0..pitch).extend(extend);
         let mut tail = (0..pitch).extend(extend);
-        if head.len() == 0 {
+        if head.is_empty() {
             // segments diminished after extension
             return Self::make_infinite(true, has_intersection, has_bridge);
         }
@@ -200,7 +200,7 @@ impl ConstSlicerParams {
             head = head.end - span..head.end;
             tail = tail.start..tail.start + span;
         }
-        debug_assert!(head.len() > 0);
+        debug_assert!(!head.is_empty());
 
         // apply "bridge"
         if has_bridge {

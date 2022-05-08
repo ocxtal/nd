@@ -82,10 +82,7 @@ OPTIONS:
 fn main() {
     let is_allowed_wordsize = |x: &str| -> Result<(), String> {
         let is_numeric = x.parse::<usize>().is_ok();
-        let is_allowed = match x {
-            "1" | "2" | "4" | "8" | "16" => true,
-            _ => false,
-        };
+        let is_allowed = matches!(x, "1" | "2" | "4" | "8" | "16");
 
         if !is_numeric || !is_allowed {
             return Err(format!(
@@ -297,7 +294,7 @@ fn main() {
             (false, None, None) => InputMode::Cat,
             _ => panic!("stream parameter conflict detected."),
         },
-        word_size: parse_usize(m.value_of("cat").unwrap_or(m.value_of("zip").unwrap_or("1"))).unwrap(),
+        word_size: parse_usize(m.value_of("cat").unwrap_or_else(|| m.value_of("zip").unwrap_or("1"))).unwrap(),
         clipper: ClipperParams::from_raw(&RawClipperParams {
             pad: m.value_of("pad").map(|x| parse_usize_pair(x).unwrap()),
             seek: m.value_of("seek").map(|x| parse_usize(x).unwrap()),
@@ -341,14 +338,11 @@ fn main() {
     };
 
     // patch parameters for constant-stride slicer
-    match &slicer_params.mode {
-        SlicerMode::Const(params) => {
-            input_params.clipper.add_clip(params.clip);
-            output_params.offset += params.clip.0;
-            output_params.min_width = params.span;
-        }
-        _ => (),
-    };
+    if let SlicerMode::Const(params) = &slicer_params.mode {
+        input_params.clipper.add_clip(params.clip);
+        output_params.offset += params.clip.0;
+        output_params.min_width = params.span;
+    }
 
     // process the stream
     let inputs = build_inputs(&input_params);
@@ -476,11 +470,12 @@ fn build_inputs<'a>(params: &'a InputParams) -> Vec<Input<'a>> {
     };
 
     // clipper then patch
-    let inputs: Vec<_> = inputs.into_iter().map(|x| apply_clipper(x, &params.clipper)).collect();
-    let inputs: Vec<_> = inputs.into_iter().map(|x| apply_patch(x, params.patch.as_ref())).collect();
+    let inputs = inputs.into_iter();
+    let inputs = inputs.map(|x| apply_clipper(x, &params.clipper));
+    let inputs = inputs.map(|x| apply_patch(x, params.patch.as_ref()));
 
-    let compose_input = |(&name, stream)| -> Input { Input { name, stream } };
-    params.files.iter().zip(inputs).map(compose_input).collect()
+    let compose_input = |(stream, &name)| -> Input { Input { name, stream } };
+    inputs.zip(params.files.iter()).map(compose_input).collect()
 }
 
 enum SlicerMode<'a> {
@@ -513,6 +508,7 @@ fn apply_slicer(stream: Box<dyn ByteStream>, params: &SlicerParams) -> Box<dyn S
     }
 }
 
+#[allow(dead_code)]
 struct OutputParams<'a> {
     format: InoutFormat,
     min_width: usize,

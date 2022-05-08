@@ -23,7 +23,7 @@ impl TextFormatter {
     }
 
     pub fn format(&self) -> InoutFormat {
-        self.format.clone()
+        self.format
     }
 
     pub fn format_segments(&self, offset: usize, stream: &[u8], segments: &[Segment], buf: &mut Vec<u8>) {

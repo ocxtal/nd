@@ -52,7 +52,7 @@ impl Zipper {
 
         let len = srcs.len();
         Zipper {
-            srcs: srcs.into_iter().map(|x| EofStream::new(x)).collect(),
+            srcs: srcs.into_iter().map(EofStream::new).collect(),
             ptrs: (0..len).map(|_| std::ptr::null::<u8>()).collect(),
             mask: !(word_size - 1),
             gather_impl: gather_impls[index],
