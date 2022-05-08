@@ -20,7 +20,7 @@ pub use self::cat::CatStream;
 pub use self::clip::ClipStream;
 pub use self::eof::EofStream;
 pub use self::patch::PatchStream;
-pub use self::tee::TeeStream;
+pub use self::tee::{TeeStream, TeeStreamReader};
 pub use self::text::{GaplessTextStream, TextStream};
 pub use self::zero::ZeroStream;
 pub use self::zip::ZipStream;

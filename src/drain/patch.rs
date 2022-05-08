@@ -5,103 +5,12 @@ use crate::byte::{ByteStream, PatchStream};
 use crate::drain::StreamDrain;
 use crate::filluninit::FillUninit;
 use crate::params::BLOCK_SIZE;
-use crate::segment::{Segment, SegmentStream};
+use crate::segment::SegmentStream;
 use crate::streambuf::StreamBuf;
 use crate::text::TextFormatter;
-use std::io::{Read, Result, Seek, SeekFrom, Write};
+use std::io::{Read, Result, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use tempfile::SpooledTempFile;
-
-struct CacheStream {
-    src: Box<dyn SegmentStream>,
-    cache: Arc<Mutex<SpooledTempFile>>,
-    skip: usize,
-}
-
-struct CacheStreamReader {
-    cache: Arc<Mutex<SpooledTempFile>>,
-    buf: StreamBuf,
-    offset: usize,
-}
-
-impl CacheStream {
-    fn new(src: Box<dyn SegmentStream>) -> Self {
-        let cache = SpooledTempFile::new(128 * BLOCK_SIZE);
-        CacheStream {
-            src,
-            cache: Arc::new(Mutex::new(cache)),
-            skip: 0,
-        }
-    }
-
-    fn spawn_reader(&self) -> CacheStreamReader {
-        CacheStreamReader {
-            cache: Arc::clone(&self.cache),
-            buf: StreamBuf::new(),
-            offset: 0,
-        }
-    }
-}
-
-impl SegmentStream for CacheStream {
-    fn fill_segment_buf(&mut self) -> Result<(usize, usize)> {
-        let (mut len, mut count) = self.src.fill_segment_buf()?;
-        let mut prev_len = 0;
-
-        while len > prev_len {
-            if self.skip + BLOCK_SIZE >= len {
-                return Ok((len, count));
-            }
-            self.src.consume(0)?;
-
-            let (next_len, next_count) = self.src.fill_segment_buf()?;
-            (prev_len, len, count) = (len, next_len, next_count);
-        }
-
-        Ok((len, count))
-    }
-
-    fn as_slices(&self) -> (&[u8], &[Segment]) {
-        self.src.as_slices()
-    }
-
-    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
-        let (stream, _) = self.src.as_slices();
-        debug_assert!(stream.len() >= self.skip + bytes);
-
-        if let Ok(mut cache) = self.cache.lock() {
-            cache.write_all(&stream[self.skip..self.skip + bytes]).unwrap();
-        }
-
-        let consumed = self.src.consume(bytes)?;
-        self.skip = bytes - consumed.0;
-
-        Ok(consumed)
-    }
-}
-
-impl ByteStream for CacheStreamReader {
-    fn fill_buf(&mut self) -> Result<usize> {
-        self.buf.fill_buf(|buf| {
-            if let Ok(mut cache) = self.cache.lock() {
-                cache.seek(SeekFrom::Start(self.offset as u64)).unwrap();
-                buf.fill_uninit(BLOCK_SIZE, |buf| cache.read(buf))?;
-            }
-            Ok(false)
-        })
-    }
-
-    fn as_slice(&self) -> &[u8] {
-        self.buf.as_slice()
-    }
-
-    fn consume(&mut self, amount: usize) {
-        self.buf.consume(amount);
-        self.offset += amount;
-    }
-}
 
 struct BashPipe {
     child: Child,
@@ -163,7 +72,7 @@ impl ByteStream for BashPipeReader {
 }
 
 pub struct PatchDrain {
-    src: Box<dyn SegmentStream>,
+    patch: Box<dyn SegmentStream>,
     offset: usize,
     formatter: TextFormatter,
     buf: Vec<u8>,
@@ -172,18 +81,20 @@ pub struct PatchDrain {
 }
 
 impl PatchDrain {
-    pub fn new(src: Box<dyn SegmentStream>, offset: usize, formatter: TextFormatter, dst: Box<dyn Write + Send>, command: &str) -> Self {
-        let format = formatter.format();
-
-        let src = Box::new(CacheStream::new(src));
-        let cache_reader = src.spawn_reader();
-
+    pub fn new(
+        patch: Box<dyn SegmentStream>,
+        original: Box<dyn ByteStream + Send>,
+        command: &str,
+        formatter: TextFormatter,
+        dst: Box<dyn Write + Send>,
+    ) -> Self {
         let mut pipe = BashPipe::new(command);
         let pipe_reader = pipe.spawn_reader();
 
+        let format = formatter.format();
         let drain = std::thread::spawn(move || {
             let mut dst = dst;
-            let mut patch = PatchStream::new(Box::new(cache_reader), Box::new(pipe_reader), &format);
+            let mut patch = PatchStream::new(original, Box::new(pipe_reader), &format);
 
             loop {
                 let len = patch.fill_buf().unwrap();
@@ -196,8 +107,8 @@ impl PatchDrain {
         });
 
         PatchDrain {
-            src,
-            offset,
+            patch,
+            offset: 0,
             formatter,
             buf: Vec::new(),
             pipe,
@@ -209,7 +120,7 @@ impl PatchDrain {
         debug_assert!(!self.buf.is_empty());
 
         while self.buf.len() < BLOCK_SIZE {
-            let (bytes, _) = self.src.fill_segment_buf()?;
+            let (bytes, _) = self.patch.fill_segment_buf()?;
             if bytes == 0 {
                 self.pipe.write_all(&self.buf).unwrap();
                 self.pipe.close();
@@ -218,9 +129,9 @@ impl PatchDrain {
                 return Ok(0);
             }
 
-            let (stream, segments) = self.src.as_slices();
+            let (stream, segments) = self.patch.as_slices();
             self.formatter.format_segments(self.offset, stream, segments, &mut self.buf);
-            self.offset += self.src.consume(bytes)?.0;
+            self.offset += self.patch.consume(bytes)?.0;
         }
 
         self.pipe.write_all(&self.buf).unwrap();

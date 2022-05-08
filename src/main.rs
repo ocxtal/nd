@@ -315,7 +315,8 @@ fn main() {
         bridge: m.value_of("bridge").map(|x| parse_isize_pair(x).unwrap()),
     };
 
-    let slicer_params = SlicerParams {
+    let mut stream_params = StreamParams {
+        // slicer
         mode: match (m.value_of("match"), m.value_of("regex"), m.value_of("slice"), m.value_of("walk")) {
             (Some(pattern), None, None, None) => SlicerMode::Match(pattern),
             (None, Some(pattern), None, None) => SlicerMode::Regex(pattern),
@@ -325,23 +326,21 @@ fn main() {
             _ => panic!("slicer parameter conflict detected."),
         },
         raw: raw_slicer_params,
-    };
-
-    // output
-    let mut output_params = OutputParams {
+        // formatter
         format: InoutFormat::from_str(m.value_of("out-format").unwrap()).unwrap(),
         min_width: 0,
         offset: m.value_of("offset").map_or(0, |x| parse_usize(x).unwrap()),
         lines: m.value_of("lines").map_or(0..usize::MAX, |x| parse_range(x).unwrap()),
+        // destination control
         scatter: m.value_of("scatter"),
         patch: m.value_of("patch"),
     };
 
     // patch parameters for constant-stride slicer
-    if let SlicerMode::Const(params) = &slicer_params.mode {
+    if let SlicerMode::Const(params) = &stream_params.mode {
         input_params.clipper.add_clip(params.clip);
-        output_params.offset += params.clip.0;
-        output_params.min_width = params.span;
+        stream_params.offset += params.clip.0;
+        stream_params.min_width = params.span;
     }
 
     // process the stream
@@ -350,8 +349,7 @@ fn main() {
 
     for input in inputs {
         let process = |stream: Box<dyn ByteStream>, output: Box<dyn Write + Send>| {
-            let stream = apply_slicer(stream, &slicer_params);
-            let mut stream = apply_output(stream, output, &output_params);
+            let mut stream = build_stream(stream, output, &stream_params);
             stream.consume_segments().unwrap();
         };
 
@@ -486,12 +484,31 @@ enum SlicerMode<'a> {
     Walk(&'a str),  // expression
 }
 
-struct SlicerParams<'a> {
+struct StreamParams<'a> {
+    // slicer
     mode: SlicerMode<'a>,
     raw: RawSlicerParams,
+    // formatter
+    format: InoutFormat,
+    min_width: usize,
+    offset: usize,
+    lines: Range<usize>,
+    // destination control
+    scatter: Option<&'a str>,
+    patch: Option<&'a str>,
 }
 
-fn apply_slicer(stream: Box<dyn ByteStream>, params: &SlicerParams) -> Box<dyn SegmentStream> {
+fn build_stream(stream: Box<dyn ByteStream>, output: Box<dyn Write + Send>, params: &StreamParams) -> Box<dyn StreamDrain> {
+    // cache stream if mode == patch
+    let (stream, cache): (Box<dyn ByteStream>, Option<Box<dyn ByteStream + Send>>) = if params.patch.is_some() {
+        let stream = Box::new(TeeStream::new(stream));
+        let cache = Box::new(stream.spawn_reader());
+        (stream, Some(cache))
+    } else {
+        (stream, None)
+    };
+
+    // build slicer and then apply slice manipulator
     let slicer: Box<dyn SegmentStream> = match &params.mode {
         SlicerMode::Const(params) => Box::new(ConstSlicer::new(stream, params.margin, params.pin, params.pitch, params.span)),
         SlicerMode::Match(pattern) => Box::new(HammingSlicer::new(stream, pattern)),
@@ -499,34 +516,22 @@ fn apply_slicer(stream: Box<dyn ByteStream>, params: &SlicerParams) -> Box<dyn S
         SlicerMode::Slice(_) | SlicerMode::Walk(_) => unimplemented!(),
     };
 
-    match params.mode {
+    let stream = match params.mode {
         SlicerMode::Const(_) => slicer,
         _ => {
             let params = &params.raw;
             Box::new(SliceMerger::new(slicer, params.extend, params.merge, params.intersection))
         }
-    }
-}
+    };
 
-#[allow(dead_code)]
-struct OutputParams<'a> {
-    format: InoutFormat,
-    min_width: usize,
-    offset: usize,
-    lines: Range<usize>,
-    scatter: Option<&'a str>,
-    patch: Option<&'a str>,
-}
-
-fn apply_output(stream: Box<dyn SegmentStream>, output: Box<dyn Write + Send>, params: &OutputParams) -> Box<dyn StreamDrain> {
-    let formatter = TextFormatter::new(&params.format, params.min_width);
-
-    let output: Box<dyn StreamDrain> = if let Some(scatter) = params.scatter {
-        Box::new(ScatterDrain::new(stream, params.offset, formatter, output, scatter))
-    } else if let Some(patch_back) = params.patch {
-        Box::new(PatchDrain::new(stream, params.offset, formatter, output, patch_back))
+    // build drain
+    let formatter = TextFormatter::new(&params.format, params.offset, params.min_width);
+    let output: Box<dyn StreamDrain> = if let Some(command) = params.scatter {
+        Box::new(ScatterDrain::new(stream, command, formatter, output))
+    } else if let Some(command) = params.patch {
+        Box::new(PatchDrain::new(stream, cache.unwrap(), command, formatter, output))
     } else {
-        Box::new(TransparentDrain::new(stream, params.offset, formatter, output))
+        Box::new(TransparentDrain::new(stream, formatter, output))
     };
 
     output

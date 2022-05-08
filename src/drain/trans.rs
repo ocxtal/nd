@@ -15,10 +15,10 @@ pub struct TransparentDrain {
 }
 
 impl TransparentDrain {
-    pub fn new(src: Box<dyn SegmentStream>, offset: usize, formatter: TextFormatter, dst: Box<dyn Write + Send>) -> Self {
+    pub fn new(src: Box<dyn SegmentStream>, formatter: TextFormatter, dst: Box<dyn Write + Send>) -> Self {
         TransparentDrain {
             src,
-            offset,
+            offset: 0,
             formatter,
             buf: Vec::new(),
             dst,

@@ -38,7 +38,7 @@ pub struct ScatterDrain {
 }
 
 impl ScatterDrain {
-    pub fn new(src: Box<dyn SegmentStream>, offset: usize, formatter: TextFormatter, dst: Box<dyn Write + Send>, command: &str) -> Self {
+    pub fn new(src: Box<dyn SegmentStream>, command: &str, formatter: TextFormatter, dst: Box<dyn Write + Send>) -> Self {
         let command = command.to_string();
         let (sender, reciever) = channel::<Option<(Child, ChildStdout)>>();
 
@@ -61,8 +61,8 @@ impl ScatterDrain {
 
         ScatterDrain {
             src,
-            offset,
-            lines: 0, // TODO: parameterize?
+            offset: 0, // TODO: parameterize?
+            lines: 0,  // TODO: parameterize?
             formatter,
             buf: Vec::new(),
             command,
