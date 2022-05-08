@@ -1,7 +1,7 @@
 // @file tee.rs
 // @author Hajime Suzuki
 
-use crate::byte::{ByteStream};
+use crate::byte::ByteStream;
 use crate::filluninit::FillUninit;
 use crate::params::BLOCK_SIZE;
 use crate::streambuf::StreamBuf;
@@ -16,7 +16,7 @@ use super::tester::*;
 use rand::Rng;
 
 struct TempFile {
-    clear_eof: bool,    // semaphore with a saturation counter
+    clear_eof: bool, // semaphore with a saturation counter
     file: SpooledTempFile,
 }
 
@@ -54,28 +54,28 @@ impl TeeStream {
 }
 
 impl ByteStream for TeeStream {
-	fn fill_buf(&mut self) -> Result<usize> {
-		self.src.fill_buf()
-	}
+    fn fill_buf(&mut self) -> Result<usize> {
+        self.src.fill_buf()
+    }
 
-	fn as_slice(&self) -> &[u8] {
-		self.src.as_slice()
-	}
+    fn as_slice(&self) -> &[u8] {
+        self.src.as_slice()
+    }
 
-	fn consume(&mut self, bytes: usize) {
-		let stream = self.src.as_slice();
-		debug_assert!(stream.len() >= bytes);
+    fn consume(&mut self, bytes: usize) {
+        let stream = self.src.as_slice();
+        debug_assert!(stream.len() >= bytes);
 
-		match self.cache.lock() {
-			Ok(mut cache) => {
-				cache.file.write_all(&stream[..bytes]).unwrap();
-                cache.clear_eof = true;     // increment semaphore
-			},
-			_ => panic!("failed to lock cache."),
-		}
+        match self.cache.lock() {
+            Ok(mut cache) => {
+                cache.file.write_all(&stream[..bytes]).unwrap();
+                cache.clear_eof = true; // increment semaphore
+            }
+            _ => panic!("failed to lock cache."),
+        }
 
-		self.src.consume(bytes);
-	}
+        self.src.consume(bytes);
+    }
 }
 
 impl ByteStream for TeeStreamReader {
@@ -84,15 +84,15 @@ impl ByteStream for TeeStreamReader {
             Ok(mut cache) => {
                 if cache.clear_eof {
                     self.buf.clear_eof();
-                    cache.clear_eof = false;    // decrement semaphore
+                    cache.clear_eof = false; // decrement semaphore
                 }
                 self.buf.fill_buf(|buf| {
-	                cache.file.seek(SeekFrom::Start(self.offset as u64)).unwrap();
-    	            self.offset += buf.fill_uninit(BLOCK_SIZE, |buf| cache.file.read(buf))?;
+                    cache.file.seek(SeekFrom::Start(self.offset as u64)).unwrap();
+                    self.offset += buf.fill_uninit(BLOCK_SIZE, |buf| cache.file.read(buf))?;
                     Ok(false)
-    	        })
-            },
-    	    _ => panic!("failed to lock cache."),
+                })
+            }
+            _ => panic!("failed to lock cache."),
         }
     }
 
@@ -107,15 +107,15 @@ impl ByteStream for TeeStreamReader {
 
 #[allow(unused_macros)]
 macro_rules! test_through {
-	( $name: ident, $inner: ident ) => {
-		#[test]
-		fn $name() {
+    ( $name: ident, $inner: ident ) => {
+        #[test]
+        fn $name() {
             let mut rng = rand::thread_rng();
             let pattern = (0..32 * 1024).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
 
             $inner(TeeStream::new(Box::new(MockSource::new(&pattern))), &pattern);
-		}
-	};
+        }
+    };
 }
 
 test_through!(test_tee_through_random_len, test_stream_random_len);
@@ -124,24 +124,24 @@ test_through!(test_tee_through_all_at_once, test_stream_all_at_once);
 
 #[allow(unused_macros)]
 macro_rules! test_cache_all {
-	( $name: ident, $inner: ident ) => {
-		#[test]
-		fn $name() {
+    ( $name: ident, $inner: ident ) => {
+        #[test]
+        fn $name() {
             let mut rng = rand::thread_rng();
             let pattern = (0..32 * 1024).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
 
             let mut stream = TeeStream::new(Box::new(MockSource::new(&pattern)));
             loop {
-            	let len = stream.fill_buf().unwrap();
-            	if len == 0 {
-            		break;
-            	}
-            	stream.consume(rng.gen_range(1..=len));
+                let len = stream.fill_buf().unwrap();
+                if len == 0 {
+                    break;
+                }
+                stream.consume(rng.gen_range(1..=len));
             }
 
             $inner(stream.spawn_reader(), &pattern);
-		}
-	};
+        }
+    };
 }
 
 test_cache_all!(test_tee_reader_random_len, test_stream_random_len);
