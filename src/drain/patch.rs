@@ -101,7 +101,9 @@ impl PatchDrain {
                 if len == 0 {
                     break;
                 }
-                dst.write_all(patch.as_slice()).unwrap();
+
+                let stream = patch.as_slice();
+                dst.write_all(&stream[..len]).unwrap();
                 patch.consume(len);
             }
         });

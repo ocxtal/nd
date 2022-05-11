@@ -22,7 +22,7 @@ pub struct MockSource {
 impl MockSource {
     pub fn new(pattern: &[u8]) -> Self {
         let mut v = pattern.to_vec();
-        v.resize(pattern.len() + MARGIN_SIZE, 0);
+        v.resize(pattern.len() + MARGIN_SIZE, b'\n');
 
         MockSource {
             v,

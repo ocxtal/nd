@@ -351,7 +351,7 @@ fn main() {
         min_width: 0,
         // destination control
         scatter: m.value_of("scatter"),
-        patch: m.value_of("patch"),
+        patch: m.value_of("patch-back"),
     };
 
     // patch parameters for constant-stride slicer

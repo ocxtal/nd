@@ -14,15 +14,17 @@ mod x86_64;
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use x86_64::*;
 
+mod naive;
+use naive::*;
+
 use super::InoutFormat;
 use crate::byte::{ByteStream, EofStream};
 use crate::filluninit::FillUninit;
 use crate::params::MARGIN_SIZE;
 use std::io::{Error, ErrorKind, Result};
-// use std::convert::From;
 
-mod naive;
-use naive::*;
+#[cfg(test)]
+use crate::byte::tester::*;
 
 pub trait ToResult<T> {
     fn to_result(self) -> Result<T>;
@@ -115,7 +117,7 @@ fn test_parse_hex_body_impl(f: &dyn Fn(bool, &[u8], &mut [u8]) -> Option<((usize
     macro_rules! test {
         ( $input: expr, $expected_arr: expr, $expected_counts: expr ) => {{
             let mut input = $input.as_bytes().to_vec();
-            input.resize(input.len() + 256, 0);
+            input.resize(input.len() + 256, b'\n');
             let mut buf = [0; 256];
             let counts = f(false, &input, &mut buf);
             assert_eq!(counts, $expected_counts);
@@ -190,7 +192,7 @@ fn test_parse_hex_body_impl(f: &dyn Fn(bool, &[u8], &mut [u8]) -> Option<((usize
     macro_rules! test {
         ( $input: expr, $expected_arr: expr, $expected_counts: expr ) => {{
             let mut input = $input.as_bytes().to_vec();
-            input.resize(input.len() + 256, 0);
+            input.resize(input.len() + 256, b'\n');
             let mut buf = [0; 256];
             let counts = f(true, &input, &mut buf);
             assert_eq!(counts, $expected_counts);
@@ -263,93 +265,413 @@ impl TextParser {
     }
 
     fn read_head(&self, stream: &[u8]) -> Option<(usize, usize, usize)> {
-        let mut p = 0;
+        let mut acc = 0;
 
-        let (offset, fwd) = (self.parse_offset)(&stream[p..])?;
-        p += fwd + 1;
+        let (offset, fwd) = (self.parse_offset)(&stream[acc..])?;
+        acc += fwd + 1;
 
-        let (span, fwd) = (self.parse_span)(&stream[p..])?;
-        p += fwd + 1;
+        let (span, fwd) = (self.parse_span)(&stream[acc..])?;
+        acc += fwd + 1;
 
-        if stream[p] != b'|' || stream[p + 1] != b' ' {
+        if stream[acc] != b'|' || stream[acc + 1] != b' ' {
             return None;
         }
-        p += 2;
+        acc += 2;
 
-        Some((p, offset as usize, span as usize))
+        Some((acc, offset as usize, span as usize))
     }
 
-    fn read_body(&self, stream: &[u8], len: usize, is_in_tail: bool, buf: &mut Vec<u8>) -> Option<(usize, bool, bool)> {
+    fn read_body(&self, stream: &[u8], len: usize, is_in_tail: bool, buf: &mut Vec<u8>) -> Option<(usize, bool, bool, bool)> {
         debug_assert!(stream.len() >= len + MARGIN_SIZE);
 
-        let mut p = 0;
+        let mut stream = stream;
+        let mut rem_len = len;
         let mut is_in_tail = is_in_tail;
 
-        while p < len {
-            let ret = buf.fill_uninit_on_option_with_ret(4 * 16, |arr| (self.parse_body)(is_in_tail, &stream[p..], arr))?;
+        while rem_len >= 4 * 48 {
+            let ret = buf.fill_uninit_on_option_with_ret(4 * 16, |arr| (self.parse_body)(is_in_tail, stream, arr))?;
             let (scanned, parsed) = ret.0;
-            p += parsed;
+            // eprintln!("loop, scanned({}), parsed({}), rem_len({})", scanned, parsed, rem_len);
+
+            let (_, rem_stream) = stream.split_at(scanned);
+            rem_len -= scanned;
 
             if scanned < 4 * 48 {
-                return Some((p, is_in_tail, true));
+                return Some((len - rem_len, is_in_tail, true, false));
             }
+
+            debug_assert!(!is_in_tail || parsed == 0);
             is_in_tail = parsed < 4 * 48;
+
+            stream = rem_stream;
         }
-        Some((p, is_in_tail, false))
+
+        if rem_len > 0 {
+            // eprintln!("stream({:?})", &String::from_utf8(stream.to_vec()).unwrap());
+            // tail
+            debug_assert!(rem_len < 4 * 48);
+            let ret = buf.fill_uninit_on_option_with_ret(4 * 16, |arr| (self.parse_body)(is_in_tail, stream, arr))?;
+            let (scanned, parsed) = ret.0;
+            // eprintln!("last, scanned({}), parsed({}), rem_len({}), len({})", scanned, parsed, rem_len, len);
+
+            if parsed > rem_len {
+                debug_assert!(!is_in_tail);
+                // eprintln!("clip({}, {}, {})", len, len - rem_len, len / 3 * 3);
+                let total = (len + parsed - rem_len) / 3;
+                let keep = len / 3;
+                buf.truncate(buf.len() + keep - total);
+                return Some((keep * 3, false, false, true));
+            }
+
+            debug_assert!(!is_in_tail || parsed == 0);
+            is_in_tail = parsed < rem_len;
+
+            rem_len = rem_len.saturating_sub(scanned);
+        }
+        Some((len - rem_len, is_in_tail, rem_len > 0, false))
     }
 
-    fn read_line_continued(&mut self, offset: usize, span: usize, is_in_tail: bool, buf: &mut Vec<u8>) -> Result<(usize, usize, usize)> {
+    fn read_line_continued(
+        &mut self,
+        i: usize,
+        consumed: usize,
+        offset: usize,
+        span: usize,
+        is_in_tail: bool,
+        buf: &mut Vec<u8>,
+    ) -> Result<(usize, usize, usize)> {
+        if i > 10 {
+            assert!(false);
+        }
         let (_, len) = self.src.fill_buf()?;
         if len == 0 {
-            return Ok((1, offset, span));
+            return Ok((consumed, offset, span));
         }
 
-        let stream = self.src.as_slice();
-        let mut p = 0;
+        let mut stream = self.src.as_slice();
+        // eprintln!("len({:?}, {:?}), stream({:?})", len, stream.len(), &String::from_utf8(stream.to_vec()).unwrap());
+
+        let mut rem_len = len;
         let mut is_in_tail = is_in_tail;
 
-        while p < len {
-            let (fwd, delim_found, eol_found) = self.read_body(&stream[p..], len - p, is_in_tail, buf).to_result()?;
-            p += fwd;
+        let mut j = 0;
+        while rem_len > 0 {
+            let (fwd, delim_found, eol_found, refeed) = self.read_body(stream, rem_len, is_in_tail, buf).to_result()?;
+
+            rem_len -= fwd;
             is_in_tail = delim_found;
 
+            if refeed {
+                break;
+            }
             if eol_found {
-                self.src.consume(std::cmp::min(p + 1, len));
-                return Ok((1, offset, len));
+                // eprintln!("eol, acc({}), rem_len({}), len({})", len - rem_len, rem_len, len);
+                rem_len = rem_len.saturating_sub(1);
+                self.src.consume(len - rem_len);
+                return Ok((consumed + len - rem_len, offset, span));
+            }
+
+            let (_, rem_stream) = stream.split_at(fwd);
+            stream = rem_stream;
+
+            j += 1;
+            if j > 10 {
+                assert!(false);
             }
         }
 
-        self.src.consume(p);
-        self.read_line_continued(offset, span, is_in_tail, buf)
+        // eprintln!("cont (2), acc({}), rem_len({}), len({})", len - rem_len, rem_len, len);
+        self.src.consume(len - rem_len);
+        self.read_line_continued(i + 1, consumed + len - rem_len, offset, span, is_in_tail, buf)
     }
 
     pub fn read_line(&mut self, buf: &mut Vec<u8>) -> Result<(usize, usize, usize)> {
-        let (_, len) = self.src.fill_buf()?;
+        let len = loop {
+            let (is_eof, len) = self.src.fill_buf()?;
+            if is_eof || len > 2 * 4 * 48 {
+                break len;
+            }
+            self.src.consume(0);
+        };
         if len == 0 {
             return Ok((0, 0, 0));
         }
 
         let stream = self.src.as_slice();
         debug_assert!(stream.len() >= MARGIN_SIZE);
+        // eprintln!("len({:?}, {:?}), stream({:?})", len, stream.len(), &String::from_utf8(stream.to_vec()).unwrap());
 
         let (fwd, offset, span) = self.read_head(stream).to_result()?;
-        let mut p = fwd;
+
+        let (_, rem_stream) = stream.split_at(fwd);
+        let mut stream = rem_stream;
+        let mut rem_len = len - fwd;
         let mut is_in_tail = false;
 
-        while p < len {
-            let (fwd, delim_found, eol_found) = self.read_body(&stream[p..], len - p, is_in_tail, buf).to_result()?;
-            p += fwd;
+        let mut j = 0;
+        while rem_len > 0 {
+            let (fwd, delim_found, eol_found, refeed) = self.read_body(stream, rem_len, is_in_tail, buf).to_result()?;
+            // eprintln!("read_body, acc({}), rem_len({}), fwd({}), delim_found({}), eol_found({})", len - rem_len, rem_len, fwd, delim_found, eol_found);
+
+            rem_len -= fwd;
             is_in_tail = delim_found;
 
+            if refeed {
+                break;
+            }
             if eol_found {
-                self.src.consume(std::cmp::min(p + 1, len));
-                return Ok((1, offset, span));
+                rem_len = rem_len.saturating_sub(1);
+                self.src.consume(len - rem_len);
+                return Ok((len - rem_len, offset, span));
+            }
+
+            let (_, rem_stream) = stream.split_at(fwd);
+            stream = rem_stream;
+
+            j += 1;
+            if j > 10 {
+                assert!(false);
             }
         }
 
-        self.src.consume(p);
-        self.read_line_continued(offset, span, is_in_tail, buf)
+        // eprintln!("cont, acc({:?}), rem_len({}), len({:?})", len - rem_len, rem_len, len);
+        self.src.consume(len - rem_len);
+        self.read_line_continued(0, len - rem_len, offset, span, is_in_tail, buf)
     }
+}
+
+#[test]
+fn test_text_parser_hex() {
+    macro_rules! test {
+        ( $input: expr, $ex_fwd: expr, $ex_offset: expr, $ex_span: expr, $ex_arr: expr ) => {{
+            let input = Box::new(MockSource::new($input));
+            let mut parser = TextParser::new(input, &InoutFormat::from_str("xxx").unwrap());
+            let mut buf = Vec::new();
+            let (fwd, offset, span) = parser.read_line(&mut buf).unwrap();
+            assert_eq!(fwd, $ex_fwd);
+            assert_eq!(offset, $ex_offset);
+            assert_eq!(span, $ex_span);
+            assert_eq!(&buf, $ex_arr);
+        }};
+    }
+
+    test!(b"0000 00 | \n", 11, 0, 0, &[]);
+    test!(b"0010 00 | \n", 11, 0x10, 0, &[]);
+    test!(b"0000 fe | \n", 11, 0, 0xfe, &[]);
+
+    test!(b"00001 fe | \n", 12, 1, 0xfe, &[]);
+    test!(b"00000001 fe | \n", 15, 1, 0xfe, &[]);
+    test!(b"00000000001 fe | \n", 18, 1, 0xfe, &[]);
+    test!(b"00000000000001 fe | \n", 21, 1, 0xfe, &[]);
+
+    test!(b"0001 000fe | \n", 14, 1, 0xfe, &[]);
+    test!(b"0001 000000fe | \n", 17, 1, 0xfe, &[]);
+    test!(b"0001 000000000fe | \n", 20, 1, 0xfe, &[]);
+    test!(b"0001 000000000000fe | \n", 23, 1, 0xfe, &[]);
+
+    test!(b"0001 02 | |\n", 12, 1, 2, &[]);
+    test!(b"0001 02 | |  \n", 14, 1, 2, &[]);
+    test!(b"0001 02 | |xx\n", 14, 1, 2, &[]);
+    test!(b"0001 02 | | abcde\n", 18, 1, 2, &[]);
+
+    test!(b"0001 02 | 10 11 12\n", 19, 1, 2, &[0x10, 0x11, 0x12]);
+    test!(b"0001 02 | 10 11 12 |\n", 21, 1, 2, &[0x10, 0x11, 0x12]);
+    test!(b"0001 02 | 10 11 12 |  \n", 23, 1, 2, &[0x10, 0x11, 0x12]);
+
+    test!(
+        b"0001 02 | \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          \n",
+        587,
+        1,
+        2,
+        &rep!(&[0x10u8, 0x11, 0x12], 64)
+    );
+
+    test!(
+        b"0001 02 | \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          \n",
+        1739,
+        1,
+        2,
+        &rep!(&[0x10u8, 0x11, 0x12], 192)
+    );
+
+    test!(
+        b"0001 02 | \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 | \
+          aaaaaa\n",
+        595,
+        1,
+        2,
+        &rep!(&[0x10u8, 0x11, 0x12], 64)
+    );
+
+    test!(
+        b"0001 02 | \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 | \
+          bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\
+          bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\
+          bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\
+          bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\
+          bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\
+          bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\
+          bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\
+          \n",
+        869,
+        1,
+        2,
+        &rep!(&[0x10u8, 0x11, 0x12], 64)
+    );
+
+    // without tail '\n'
+    test!(
+        b"0001 02 | \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 ",
+        586,
+        1,
+        2,
+        &rep!(&[0x10u8, 0x11, 0x12], 64)
+    );
+
+    test!(
+        b"0001 02 | \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 \
+          10 11 12 10 11 12 10 11 12 10 11 12 | \
+          bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\
+          bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\
+          bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\
+          bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\
+          bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\
+          bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\
+          bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        868,
+        1,
+        2,
+        &rep!(&[0x10u8, 0x11, 0x12], 64)
+    );
 }
 
 // end of parser.rs

@@ -56,7 +56,7 @@ impl StreamBuf {
         self.len += stream.len();
 
         // restore the margin
-        self.buf.resize(self.len + MARGIN_SIZE, 0);
+        self.buf.resize(self.len + MARGIN_SIZE, b'\n');
     }
 
     fn mark_eof(&mut self) {
@@ -69,7 +69,7 @@ impl StreamBuf {
         // make the buffer aligned (without tail margin)
         let tail = self.offset + self.buf.len();
         let rounded = (tail + self.align - 1) / self.align * self.align;
-        self.buf.resize(rounded - self.offset, 0);
+        self.buf.resize(rounded - self.offset, b'\n');
     }
 
     pub fn clear_eof(&mut self) {
@@ -113,7 +113,7 @@ impl StreamBuf {
         }
 
         self.len = self.buf.len();
-        self.buf.resize(self.len + MARGIN_SIZE, 0);
+        self.buf.resize(self.len + MARGIN_SIZE, b'\n');
 
         Ok(self.len - self.pos)
     }
