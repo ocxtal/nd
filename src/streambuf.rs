@@ -207,7 +207,7 @@ fn test_stream_buf_random_len() {
 
             let stream = buf.as_slice();
             assert!(stream.len() >= MARGIN_SIZE);
-            assert_eq!(&stream[..MARGIN_SIZE], &[0u8; MARGIN_SIZE]);
+            assert_eq!(&stream[..MARGIN_SIZE], &[b'\n'; MARGIN_SIZE]);
         }};
     }
 
@@ -268,7 +268,7 @@ fn test_stream_buf_random_consume() {
 
             let stream = buf.as_slice();
             assert!(stream.len() >= MARGIN_SIZE);
-            assert_eq!(&stream[..MARGIN_SIZE], &[0u8; MARGIN_SIZE]);
+            assert_eq!(&stream[..MARGIN_SIZE], &[b'\n'; MARGIN_SIZE]);
         }};
     }
 
@@ -327,7 +327,7 @@ fn test_stream_buf_all_at_once() {
 
             let stream = buf.as_slice();
             assert!(stream.len() >= MARGIN_SIZE);
-            assert_eq!(&stream[..MARGIN_SIZE], &[0u8; MARGIN_SIZE]);
+            assert_eq!(&stream[..MARGIN_SIZE], &[b'\n'; MARGIN_SIZE]);
         }};
     }
 
