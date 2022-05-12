@@ -39,9 +39,10 @@ impl FillUninit for Vec<u8> {
 
         if self.capacity() < self.len() + len {
             let shift = (self.len() + len).leading_zeros() as usize;
-            debug_assert!(shift > 0);
+            let shift = 8 * std::mem::size_of::<usize>() - shift;
+            debug_assert!(shift > 0 && shift < 8 * std::mem::size_of::<usize>());
 
-            let new_len = 0x8000000000000000 >> (shift.min(56) - 1);
+            let new_len = 1 << shift.max(8);
             self.reserve(new_len - self.len());
         }
 
