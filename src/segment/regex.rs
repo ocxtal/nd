@@ -9,20 +9,21 @@ use std::io::Result;
 
 pub struct RegexSlicer {
     src: EofStream<Box<dyn ByteStream>>,
-    prev_len: usize,
+    matches: Vec<Segment>,
+    scanned: usize,
     width: usize,
     re: Regex,
-    matches: Vec<Segment>,
 }
 
 impl RegexSlicer {
     pub fn new(src: Box<dyn ByteStream>, width: usize, pattern: &str) -> Self {
+        // eprintln!("width({}), pattern({:?})", width, pattern);
         RegexSlicer {
             src: EofStream::new(src),
-            prev_len: 0,
+            matches: Vec::new(),
+            scanned: 0,
             width,
             re: Regex::new(pattern).unwrap(),
-            matches: Vec::new(),
         }
     }
 }
@@ -38,12 +39,14 @@ impl SegmentStream for RegexSlicer {
 
         let (is_eof, len) = self.src.fill_buf()?;
         let stream = self.src.as_slice();
+        // eprintln!("is_eof({:?}), len({}), scanned({}), stream({:?})", is_eof, len, self.scanned, std::str::from_utf8(stream).unwrap());
 
-        let count = len / self.width;
+        debug_assert!(len >= self.scanned);
+        let count = (len - self.scanned) / self.width;
         let n_bulk = if count == 0 { 0 } else { count - 1 };
 
         for i in 0..n_bulk {
-            let pos = i * self.width;
+            let pos = self.scanned + i * self.width;
             self.matches.extend(
                 self.re
                     .find_iter(&stream[pos..pos + 2 * self.width])
@@ -54,20 +57,20 @@ impl SegmentStream for RegexSlicer {
 
         if is_eof {
             // scan the last chunk
-            let pos = n_bulk * self.width;
+            let pos = self.scanned + n_bulk * self.width;
             let chunk = &stream[pos..];
             self.matches.extend(self.re.find_iter(chunk).map(|x| to_segment(x, pos)));
 
-            self.prev_len = len;
-            return Ok((self.prev_len, self.matches.len()));
+            self.scanned = len;
+            return Ok((self.scanned, self.matches.len()));
         }
 
-        self.prev_len = (count - 1) * self.width;
-        Ok((self.prev_len, self.matches.len()))
+        self.scanned = (count - 1) * self.width;
+        Ok((self.scanned, self.matches.len()))
     }
 
     fn as_slices(&self) -> (&[u8], &[Segment]) {
-        (&self.src.as_slice()[..self.prev_len], &self.matches)
+        (&self.src.as_slice()[..self.scanned], &self.matches)
     }
 
     fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
@@ -77,18 +80,28 @@ impl SegmentStream for RegexSlicer {
         }
 
         // if entire length, just clear the buffer
-        if bytes == self.prev_len {
+        if bytes == self.scanned {
+            let count = self.matches.len();
             self.matches.clear();
-            return Ok((bytes, 0));
+            self.scanned = 0;
+            return Ok((bytes, count));
         }
 
         // determine how many bytes to consume...
         let drop_count = self.matches.partition_point(|x| x.pos < bytes);
-        self.matches.copy_within(drop_count.., 0);
+        // eprintln!("bytes({}), drop_count({})", bytes, drop_count);
+
+        let tail = self.matches.len();
+        self.matches.copy_within(drop_count..tail, 0);
+        self.matches.truncate(tail - drop_count);
+        // eprintln!("matches({:?})", self.matches);
 
         for m in &mut self.matches {
             *m = m.unwind(bytes);
         }
+        self.scanned -= bytes;
+        // eprintln!("matches({:?})", self.matches);
+
         Ok((bytes, drop_count))
     }
 }

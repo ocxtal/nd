@@ -354,6 +354,10 @@ fn main() {
         patch: m.value_of("patch-back"),
     };
 
+    if check_param_conflicts(&input_params, &stream_params) {
+        return;
+    }
+
     // patch parameters for constant-stride slicer
     if let SlicerMode::Const(params) = &stream_params.mode {
         input_params.clipper.add_clip(params.clip);
@@ -380,6 +384,15 @@ fn main() {
             }
         }
     }
+}
+
+fn check_param_conflicts(input_params: &InputParams, _stream_params: &StreamParams) -> bool {
+    if let Some(params) = &input_params.patch {
+        if params.format.is_binary() {
+            eprintln!("aaa");
+        }
+    }
+    false
 }
 
 #[derive(PartialEq)]
@@ -482,6 +495,7 @@ fn build_inputs<'a>(params: &'a InputParams) -> Vec<Input<'a>> {
     inputs.zip(params.files.iter()).map(compose_input).collect()
 }
 
+#[derive(Debug)]
 enum SlicerMode<'a> {
     Const(ConstSlicerParams),
     Match(&'a str), // pattern
@@ -490,6 +504,7 @@ enum SlicerMode<'a> {
     Walk(&'a str),  // expression
 }
 
+#[derive(Debug)]
 struct StreamParams<'a> {
     // slicer
     mode: SlicerMode<'a>,
@@ -515,6 +530,7 @@ fn build_stream(stream: Box<dyn ByteStream>, output: Box<dyn Write + Send>, para
     };
 
     // build slicer and then apply slice manipulator
+    // TODO: apply multiple times
     let slicer: Box<dyn SegmentStream> = match &params.mode {
         SlicerMode::Const(params) => Box::new(ConstSlicer::new(stream, params.margin, params.pin, params.pitch, params.span)),
         SlicerMode::Match(pattern) => Box::new(HammingSlicer::new(stream, pattern)),
@@ -526,7 +542,11 @@ fn build_stream(stream: Box<dyn ByteStream>, output: Box<dyn Write + Send>, para
         SlicerMode::Const(_) => slicer,
         _ => {
             let params = &params.raw;
-            Box::new(SliceMerger::new(slicer, params.extend, params.merge, params.intersection))
+            Box::new(SliceMerger::new(
+                slicer,
+                params.extend.unwrap_or((0, 0)),
+                params.merge.unwrap_or(isize::MAX),
+            ))
         }
     };
 

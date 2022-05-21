@@ -126,6 +126,7 @@ impl ShiftRange for Range<isize> {
     }
 }
 
+#[derive(Debug)]
 pub struct RawSlicerParams {
     pub width: usize,
     pub extend: Option<(isize, isize)>,

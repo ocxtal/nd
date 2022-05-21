@@ -291,7 +291,6 @@ impl TextParser {
         while rem_len >= 4 * 48 {
             let ret = buf.fill_uninit_on_option_with_ret(4 * 16, |arr| (self.parse_body)(is_in_tail, stream, arr))?;
             let (scanned, parsed) = ret.0;
-            // eprintln!("loop, scanned({}), parsed({}), rem_len({})", scanned, parsed, rem_len);
 
             let (_, rem_stream) = stream.split_at(scanned);
             rem_len -= scanned;
@@ -307,16 +306,13 @@ impl TextParser {
         }
 
         if rem_len > 0 {
-            // eprintln!("stream({:?})", &String::from_utf8(stream.to_vec()).unwrap());
             // tail
             debug_assert!(rem_len < 4 * 48);
             let ret = buf.fill_uninit_on_option_with_ret(4 * 16, |arr| (self.parse_body)(is_in_tail, stream, arr))?;
             let (scanned, parsed) = ret.0;
-            // eprintln!("last, scanned({}), parsed({}), rem_len({}), len({})", scanned, parsed, rem_len, len);
 
             if parsed > rem_len {
                 debug_assert!(!is_in_tail);
-                // eprintln!("clip({}, {}, {})", len, len - rem_len, len / 3 * 3);
                 let total = (len + parsed - rem_len) / 3;
                 let keep = len / 3;
                 buf.truncate(buf.len() + keep - total);
@@ -333,31 +329,22 @@ impl TextParser {
 
     fn read_line_continued(
         &mut self,
-        i: usize,
         consumed: usize,
         offset: usize,
         span: usize,
         is_in_tail: bool,
         buf: &mut Vec<u8>,
     ) -> Result<(usize, usize, usize)> {
-        if i > 10 {
-            assert!(false);
-        }
         let (_, len) = self.src.fill_buf()?;
         if len == 0 {
             return Ok((consumed, offset, span));
         }
 
         let mut stream = self.src.as_slice();
-        // eprintln!("len({:?}, {:?}), stream({:?})", len, stream.len(), &String::from_utf8(stream.to_vec()).unwrap());
-
         let mut rem_len = len;
         let mut is_in_tail = is_in_tail;
-
-        let mut j = 0;
         while rem_len > 0 {
             let (fwd, delim_found, eol_found, refeed) = self.read_body(stream, rem_len, is_in_tail, buf).to_result()?;
-
             rem_len -= fwd;
             is_in_tail = delim_found;
 
@@ -365,7 +352,6 @@ impl TextParser {
                 break;
             }
             if eol_found {
-                // eprintln!("eol, acc({}), rem_len({}), len({})", len - rem_len, rem_len, len);
                 rem_len = rem_len.saturating_sub(1);
                 self.src.consume(len - rem_len);
                 return Ok((consumed + len - rem_len, offset, span));
@@ -373,16 +359,10 @@ impl TextParser {
 
             let (_, rem_stream) = stream.split_at(fwd);
             stream = rem_stream;
-
-            j += 1;
-            if j > 10 {
-                assert!(false);
-            }
         }
 
-        // eprintln!("cont (2), acc({}), rem_len({}), len({})", len - rem_len, rem_len, len);
         self.src.consume(len - rem_len);
-        self.read_line_continued(i + 1, consumed + len - rem_len, offset, span, is_in_tail, buf)
+        self.read_line_continued(consumed + len - rem_len, offset, span, is_in_tail, buf)
     }
 
     pub fn read_line(&mut self, buf: &mut Vec<u8>) -> Result<(usize, usize, usize)> {
@@ -399,7 +379,6 @@ impl TextParser {
 
         let stream = self.src.as_slice();
         debug_assert!(stream.len() >= MARGIN_SIZE);
-        // eprintln!("len({:?}, {:?}), stream({:?})", len, stream.len(), &String::from_utf8(stream.to_vec()).unwrap());
 
         let (fwd, offset, span) = self.read_head(stream).to_result()?;
 
@@ -407,11 +386,8 @@ impl TextParser {
         let mut stream = rem_stream;
         let mut rem_len = len - fwd;
         let mut is_in_tail = false;
-
-        let mut j = 0;
         while rem_len > 0 {
             let (fwd, delim_found, eol_found, refeed) = self.read_body(stream, rem_len, is_in_tail, buf).to_result()?;
-            // eprintln!("read_body, acc({}), rem_len({}), fwd({}), delim_found({}), eol_found({})", len - rem_len, rem_len, fwd, delim_found, eol_found);
 
             rem_len -= fwd;
             is_in_tail = delim_found;
@@ -427,16 +403,10 @@ impl TextParser {
 
             let (_, rem_stream) = stream.split_at(fwd);
             stream = rem_stream;
-
-            j += 1;
-            if j > 10 {
-                assert!(false);
-            }
         }
 
-        // eprintln!("cont, acc({:?}), rem_len({}), len({:?})", len - rem_len, rem_len, len);
         self.src.consume(len - rem_len);
-        self.read_line_continued(0, len - rem_len, offset, span, is_in_tail, buf)
+        self.read_line_continued(len - rem_len, offset, span, is_in_tail, buf)
     }
 }
 

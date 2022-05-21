@@ -57,7 +57,7 @@ impl InoutFormat {
 
         match map.get(config) {
             Some(x) => Ok(InoutFormat::from_signature(x)),
-            _ => Err(format!("invalid input / output format signature: {:?}", config)),
+            _ => Err("possible values are: \"xxx\", \"b\", ...".to_string()),
         }
     }
 
