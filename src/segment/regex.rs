@@ -17,7 +17,6 @@ pub struct RegexSlicer {
 
 impl RegexSlicer {
     pub fn new(src: Box<dyn ByteStream>, width: usize, pattern: &str) -> Self {
-        // eprintln!("width({}), pattern({:?})", width, pattern);
         RegexSlicer {
             src: EofStream::new(src),
             matches: Vec::new(),
@@ -39,7 +38,6 @@ impl SegmentStream for RegexSlicer {
 
         let (is_eof, len) = self.src.fill_buf()?;
         let stream = self.src.as_slice();
-        // eprintln!("is_eof({:?}), len({}), scanned({}), stream({:?})", is_eof, len, self.scanned, std::str::from_utf8(stream).unwrap());
 
         debug_assert!(len >= self.scanned);
         let count = (len - self.scanned) / self.width;
@@ -65,7 +63,8 @@ impl SegmentStream for RegexSlicer {
             return Ok((self.scanned, self.matches.len()));
         }
 
-        self.scanned = (count - 1) * self.width;
+        self.scanned += (count - 1) * self.width;
+
         Ok((self.scanned, self.matches.len()))
     }
 
@@ -89,18 +88,15 @@ impl SegmentStream for RegexSlicer {
 
         // determine how many bytes to consume...
         let drop_count = self.matches.partition_point(|x| x.pos < bytes);
-        // eprintln!("bytes({}), drop_count({})", bytes, drop_count);
 
         let tail = self.matches.len();
         self.matches.copy_within(drop_count..tail, 0);
         self.matches.truncate(tail - drop_count);
-        // eprintln!("matches({:?})", self.matches);
 
         for m in &mut self.matches {
             *m = m.unwind(bytes);
         }
         self.scanned -= bytes;
-        // eprintln!("matches({:?})", self.matches);
 
         Ok((bytes, drop_count))
     }

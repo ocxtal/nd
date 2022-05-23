@@ -25,17 +25,16 @@ struct SegmentAccumulator {
 }
 
 impl SegmentAccumulator {
-    fn from_raw(segment: &Segment) -> Self {
+    fn from_raw(segment: &Segment, extend: (isize, isize)) -> Self {
         SegmentAccumulator {
             count: 1,
-            start: segment.pos as isize,
+            start: segment.pos as isize - extend.0,
             end: segment.tail() as isize,
         }
     }
 
     fn overlap(&mut self, segment: &Segment) -> isize {
-        // distance in negative value if they don't overlap
-
+        // returns distance in negative value if they don't overlap
         let start = segment.pos as isize;
         let end = segment.tail() as isize;
         debug_assert!(self.start <= start);
@@ -49,7 +48,7 @@ impl SegmentAccumulator {
     }
 
     fn to_segment(self, extend: (isize, isize), tail_limit: usize) -> Segment {
-        let pos = std::cmp::max(0, self.start - extend.0) as usize;
+        let pos = std::cmp::max(0, self.start) as usize;
         let tail = std::cmp::max(0, self.end + extend.1) as usize;
         let tail = std::cmp::min(tail, tail_limit);
 
@@ -57,15 +56,13 @@ impl SegmentAccumulator {
     }
 
     fn max_consume_len(&self) -> usize {
-        debug_assert!(self.start >= 0);
-        self.start as usize
+        std::cmp::max(0, self.start) as usize
     }
 
     fn unwind(&mut self, bytes: usize) {
         let bytes = bytes as isize;
-
-        debug_assert!(self.start >= bytes);
         self.start -= bytes;
+        self.end -= bytes;
     }
 }
 
@@ -109,7 +106,9 @@ impl SliceMerger {
         }
     }
 
-    fn extend_segment_buf(&mut self, tail_limit: usize) {
+    fn extend_segment_buf(&mut self, is_eof: bool, bytes: usize) {
+        let tail_limit = if is_eof { bytes } else { usize::MAX };
+
         let (_, segments) = self.src.as_slices();
         debug_assert!(segments.len() > self.skip);
 
@@ -117,7 +116,7 @@ impl SliceMerger {
         let (mut acc, skip) = if let Some(acc) = self.acc {
             (acc, self.skip)
         } else {
-            (SegmentAccumulator::from_raw(&segments[0]), 1)
+            (SegmentAccumulator::from_raw(&segments[0], self.extend), 1)
         };
 
         let mut head = 0; // first input segment that corresponds to the accumulator
@@ -140,76 +139,34 @@ impl SliceMerger {
 
             // the merge chain breaks at the current segment; flush the content of the accumulator
             self.segments.push(acc.to_segment(self.extend, tail_limit));
-
-            acc = SegmentAccumulator::from_raw(next);
+            acc = SegmentAccumulator::from_raw(next, self.extend);
             head = i + 1;
         }
 
-        self.map.push(SegmentMap {
-            target: self.segments.len(),
-            head: 0,
-        });
-        self.acc = Some(acc);
-        // eprintln!("skip({}), acc({:?}), segments({:?})", self.skip, self.acc, self.segments);
-    }
-
-    fn flush_acc(&mut self, bytes: usize) {
-        // eprintln!("move");
-        let last_map = if let Some(map) = self.map.pop() {
-            SegmentMap {
-                target: map.target,
-                head: map.head + 1,
-            }
+        debug_assert!(acc.end <= bytes as isize);
+        if is_eof || acc.end - self.merge_threshold > bytes as isize {
+            self.segments.push(acc.to_segment(self.extend, tail_limit));
+            self.acc = None;
         } else {
-            SegmentMap {
-                target: self.segments.len(),
-                head: 0,
-            }
-        };
-        self.map.push(last_map);
-
-        let last_segment = std::mem::replace(&mut self.acc, None).unwrap();
-        self.segments.push(last_segment.to_segment(self.extend, bytes));
-
-        self.map.push(SegmentMap {
-            target: self.segments.len(),
-            head: 0,
-        });
+            self.acc = Some(acc);
+        }
     }
 
     fn fill_segment_buf_impl(&mut self) -> Result<(bool, usize, usize)> {
         let mut prev_bytes = 0;
         loop {
             let (bytes, count) = self.src.fill_segment_buf()?;
-            // eprintln!("bytes({:?}), count({:?})", bytes, count);
             if bytes == prev_bytes {
                 // eof
                 return Ok((true, bytes, count));
             }
 
-            if count >= std::cmp::max(self.skip, BLOCK_SIZE) {
+            if bytes >= std::cmp::max(self.skip, BLOCK_SIZE) {
                 return Ok((false, bytes, count));
             }
 
             self.src.consume(0).unwrap();
             prev_bytes = bytes;
-        }
-    }
-
-    fn consume_segment_array(&mut self, bytes: usize, count: usize) {
-        // first remove elements from the segment array
-        debug_assert!(count <= self.segments.len());
-
-        let from = count;
-        let to = self.segments.len();
-        // eprintln!("from({}), to({})", from, to);
-
-        self.segments.copy_within(from..to, 0);
-        self.segments.truncate(to - from);
-
-        for s in &mut self.segments {
-            // eprintln!("pos({}), bytes({})", s.pos, bytes);
-            s.pos -= bytes;
         }
     }
 
@@ -221,39 +178,49 @@ impl SliceMerger {
         if count == 0 {
             return 0;
         }
+        if count >= self.map.len() {
+            debug_assert!(count <= self.map.len() + 1);
+
+            self.map.clear();
+            return self.segments.len();
+        }
 
         // input segments -> output (merged) segment mapping
         debug_assert!(count < self.map.len());
         let map = self.map[count];
 
         let from = count - map.head;
-        let to = self.map.len() - 1; // remove the tail sentinel here
-                                     // eprintln!("from({}), to({})", from, to);
+        let to = self.map.len();
 
         self.map.copy_within(from..to, 0);
         self.map.truncate(to - from);
 
         map.target
     }
+
+    fn consume_segment_array(&mut self, bytes: usize, count: usize) {
+        // first remove elements from the segment array
+        debug_assert!(count <= self.segments.len());
+
+        let from = count;
+        let to = self.segments.len();
+
+        self.segments.copy_within(from..to, 0);
+        self.segments.truncate(to - from);
+
+        for s in &mut self.segments {
+            s.pos -= bytes;
+        }
+    }
 }
 
 impl SegmentStream for SliceMerger {
     fn fill_segment_buf(&mut self) -> Result<(usize, usize)> {
         let (is_eof, bytes, count) = self.fill_segment_buf_impl()?;
-        // eprintln!("bytes({}), count({})", bytes, count);
 
         if bytes > 0 && count > self.skip {
-            let tail_limit = if is_eof { bytes } else { usize::MAX };
-            self.extend_segment_buf(tail_limit);
+            self.extend_segment_buf(is_eof, bytes);
         }
-        // eprintln!("done({}, {:?}, {})", is_eof, self.acc, is_eof && self.acc.is_some());
-
-        if is_eof && self.acc.is_some() {
-            self.flush_acc(bytes);
-        }
-        // eprintln!("skip({}), segments({:?}), acc({:?})", self.skip, self.segments, self.acc);
-        // eprintln!("map({:?})", self.map);
-
         Ok((bytes, self.segments.len()))
     }
 
@@ -263,11 +230,8 @@ impl SegmentStream for SliceMerger {
     }
 
     fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
-        let bytes = std::cmp::min(bytes, self.acc.map_or(usize::MAX, |x| x.max_consume_len()));
-        // eprintln!("bytes({})", bytes);
-
+        let bytes = std::cmp::min(bytes, self.acc.map_or(bytes, |x| x.max_consume_len()));
         let (bytes, src_count) = self.src.consume(bytes)?;
-        // eprintln!("bytes({}), src_count({})", bytes, src_count);
 
         // update the segment array using the input-result segment map table
         // this returns #segments to be consumed in this merger
@@ -284,7 +248,6 @@ impl SegmentStream for SliceMerger {
         } else {
             self.segments.len()
         };
-
         Ok((bytes, target_count))
     }
 }
