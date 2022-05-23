@@ -66,8 +66,7 @@ impl SegmentAccumulator {
     }
 }
 
-#[allow(dead_code)]
-pub struct SliceMerger {
+pub struct MergeStream {
     src: Box<dyn SegmentStream>,
     segments: Vec<Segment>,
     map: Vec<SegmentMap>,
@@ -82,7 +81,7 @@ pub struct SliceMerger {
     merge_threshold: isize,
 }
 
-impl SliceMerger {
+impl MergeStream {
     pub fn new(src: Box<dyn SegmentStream>, extend: (isize, isize), merge_threshold: isize) -> Self {
         let max_dist = std::cmp::max(extend.0.abs(), extend.1.abs()) as usize;
         let min_fill_bytes = std::cmp::max(BLOCK_SIZE, 2 * max_dist);
@@ -93,7 +92,7 @@ impl SliceMerger {
         // include extension amounts into the threshold
         let merge_threshold = merge_threshold - extend.0 - extend.1;
 
-        SliceMerger {
+        MergeStream {
             src,
             segments: Vec::new(),
             map: Vec::new(),
@@ -161,7 +160,7 @@ impl SliceMerger {
                 return Ok((true, bytes, count));
             }
 
-            if bytes >= std::cmp::max(self.skip, BLOCK_SIZE) {
+            if bytes >= std::cmp::max(self.skip, self.min_fill_bytes) {
                 return Ok((false, bytes, count));
             }
 
@@ -214,7 +213,7 @@ impl SliceMerger {
     }
 }
 
-impl SegmentStream for SliceMerger {
+impl SegmentStream for MergeStream {
     fn fill_segment_buf(&mut self) -> Result<(usize, usize)> {
         let (is_eof, bytes, count) = self.fill_segment_buf_impl()?;
 

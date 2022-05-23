@@ -3,13 +3,13 @@
 // @date 2022/2/4
 
 mod hamming;
-mod merger;
+mod merge;
 mod regex;
 mod stride;
 mod strip;
 
 pub use self::hamming::HammingSlicer;
-pub use self::merger::SliceMerger;
+pub use self::merge::MergeStream;
 pub use self::regex::RegexSlicer;
 pub use self::stride::ConstSlicer;
 pub use self::strip::SliceStripper;

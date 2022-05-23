@@ -542,7 +542,7 @@ fn build_stream(stream: Box<dyn ByteStream>, output: Box<dyn Write + Send>, para
         SlicerMode::Const(_) => slicer,
         _ => {
             let params = &params.raw;
-            Box::new(SliceMerger::new(
+            Box::new(MergeStream::new(
                 slicer,
                 params.extend.unwrap_or((0, 0)),
                 params.merge.unwrap_or(isize::MAX),
