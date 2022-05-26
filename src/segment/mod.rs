@@ -9,7 +9,7 @@ mod stride;
 mod strip;
 
 pub use self::hamming::HammingSlicer;
-pub use self::merge::MergeStream;
+pub use self::merge::{AndStream, MergeStream};
 pub use self::regex::RegexSlicer;
 pub use self::stride::ConstSlicer;
 pub use self::strip::SliceStripper;

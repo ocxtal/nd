@@ -54,15 +54,15 @@ OPTIONS:
 
     -w, --width N           slice into N bytes (default) [16]
     -m, --match PATTERN[:K] slice out every matches that have <= K different bits from the pattern
-    -g, --regex PATTERN[:N] slice out every matches with regular expression within N-byte window
-    -r, --slice FILE        slice out [pos, pos + len) ranges loaded from the file
-    -k, --walk W:EXPR,...   evaluate the expressions on the stream and split it at the obtained indices
+    -e, --regex PATTERN[:N] slice out every matches with regular expression within N-byte window
+    -R, --range FILE        slice out [pos, pos + len) ranges loaded from the file
+    -W, --walk W:EXPR,...   evaluate the expressions on the stream and split it at the obtained indices
                             (repeated until the end; W-byte word on eval and 1-byte word on split)
 
-    -e, --extend N:M        extend slices left and right by N and M bytes [0:0]
-    -u, --union N           iteratively merge two slices with an overlap >= N bytes [-inf]
-    -x, --intersection N    take intersection of two slices with an overlap >= N bytes [-inf]
-    -b, --bridge N:M        create a new slice from two adjoining slices,
+    -E, --extend N:M        extend slices left and right by N and M bytes [0:0]
+    -M, --merge N           iteratively merge two slices with an overlap >= N bytes [-inf]
+    -I, --intersection N    take intersection of two slices with an overlap >= N bytes [-inf]
+    -B, --bridge N:M        create a new slice from two adjoining slices,
                             between offset N of the former to M of the latter [-1:-1]
     -l, --lines N:M         drop slices out of the range [0:inf]
 
@@ -211,23 +211,23 @@ fn main() {
                 .number_of_values(1)
                 .conflicts_with_all(&["width", "regex", "slice", "walk"]),
             Arg::new("regex")
-                .short('g')
+                .short('e')
                 .long("regex")
                 .help("slice out every matches with regular expression")
                 .value_name("PATTERN[:N]")
                 .takes_value(true)
                 .number_of_values(1)
                 .conflicts_with_all(&["width", "match", "slice", "walk"]),
-            Arg::new("slice")
-                .short('r')
-                .long("slice")
+            Arg::new("range")
+                .short('R')
+                .long("range")
                 .help("slice out [pos, pos + len) ranges loaded from the file")
                 .value_name("slices.txt")
                 .takes_value(true)
                 .number_of_values(1)
                 .conflicts_with_all(&["width", "match", "regex", "walk"]),
             Arg::new("walk")
-                .short('k')
+                .short('W')
                 .long("walk")
                 .help("evaluate the expressions on the stream and split it at the obtained indices")
                 .value_name("W:EXPR")
@@ -235,23 +235,23 @@ fn main() {
                 .number_of_values(1)
                 .conflicts_with_all(&["width", "match", "regex", "slice"]),
             Arg::new("extend")
-                .short('e')
+                .short('E')
                 .long("extend")
                 .help("extend slices left and right by N and M bytes [0:0]")
                 .value_name("N:M")
                 .takes_value(true)
                 .number_of_values(1)
                 .validator(parse_isize_pair),
-            Arg::new("union")
-                .short('u')
-                .long("union")
-                .help("take union of slices whose overlap is >= N bytes [0]")
+            Arg::new("merge")
+                .short('M')
+                .long("merge")
+                .help("iteratively merge two slices with an overlap >= N bytes [-inf]")
                 .value_name("N")
                 .takes_value(true)
                 .number_of_values(1)
                 .validator(parse_isize),
             Arg::new("intersection")
-                .short('x')
+                .short('I')
                 .long("intersection")
                 .help("take intersection of two slices whose overlap is >= N bytes [0]")
                 .value_name("N")
@@ -259,7 +259,7 @@ fn main() {
                 .number_of_values(1)
                 .validator(parse_usize),
             Arg::new("bridge")
-                .short('b')
+                .short('B')
                 .long("bridge")
                 .help("create a new slice from two adjoining slices, between offset N of the former to M of the latter [-1,-1]")
                 .value_name("N:M")
@@ -538,15 +538,20 @@ fn build_stream(stream: Box<dyn ByteStream>, output: Box<dyn Write + Send>, para
         SlicerMode::Slice(_) | SlicerMode::Walk(_) => unimplemented!(),
     };
 
-    let stream = match params.mode {
+    let stream: Box<dyn SegmentStream> = match params.mode {
         SlicerMode::Const(_) => slicer,
         _ => {
             let params = &params.raw;
-            Box::new(MergeStream::new(
+            let stream: Box<dyn SegmentStream> = Box::new(MergeStream::new(
                 slicer,
                 params.extend.unwrap_or((0, 0)),
                 params.merge.unwrap_or(isize::MAX),
-            ))
+            ));
+            if let Some(intersection) = params.intersection {
+                Box::new(JoinStream::new(stream, (0, 0), intersection))
+            } else {
+                stream
+            }
         }
     };
 
