@@ -5,19 +5,19 @@ use super::{Segment, SegmentStream};
 use std::io::Result;
 use std::ops::Range;
 
-pub struct SliceStripper {
+pub struct StripStream {
     src: Box<dyn SegmentStream>,
     acc: usize,
     range: Range<usize>,
 }
 
-impl SliceStripper {
+impl StripStream {
     pub fn new(src: Box<dyn SegmentStream>, range: Range<usize>) -> Self {
-        SliceStripper { src, acc: 0, range }
+        StripStream { src, acc: 0, range }
     }
 }
 
-impl SegmentStream for SliceStripper {
+impl SegmentStream for StripStream {
     fn fill_segment_buf(&mut self) -> Result<(usize, usize)> {
         self.src.fill_segment_buf()
     }

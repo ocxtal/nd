@@ -538,7 +538,7 @@ fn build_stream(stream: Box<dyn ByteStream>, output: Box<dyn Write + Send>, para
         SlicerMode::Slice(_) | SlicerMode::Walk(_) => unimplemented!(),
     };
 
-    let stream: Box<dyn SegmentStream> = match params.mode {
+    let stream = match params.mode {
         SlicerMode::Const(_) => slicer,
         _ => {
             let params = &params.raw;
@@ -547,17 +547,23 @@ fn build_stream(stream: Box<dyn ByteStream>, output: Box<dyn Write + Send>, para
                 params.extend.unwrap_or((0, 0)),
                 params.merge.unwrap_or(isize::MAX),
             ));
-            if let Some(intersection) = params.intersection {
-                Box::new(AndStream::new(stream, (0, 0), intersection))
+            let stream: Box<dyn SegmentStream> = if let Some(is) = params.intersection {
+                Box::new(AndStream::new(stream, (0, 0), is))
             } else {
                 stream
-            }
+            };
+            let stream: Box<dyn SegmentStream> = if let Some(bridge) = params.bridge {
+                Box::new(BridgeStream::new(stream, bridge))
+            } else {
+                stream
+            };
+            stream
         }
     };
 
     let stream = match (params.lines.start, params.lines.end) {
         (0, usize::MAX) => stream,
-        (start, end) => Box::new(SliceStripper::new(stream, start..end)),
+        (start, end) => Box::new(StripStream::new(stream, start..end)),
     };
 
     // build drain

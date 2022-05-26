@@ -2,17 +2,21 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
+mod and;
+mod bridge;
 mod hamming;
 mod merge;
 mod regex;
 mod stride;
 mod strip;
 
+pub use self::and::AndStream;
+pub use self::bridge::BridgeStream;
 pub use self::hamming::HammingSlicer;
-pub use self::merge::{AndStream, MergeStream};
+pub use self::merge::MergeStream;
 pub use self::regex::RegexSlicer;
 pub use self::stride::ConstSlicer;
-pub use self::strip::SliceStripper;
+pub use self::strip::StripStream;
 
 use std::io::Result;
 use std::ops::Range;
