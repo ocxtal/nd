@@ -548,7 +548,7 @@ fn build_stream(stream: Box<dyn ByteStream>, output: Box<dyn Write + Send>, para
                 params.merge.unwrap_or(isize::MAX),
             ));
             if let Some(intersection) = params.intersection {
-                Box::new(JoinStream::new(stream, (0, 0), intersection))
+                Box::new(AndStream::new(stream, (0, 0), intersection))
             } else {
                 stream
             }
