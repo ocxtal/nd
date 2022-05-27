@@ -1,4 +1,4 @@
-// @file binary.rs
+// @file raw.rs
 // @author Hajime Suzuki
 // @date 2022/2/4
 
@@ -6,29 +6,27 @@ use super::ByteStream;
 use crate::filluninit::FillUninit;
 use crate::params::BLOCK_SIZE;
 use crate::streambuf::StreamBuf;
-use crate::text::InoutFormat;
 use std::io::{Read, Result};
 
 #[cfg(test)]
 use super::tester::*;
 
-pub struct BinaryStream {
+pub struct RawStream {
     src: Box<dyn Read>,
     buf: StreamBuf,
 }
 
-impl BinaryStream {
-    pub fn new(src: Box<dyn Read>, align: usize, format: &InoutFormat) -> Self {
+impl RawStream {
+    pub fn new(src: Box<dyn Read>, align: usize) -> Self {
         assert!(align > 0);
-        assert!(format.is_binary());
-        BinaryStream {
+        RawStream {
             src,
             buf: StreamBuf::new_with_align(align),
         }
     }
 }
 
-impl ByteStream for BinaryStream {
+impl ByteStream for RawStream {
     fn fill_buf(&mut self) -> Result<usize> {
         self.buf.fill_buf(|buf| {
             buf.fill_uninit(BLOCK_SIZE, |arr| self.src.read(arr))?;
@@ -50,7 +48,7 @@ macro_rules! test_impl {
     ( $inner: ident, $pattern: expr ) => {{
         let pattern = $pattern;
         let src = Box::new(MockSource::new(&pattern));
-        let src = BinaryStream::new(src, 1, &InoutFormat::input_default());
+        let src = RawStream::new(src, 1);
         $inner(src, &pattern);
     }};
 }
@@ -68,8 +66,8 @@ macro_rules! test {
     };
 }
 
-test!(test_binary_stream_random_len, test_stream_random_len);
-test!(test_binary_stream_random_consume, test_stream_random_consume);
-test!(test_binary_stream_all_at_once, test_stream_all_at_once);
+test!(test_raw_stream_random_len, test_stream_random_len);
+test!(test_raw_stream_random_consume, test_stream_random_consume);
+test!(test_raw_stream_all_at_once, test_stream_all_at_once);
 
-// end of binary.rs
+// end of raw.rs

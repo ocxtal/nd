@@ -130,16 +130,16 @@ impl TextFeeder {
         // flush the current buffer, then read the next line
         self.buf.clear();
 
-        let (lines, offset, span) = self.src.read_line(&mut self.buf)?;
+        let (fwd, offset, span) = self.src.read_line(&mut self.buf)?;
         self.offset = offset;
         self.span = span;
 
         // mark EOF
-        if lines == 0 {
+        if fwd == 0 {
             self.offset = usize::MAX;
             self.span = 0;
         }
-        Ok((lines, offset))
+        Ok((fwd, offset))
     }
 }
 
@@ -183,8 +183,8 @@ impl ByteStream for TextStream {
             buf.extend_from_slice(&self.line.buf);
             self.offset += self.line.span;
 
-            let (lines, next_offset) = self.line.fill_buf()?;
-            if lines == 0 {
+            let (fwd, next_offset) = self.line.fill_buf()?;
+            if fwd == 0 {
                 return Ok(false);
             }
 

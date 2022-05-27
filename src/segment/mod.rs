@@ -4,6 +4,7 @@
 
 mod and;
 mod bridge;
+mod guided;
 mod hamming;
 mod merge;
 mod regex;
@@ -12,6 +13,7 @@ mod strip;
 
 pub use self::and::AndStream;
 pub use self::bridge::BridgeStream;
+pub use self::guided::GuidedSlicer;
 pub use self::hamming::HammingSlicer;
 pub use self::merge::MergeStream;
 pub use self::regex::RegexSlicer;

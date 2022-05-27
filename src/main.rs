@@ -55,7 +55,7 @@ OPTIONS:
     -w, --width N           slice into N bytes (default) [16]
     -m, --match PATTERN[:K] slice out every matches that have <= K different bits from the pattern
     -e, --regex PATTERN[:N] slice out every matches with regular expression within N-byte window
-    -R, --range FILE        slice out [pos, pos + len) ranges loaded from the file
+    -G, --guide FILE        slice out [pos, pos + len) ranges loaded from the file
     -W, --walk W:EXPR,...   evaluate the expressions on the stream and split it at the obtained indices
                             (repeated until the end; W-byte word on eval and 1-byte word on split)
 
@@ -201,7 +201,7 @@ fn main() {
                 .takes_value(true)
                 .number_of_values(1)
                 .validator(parse_usize)
-                .conflicts_with_all(&["match", "regex", "slice", "walk"]),
+                .conflicts_with_all(&["match", "regex", "guide", "walk"]),
             Arg::new("match")
                 .short('m')
                 .long("match")
@@ -209,7 +209,7 @@ fn main() {
                 .value_name("PATTERN[:K]")
                 .takes_value(true)
                 .number_of_values(1)
-                .conflicts_with_all(&["width", "regex", "slice", "walk"]),
+                .conflicts_with_all(&["width", "regex", "guide", "walk"]),
             Arg::new("regex")
                 .short('e')
                 .long("regex")
@@ -217,12 +217,12 @@ fn main() {
                 .value_name("PATTERN[:N]")
                 .takes_value(true)
                 .number_of_values(1)
-                .conflicts_with_all(&["width", "match", "slice", "walk"]),
-            Arg::new("range")
-                .short('R')
-                .long("range")
+                .conflicts_with_all(&["width", "match", "guide", "walk"]),
+            Arg::new("guide")
+                .short('G')
+                .long("guide")
                 .help("slice out [pos, pos + len) ranges loaded from the file")
-                .value_name("slices.txt")
+                .value_name("guide.txt")
                 .takes_value(true)
                 .number_of_values(1)
                 .conflicts_with_all(&["width", "match", "regex", "walk"]),
@@ -233,7 +233,7 @@ fn main() {
                 .value_name("W:EXPR")
                 .takes_value(true)
                 .number_of_values(1)
-                .conflicts_with_all(&["width", "match", "regex", "slice"]),
+                .conflicts_with_all(&["width", "match", "regex", "guide"]),
             Arg::new("extend")
                 .short('E')
                 .long("extend")
@@ -335,10 +335,10 @@ fn main() {
 
     let mut stream_params = StreamParams {
         // slicer
-        mode: match (m.value_of("match"), m.value_of("regex"), m.value_of("slice"), m.value_of("walk")) {
+        mode: match (m.value_of("match"), m.value_of("regex"), m.value_of("guide"), m.value_of("walk")) {
             (Some(pattern), None, None, None) => SlicerMode::Match(pattern),
             (None, Some(pattern), None, None) => SlicerMode::Regex(pattern),
-            (None, None, Some(file), None) => SlicerMode::Slice(file),
+            (None, None, Some(file), None) => SlicerMode::Guided(file),
             (None, None, None, Some(expr)) => SlicerMode::Walk(expr),
             (None, None, None, None) => SlicerMode::Const(ConstSlicerParams::from_raw(&raw_slicer_params)),
             _ => panic!("slicer parameter conflict detected."),
@@ -432,7 +432,7 @@ fn create_source(name: &str) -> Box<dyn Read> {
 
 fn apply_parser(input: &str, params: &InputParams) -> Box<dyn ByteStream> {
     let input = create_source(input);
-    let input = Box::new(BinaryStream::new(input, params.word_size, &InoutFormat::input_default()));
+    let input = Box::new(RawStream::new(input, params.word_size));
 
     if params.format.is_binary() {
         input
@@ -471,7 +471,7 @@ fn apply_patch(input: Box<dyn ByteStream>, patch: Option<&PatchParams>) -> Box<d
 
     let patch = patch.unwrap();
     let patch_stream = create_source(patch.file);
-    let patch_stream = Box::new(BinaryStream::new(patch_stream, 1, &InoutFormat::input_default()));
+    let patch_stream = Box::new(RawStream::new(patch_stream, 1));
     Box::new(PatchStream::new(input, patch_stream, &patch.format))
 }
 
@@ -498,10 +498,10 @@ fn build_inputs<'a>(params: &'a InputParams) -> Vec<Input<'a>> {
 #[derive(Debug)]
 enum SlicerMode<'a> {
     Const(ConstSlicerParams),
-    Match(&'a str), // pattern
-    Regex(&'a str), // pattern
-    Slice(&'a str), // filename
-    Walk(&'a str),  // expression
+    Match(&'a str),  // pattern
+    Regex(&'a str),  // pattern
+    Guided(&'a str), // filename
+    Walk(&'a str),   // expression
 }
 
 #[derive(Debug)]
@@ -535,7 +535,12 @@ fn build_stream(stream: Box<dyn ByteStream>, output: Box<dyn Write + Send>, para
         SlicerMode::Const(params) => Box::new(ConstSlicer::new(stream, params.margin, params.pin, params.pitch, params.span)),
         SlicerMode::Match(pattern) => Box::new(HammingSlicer::new(stream, pattern)),
         SlicerMode::Regex(pattern) => Box::new(RegexSlicer::new(stream, params.raw.width, pattern)),
-        SlicerMode::Slice(_) | SlicerMode::Walk(_) => unimplemented!(),
+        SlicerMode::Guided(file) => {
+            let guide = create_source(file);
+            let guide = Box::new(RawStream::new(guide, 1));
+            Box::new(GuidedSlicer::new(stream, guide, &InoutFormat::from_str("xxx").unwrap()))
+        }
+        SlicerMode::Walk(_) => unimplemented!(),
     };
 
     let stream = match params.mode {

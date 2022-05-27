@@ -2,11 +2,11 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
-mod binary;
 mod cat;
 mod clip;
 mod eof;
 mod patch;
+mod raw;
 mod tee;
 mod text;
 mod zero;
@@ -15,11 +15,11 @@ mod zip;
 #[cfg(test)]
 mod mock;
 
-pub use self::binary::BinaryStream;
 pub use self::cat::CatStream;
 pub use self::clip::ClipStream;
 pub use self::eof::EofStream;
 pub use self::patch::PatchStream;
+pub use self::raw::RawStream;
 pub use self::tee::{TeeStream, TeeStreamReader};
 pub use self::text::{GaplessTextStream, TextStream};
 pub use self::zero::ZeroStream;

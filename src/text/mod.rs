@@ -61,13 +61,13 @@ impl InoutFormat {
         }
     }
 
-    pub fn input_default() -> Self {
-        InoutFormat {
-            offset: b'n',
-            span: b'n',
-            body: b'b',
-        }
-    }
+    // pub fn input_default() -> Self {
+    //     InoutFormat {
+    //         offset: b'n',
+    //         span: b'n',
+    //         body: b'b',
+    //     }
+    // }
 
     // pub fn output_default() -> Self {
     //     InoutFormat {
