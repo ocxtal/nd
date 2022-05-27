@@ -69,7 +69,7 @@ impl StreamBuf {
         // make the buffer aligned (without tail margin)
         let tail = self.offset + self.buf.len();
         let rounded = (tail + self.align - 1) / self.align * self.align;
-        self.buf.resize(rounded - self.offset, b'\n');
+        self.buf.resize(rounded - self.offset, 0);
     }
 
     pub fn clear_eof(&mut self) {
