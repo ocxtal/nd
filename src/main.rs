@@ -35,9 +35,9 @@ OPTIONS:
 
   Input and output formats (apply to all input / output streams)
 
-    -f, --out-format XYZ    output format signature [xxx]
-    -F, --in-format XYZ     input format signature [b]
-    -P, --patch-format XYZ  patch file / stream format signature [xxx]
+    -f, --out-format FMT    output format signature [xxx]
+    -F, --in-format FMT     input format signature [b]
+    -P, --patch-format FMT  patch file / stream format signature [xxx]
 
   Constructing input stream
 
@@ -45,33 +45,32 @@ OPTIONS:
     -z, --zip W             zip all input streams into one with W-byte words
     -i, --inplace           edit each input file in-place
 
-    -a, --pad N:M           add N and M bytes of zeros at the head and tail [0:0]
+    -a, --pad N,M           add N and M bytes of zeros at the head and tail [0,0]
     -s, --seek N            skip first N bytes and clear stream offset (after --pad) [0]
     -p, --patch FILE        patch the input stream with the patchfile (after --seek)
-    -n, --bytes N:M         drop bytes out of the range (after --seek or --patch) [0:inf]
+    -n, --bytes N..M        drop bytes out of the range (after --seek or --patch) [0:inf]
 
   Slicing the stream
 
     -w, --width N           slice into N bytes (default) [16]
-    -m, --match PATTERN[:K] slice out every matches that have <= K different bits from the pattern
-    -e, --regex PATTERN[:N] slice out every matches with regular expression within N-byte window
-    -G, --guide FILE        slice out [pos, pos + len) ranges loaded from the file
-    -W, --walk W:EXPR,...   evaluate the expressions on the stream and split it at the obtained indices
-                            (repeated until the end; W-byte word on eval and 1-byte word on split)
+    -D, --find PATTERN[,K]  slice out every matches that have <= K different bits from the pattern
+    -G, --slice-by FILE     slice out [pos, pos + len) ranges loaded from the file
+    -A, --walk EXPR[,...]   split the stream into eval(EXPR)-byte chunks, repeat it until the end
 
-    -E, --extend N:M        extend slices left and right by N and M bytes [0:0]
-    -M, --merge N           iteratively merge two slices with an overlap >= N bytes [-inf]
-    -I, --intersection N    take intersection of two slices with an overlap >= N bytes [-inf]
-    -B, --bridge N:M        create a new slice from two adjoining slices,
-                            between offset N of the former to M of the latter [-1:-1]
-    -l, --lines N:M         drop slices out of the range [0:inf]
+    -O, --ops OP1[.OP2...]  apply a sequence of slice operations (after either of the command above)
+
+        filter(PRED1)
+        map(RANGE1[,...])
+        regex(REGEX,RANGE1[,...])
+        pair(PRED2,RANGE2)
+        reduce(PRED2,RANGE2)
 
   Post-processing the slices
 
-    -j, --offset N:M        add N and M respectively to offset and length when formatting [0:0]
-    -d, --scatter CMD       invoke shell command on each formatted slice []
-    -o, --patch-back CMD    pipe formatted slices to command then patch back to the original stream []
-    -q, --expr EXPR,...     evaluate the expressions on the chunked slices []
+    -l, --lines N..M        drop slices out of the range [0..inf]
+    -j, --offset N,M        add N and M respectively to offset and length when formatting [0,0]
+    -o, --scatter CMD       invoke shell command on each formatted slice []
+    -d, --patch-back CMD    pipe formatted slices to command then patch back to the original stream []
 
   Miscellaneous
 
@@ -227,7 +226,7 @@ fn main() {
                 .number_of_values(1)
                 .conflicts_with_all(&["width", "match", "regex", "walk"]),
             Arg::new("walk")
-                .short('W')
+                .short('A')
                 .long("walk")
                 .help("evaluate the expressions on the stream and split it at the obtained indices")
                 .value_name("W:EXPR")
@@ -283,14 +282,14 @@ fn main() {
                 .number_of_values(1)
                 .validator(parse_usize_pair),
             Arg::new("scatter")
-                .short('d')
+                .short('o')
                 .long("scatter")
                 .help("invoke shell command on each formatted slice []")
                 .value_name("COMMAND")
                 .takes_value(true)
                 .number_of_values(1),
             Arg::new("patch-back")
-                .short('o')
+                .short('d')
                 .long("patch-back")
                 .help("pipe formatted slices to command then patch back to the original stream []")
                 .value_name("COMMAND")

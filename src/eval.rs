@@ -2,15 +2,24 @@
 // @author Hajime Suzuki
 // @brief integer math expression evaluator (for command-line arguments)
 
+use std::collections::HashMap;
 use std::iter::Peekable;
 use std::ops::Range;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 enum Token {
     Val(i64),
     Op(char),
     Prefix(char), // unary op; '+', '-', '!', '~'
     Paren(char),
+    VarPrim(usize),
+    VarArr(usize),
+}
+
+#[derive(Copy, Clone)]
+struct VarAttr {
+    id: usize,
+    is_array: bool,
 }
 
 fn is_unary(c: char) -> bool {
@@ -169,7 +178,27 @@ where
     Some(Token::Val(val * scaler))
 }
 
-fn tokenize(input: &str) -> Option<Vec<Token>> {
+fn parse_var<I>(first: char, vars: &HashMap<&[u8], VarAttr>, it: &mut Peekable<I>) -> Option<Token>
+where
+    I: Iterator<Item = char>,
+{
+    let mut v = vec![first as u8];
+    while let Some(x @ ('a'..='z' | 'A'..='Z')) = it.peek() {
+        v.push(*x as u8);
+        it.next()?;
+    }
+
+    if let Some(var) = vars.get(v.as_slice()) {
+        return if var.is_array {
+            Some(Token::VarArr(var.id))
+        } else {
+            Some(Token::VarPrim(var.id))
+        };
+    }
+    None
+}
+
+fn tokenize(input: &str, vars: &HashMap<&[u8], VarAttr>) -> Option<Vec<Token>> {
     let mut tokens = vec![Token::Paren('(')];
 
     let mut it = input.chars().peekable();
@@ -178,7 +207,7 @@ fn tokenize(input: &str) -> Option<Vec<Token>> {
             ' ' | '\t' | '\n' | '\r' => {
                 continue;
             }
-            '(' | ')' => {
+            '(' | ')' | '[' | ']' => {
                 tokens.push(Token::Paren(x));
             }
             '+' | '-' | '~' | '!' | '*' | '/' | '%' | '&' | '|' | '^' | '<' | '>' => {
@@ -186,6 +215,9 @@ fn tokenize(input: &str) -> Option<Vec<Token>> {
             }
             '0'..='9' => {
                 tokens.push(parse_val(x, &mut it)?);
+            }
+            x @ ('a'..='z' | 'A'..='Z') => {
+                tokens.push(parse_var(x, vars, &mut it)?);
             }
             _ => {
                 // eprintln!("unexpected char found: {}", x);
@@ -207,16 +239,17 @@ fn mark_prefices(tokens: &mut [Token]) -> Option<()> {
             (Token::Op(_) | Token::Paren('('), Token::Op(y)) if is_unary(y) => {
                 latter[0] = Token::Prefix(y);
             }
-            // allowed combinations
-            (Token::Prefix(_), Token::Val(_) | Token::Paren('(')) => {}
-            (Token::Op(_), Token::Val(_)) => {}
-            (Token::Val(_), Token::Op(_)) => {}
-            (Token::Paren('('), Token::Val(_)) => {}
-            (Token::Val(_), Token::Paren(')')) => {}
-            (Token::Paren(')'), Token::Op(_)) => {}
-            (Token::Op(_), Token::Paren('(')) => {}
-            (Token::Paren('('), Token::Paren('(')) => {}
-            (Token::Paren(')'), Token::Paren(')')) => {}
+            // prefix followed by an expression
+            (Token::Prefix(_), Token::Val(_) | Token::VarPrim(_) | Token::VarArr(_) | Token::Paren('(')) => {}
+            // binary op; lhs and rhs
+            (Token::Val(_) | Token::VarPrim(_) | Token::Paren(']' | ')'), Token::Op(_)) => {}
+            (Token::Op(_), Token::Val(_) | Token::VarPrim(_) | Token::VarArr(_) | Token::Paren('(')) => {}
+            // parentheses inner
+            (Token::Paren('(' | '['), Token::Val(_) | Token::VarPrim(_) | Token::VarArr(_) | Token::Paren('(')) => {}
+            (Token::Val(_) | Token::VarPrim(_) | Token::Paren(']' | ')'), Token::Paren(']' | ')')) => {}
+            // opening bracket must follow array variable
+            (Token::VarArr(_), Token::Paren('[')) => {}
+            // otherwise invalid
             _ => {
                 // eprintln!("invalid tokens");
                 return None;
@@ -235,11 +268,12 @@ fn sort_into_rpn(tokens: &[Token]) -> Option<Vec<Token>> {
 
     for &token in tokens {
         match token {
-            Token::Val(val) => {
-                rpn.push(Token::Val(val));
+            Token::Val(_) | Token::VarPrim(_) => {
+                // non-array variable is handled the same as values
+                rpn.push(token);
             }
-            Token::Prefix(op) => {
-                op_stack.push(Token::Prefix(op));
+            Token::Prefix(_) | Token::VarArr(_) | Token::Paren('(' | '[') => {
+                op_stack.push(token);
             }
             Token::Op(op) => {
                 while let Some(&Token::Op(former_op)) = op_stack.last() {
@@ -250,16 +284,16 @@ fn sort_into_rpn(tokens: &[Token]) -> Option<Vec<Token>> {
                 }
                 op_stack.push(Token::Op(op));
             }
-            Token::Paren('(') => {
-                op_stack.push(Token::Paren('('));
-            }
-            Token::Paren(')') => loop {
-                let op = op_stack.pop()?;
-                if let Token::Paren('(') = op {
-                    break;
+            Token::Paren(x @ (')' | ']')) => {
+                let other = if x == ')' { '(' } else { '[' };
+                loop {
+                    let op = op_stack.pop()?;
+                    if op == Token::Paren(other) {
+                        break;
+                    }
+                    rpn.push(op);
                 }
-                rpn.push(op);
-            },
+            }
             _ => {
                 return None;
             }
@@ -344,8 +378,37 @@ fn eval_rpn(tokens: &[Token]) -> Option<i64> {
     Some(result)
 }
 
+#[test]
+fn test_parse_vals() {
+    macro_rules! test {
+        ( $input: expr, $vars: expr ) => {{
+            let vars: HashMap<&[u8], VarAttr> = $vars.iter().map(|(x, y)| (x.as_slice(), *y)).collect();
+            let tokens = tokenize($input, &vars);
+            assert!(tokens.is_some());
+
+            let mut tokens = tokens.unwrap();
+            let ret = mark_prefices(&mut tokens);
+            assert!(ret.is_some());
+
+            let rpn = sort_into_rpn(&tokens);
+            assert!(rpn.is_some());
+        }};
+    }
+
+    test!("0", &[(b"x", VarAttr { is_array: false, id: 0 })]);
+    test!("x", &[(b"x", VarAttr { is_array: false, id: 0 })]);
+    test!("x + x + x", &[(b"x", VarAttr { is_array: false, id: 0 })]);
+    test!("xyz", &[(b"xyz", VarAttr { is_array: false, id: 0 })]);
+
+    test!("x[0]", &[(b"x", VarAttr { is_array: true, id: 0 })]);
+    test!("x[1 + 3 * 2]", &[(b"x", VarAttr { is_array: true, id: 0 })]);
+    test!("x[2 * x[2] + 2]", &[(b"x", VarAttr { is_array: true, id: 0 })]);
+    test!("4 * (x[(3 - 5) * 4] + 3)", &[(b"x", VarAttr { is_array: true, id: 0 })]);
+}
+
 pub fn parse_int(input: &str) -> Option<i64> {
-    let mut tokens = tokenize(input)?;
+    let vars = HashMap::new();
+    let mut tokens = tokenize(input, &vars)?;
     mark_prefices(&mut tokens)?;
 
     let rpn = sort_into_rpn(&tokens)?;
@@ -353,7 +416,7 @@ pub fn parse_int(input: &str) -> Option<i64> {
 }
 
 #[test]
-fn test_parse() {
+fn test_parse_int() {
     assert_eq!(parse_int(""), None);
     assert_eq!(parse_int("0"), Some(0));
     assert_eq!(parse_int("+0"), Some(0));
@@ -395,6 +458,8 @@ fn test_parse() {
     assert_eq!(parse_int("2 * (4 - 1)"), Some(6));
     assert_eq!(parse_int("(4 - 1) * 2"), Some(6));
     assert_eq!(parse_int("-(4 - 1) * 2"), Some(-6));
+    assert_eq!(parse_int("-(4 - (1 + 2)) * 2"), Some(-2));
+    assert_eq!(parse_int("-(4 - ((1 + 2))) * 2"), Some(-2));
 
     assert_eq!(parse_int("(*4 - 1) * 2"), None);
     assert_eq!(parse_int("(4 - 1+) * 2"), None);
