@@ -7,7 +7,7 @@ use std::iter::Peekable;
 use std::ops::Range;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-enum Token {
+pub enum Token {
     Val(i64),
     Op(char),
     Prefix(char), // unary op; '+', '-', '!', '~'
@@ -17,9 +17,9 @@ enum Token {
 }
 
 #[derive(Copy, Clone)]
-struct VarAttr {
-    id: usize,
-    is_array: bool,
+pub struct VarAttr {
+    pub id: usize,
+    pub is_array: bool,
 }
 
 fn is_unary(c: char) -> bool {
@@ -178,7 +178,7 @@ where
     Some(Token::Val(val * scaler))
 }
 
-fn parse_var<I>(first: char, vars: &HashMap<&[u8], VarAttr>, it: &mut Peekable<I>) -> Option<Token>
+fn parse_var<I>(first: char, vars: Option<&HashMap<&[u8], VarAttr>>, it: &mut Peekable<I>) -> Option<Token>
 where
     I: Iterator<Item = char>,
 {
@@ -188,17 +188,26 @@ where
         it.next()?;
     }
 
-    if let Some(var) = vars.get(v.as_slice()) {
-        return if var.is_array {
-            Some(Token::VarArr(var.id))
-        } else {
-            Some(Token::VarPrim(var.id))
-        };
+    if vars.is_none() {
+        eprintln!("vars being None");
+        return None;
     }
-    None
+
+    let var = vars.unwrap().get(v.as_slice());
+    if var.is_none() {
+        eprintln!("vars being None");
+        return None;
+    }
+
+    let var = var.unwrap();
+    if var.is_array {
+        Some(Token::VarArr(var.id))
+    } else {
+        Some(Token::VarPrim(var.id))
+    }
 }
 
-fn tokenize(input: &str, vars: &HashMap<&[u8], VarAttr>) -> Option<Vec<Token>> {
+fn tokenize(input: &str, vars: Option<&HashMap<&[u8], VarAttr>>) -> Option<Vec<Token>> {
     let mut tokens = vec![Token::Paren('(')];
 
     let mut it = input.chars().peekable();
@@ -307,7 +316,11 @@ fn sort_into_rpn(tokens: &[Token]) -> Option<Vec<Token>> {
     Some(rpn)
 }
 
-fn eval_rpn(tokens: &[Token]) -> Option<i64> {
+fn eval_rpn<F>(tokens: &[Token], get: F) -> Option<i64>
+where
+    F: FnMut(usize, i64) -> i64,
+{
+    let mut get = get;
     let apply_prefix = |c: char, x: i64| -> Option<i64> {
         match c {
             '+' => Some(x),
@@ -362,6 +375,13 @@ fn eval_rpn(tokens: &[Token]) -> Option<i64> {
                 let x = stack.last_mut()?;
                 *x = apply_op(op, *x, y)?;
             }
+            Token::VarPrim(id) => {
+                stack.push(get(id, 0));
+            }
+            Token::VarArr(id) => {
+                let x = stack.last_mut()?;
+                *x = get(id, *x);
+            }
             _ => {
                 // eprintln!("unexpected token: {:?}", token);
                 return None;
@@ -378,19 +398,34 @@ fn eval_rpn(tokens: &[Token]) -> Option<i64> {
     Some(result)
 }
 
+// public API
+pub struct Rpn {
+    tokens: Vec<Token>,
+}
+
+impl Rpn {
+    pub fn new(input: &str, vars: Option<&HashMap<&[u8], VarAttr>>) -> Option<Self> {
+        let mut tokens = tokenize(input, vars)?;
+        mark_prefices(&mut tokens)?;
+        let tokens = sort_into_rpn(&tokens)?;
+
+        Some(Rpn { tokens })
+    }
+
+    pub fn evaluate<F>(&self, get: F) -> Option<i64>
+    where
+        F: FnMut(usize, i64) -> i64,
+    {
+        eval_rpn(&self.tokens, get)
+    }
+}
+
 #[test]
 fn test_parse_vals() {
     macro_rules! test {
         ( $input: expr, $vars: expr ) => {{
             let vars: HashMap<&[u8], VarAttr> = $vars.iter().map(|(x, y)| (x.as_slice(), *y)).collect();
-            let tokens = tokenize($input, &vars);
-            assert!(tokens.is_some());
-
-            let mut tokens = tokens.unwrap();
-            let ret = mark_prefices(&mut tokens);
-            assert!(ret.is_some());
-
-            let rpn = sort_into_rpn(&tokens);
+            let rpn = Rpn::new(&$input, Some(&vars));
             assert!(rpn.is_some());
         }};
     }
@@ -404,15 +439,12 @@ fn test_parse_vals() {
     test!("x[1 + 3 * 2]", &[(b"x", VarAttr { is_array: true, id: 0 })]);
     test!("x[2 * x[2] + 2]", &[(b"x", VarAttr { is_array: true, id: 0 })]);
     test!("4 * (x[(3 - 5) * 4] + 3)", &[(b"x", VarAttr { is_array: true, id: 0 })]);
+    test!("5 + ((x[11] & 0xff) << 4)", &[(b"x", VarAttr { is_array: true, id: 0 })]);
 }
 
 pub fn parse_int(input: &str) -> Option<i64> {
-    let vars = HashMap::new();
-    let mut tokens = tokenize(input, &vars)?;
-    mark_prefices(&mut tokens)?;
-
-    let rpn = sort_into_rpn(&tokens)?;
-    eval_rpn(&rpn)
+    let rpn = Rpn::new(input, None)?;
+    rpn.evaluate(|_, _| 0)
 }
 
 #[test]

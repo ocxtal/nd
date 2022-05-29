@@ -53,17 +53,17 @@ OPTIONS:
   Slicing the stream
 
     -w, --width N           slice into N bytes (default) [16]
-    -D, --find PATTERN[,K]  slice out every matches that have <= K different bits from the pattern
+    -D, --find PATTERN      slice out every PATTERN location
     -G, --slice-by FILE     slice out [pos, pos + len) ranges loaded from the file
     -A, --walk EXPR[,...]   split the stream into eval(EXPR)-byte chunks, repeat it until the end
 
     -O, --ops OP1[.OP2...]  apply a sequence of slice operations (after either of the command above)
 
-        filter(PRED1)
-        map(RANGE1[,...])
-        regex(REGEX,RANGE1[,...])
-        pair(PRED2,RANGE2)
-        reduce(PRED2,RANGE2)
+                              filter(PRED1)             drop the slice if PRED1 == true
+                              map(RANGE1[,...])         maps the slice boundaries by RANGE1
+                              regex(REGEX,RANGE1[,...])
+                              pair(PRED2,RANGE2)
+                              reduce(PRED2,RANGE2)
 
   Post-processing the slices
 
@@ -539,7 +539,7 @@ fn build_stream(stream: Box<dyn ByteStream>, output: Box<dyn Write + Send>, para
             let guide = Box::new(RawStream::new(guide, 1));
             Box::new(GuidedSlicer::new(stream, guide, &InoutFormat::from_str("xxx").unwrap()))
         }
-        SlicerMode::Walk(_) => unimplemented!(),
+        SlicerMode::Walk(expr) => Box::new(WalkSlicer::new(stream, expr)),
     };
 
     let stream = match params.mode {
