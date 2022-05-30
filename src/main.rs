@@ -10,10 +10,11 @@ mod segment;
 mod streambuf;
 mod text;
 
-use clap::{Arg, ColorChoice, Command};
+use clap::{Arg, ColorChoice};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::ops::Range;
+use std::process::{Child, Stdio};
 
 use byte::*;
 use drain::*;
@@ -93,7 +94,7 @@ fn main() {
         Ok(())
     };
 
-    let m = Command::new("zd")
+    let m = clap::Command::new("zd")
         .version("0.0.1")
         .about("streamed binary processor")
         .help_template(HELP_TEMPLATE)
@@ -378,7 +379,7 @@ fn main() {
                 std::fs::rename(&tmpfile, &input.name).unwrap();
             }
             _ => {
-                let output = Box::new(std::io::stdout());
+                let (_child, output) = create_drain(Some("less -S -F"));
                 build_stream(input.stream, output, &stream_params).consume_segments().unwrap();
             }
         }
@@ -581,4 +582,22 @@ fn build_stream(stream: Box<dyn ByteStream>, output: Box<dyn Write + Send>, para
     };
 
     output
+}
+
+fn create_drain(pager: Option<&str>) -> (Option<Child>, Box<dyn Write + Send>) {
+    let pager = pager.map(|x| x.to_string()).or(std::env::var("PAGER").ok());
+    if pager.is_none() {
+        return (None, Box::new(std::io::stdout()));
+    }
+
+    let pager = pager.unwrap();
+    let args: Vec<_> = pager.as_str().split_whitespace().collect();
+    let mut child = std::process::Command::new(args[0])
+        .args(&args[1..])
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let input = child.stdin.take().unwrap();
+    (Some(child), Box::new(input))
 }
