@@ -379,8 +379,12 @@ fn main() {
                 std::fs::rename(&tmpfile, &input.name).unwrap();
             }
             _ => {
-                let (_child, output) = create_drain(Some("less -S -F"));
+                let (child, output) = create_drain(Some("less -S -F"));
                 build_stream(input.stream, output, &stream_params).consume_segments().unwrap();
+
+                if let Some(mut child) = child {
+                    let _ = child.wait();
+                }
             }
         }
     }
