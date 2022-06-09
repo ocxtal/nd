@@ -442,8 +442,17 @@ unsafe fn find_matches_avx2(arr: &[u8], pattern: &[u8], v: &mut Vec<Segment>) {
     }
 }
 
+fn find_matches_memchr(arr: &[u8], pattern: &[u8], v: &mut Vec<Segment>) {
+    let len = pattern.len();
+    for pos in memchr::memmem::find_iter(arr, pattern) {
+        v.push(Segment { pos, len });
+    }
+}
+
 #[allow(unreachable_code)]
 fn find_matches(arr: &[u8], pattern: &[u8], v: &mut Vec<Segment>) {
+    return find_matches_memchr(arr, pattern, v);
+
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     return unsafe { find_matches_neon(arr, pattern, v) };
 
@@ -508,6 +517,14 @@ impl SegmentStream for ExactMatchSlicer {
 
         let stream = self.src.as_slice();
         find_matches(&stream[self.scanned..scan_len], &self.pattern, &mut self.segments);
+
+        if is_eof {
+            let mut i = self.segments.len();
+            while i > 0 && self.segments[i - 1].tail() > bytes {
+                i -= 1;
+            }
+            self.segments.truncate(i);
+        }
 
         self.scanned = scan_len;
 
