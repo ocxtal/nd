@@ -54,7 +54,7 @@ unsafe fn vld4q_u8(arr: &[u8]) -> uint8x16x4_t {
     let mut x1: uint8x16_t;
     let mut x2: uint8x16_t;
     let mut x3: uint8x16_t;
-    asm!(
+    std::arch::asm!(
         "ld4 {{ v0.16b, v1.16b, v2.16b, v3.16b }}, [{ptr}]",
         ptr = in(reg) arr.as_ptr(),
         out("v0") x0,
@@ -239,10 +239,10 @@ unsafe fn find_matches_neon(arr: &[u8], pattern: &[u8], v: &mut Vec<Segment>) {
     assert!(pattern.len() > 0);
 
     match pattern.len() {
-        1 => { find_matches_1_neon(arr, ch, v); return; }
-        2 => { find_matches_2_neon(arr, ch, v); return; }
-        3 => { find_matches_3_neon(arr, ch, v); return; }
-        4 => { find_matches_4_neon(arr, ch, v); return; }
+        1 => { find_matches_1_neon(arr, pattern, v); return; }
+        2 => { find_matches_2_neon(arr, pattern, v); return; }
+        3 => { find_matches_3_neon(arr, pattern, v); return; }
+        4 => { find_matches_4_neon(arr, pattern, v); return; }
         _ => {
             let count = find_matches_4_neon(arr, &pattern[..4], v);
             filter_matches(arr, &pattern[4..], v, count);
