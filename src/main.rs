@@ -537,7 +537,7 @@ fn build_stream(stream: Box<dyn ByteStream>, output: Box<dyn Write + Send>, para
     // TODO: apply multiple times
     let slicer: Box<dyn SegmentStream> = match &params.mode {
         SlicerMode::Const(params) => Box::new(ConstSlicer::new(stream, params.margin, params.pin, params.pitch, params.span)),
-        SlicerMode::Match(pattern) => Box::new(HammingSlicer::new(stream, pattern)),
+        SlicerMode::Match(pattern) => Box::new(ExactMatchSlicer::new(stream, pattern)),
         SlicerMode::Regex(pattern) => Box::new(RegexSlicer::new(stream, params.raw.width, pattern)),
         SlicerMode::Guided(file) => {
             let guide = create_source(file);

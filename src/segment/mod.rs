@@ -4,6 +4,7 @@
 
 mod and;
 mod bridge;
+mod exact;
 mod guided;
 mod hamming;
 mod merge;
@@ -14,6 +15,7 @@ mod walk;
 
 pub use self::and::AndStream;
 pub use self::bridge::BridgeStream;
+pub use self::exact::ExactMatchSlicer;
 pub use self::guided::GuidedSlicer;
 pub use self::hamming::HammingSlicer;
 pub use self::merge::MergeStream;
