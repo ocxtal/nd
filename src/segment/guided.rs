@@ -4,7 +4,7 @@
 use super::{Segment, SegmentStream};
 use crate::byte::{ByteStream, EofStream};
 use crate::text::parser::TextParser;
-use crate::InoutFormat;
+use crate::text::InoutFormat;
 use std::io::Result;
 
 pub struct GuidedSlicer {

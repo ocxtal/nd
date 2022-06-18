@@ -5,12 +5,15 @@ mod byte;
 mod drain;
 mod eval;
 mod filluninit;
+mod optimizer;
 mod params;
+mod pipeline;
 mod segment;
 mod streambuf;
 mod text;
 
-use clap::{Arg, ColorChoice};
+use anyhow::{anyhow, ensure, Context, Result};
+use clap::{Arg, ArgMatches, ColorChoice};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::ops::Range;
@@ -19,7 +22,8 @@ use std::process::{Child, Stdio};
 use byte::*;
 use drain::*;
 use eval::*;
-use params::*;
+use optimizer::*;
+use pipeline::*;
 use segment::*;
 use text::*;
 
@@ -40,35 +44,42 @@ OPTIONS:
     -F, --in-format FMT     input format signature [b]
     -P, --patch-format FMT  patch file / stream format signature [xxx]
 
-  Constructing input stream
+  Constructing input stream (exclusive)
 
-    -c, --cat W             concat all input streams into one with W-byte words (default) [1]
+    -c, --cat W             concat all input streams into one with W-byte alignment (default) [1]
     -z, --zip W             zip all input streams into one with W-byte words
     -i, --inplace           edit each input file in-place
+
+  Manipulating the stream
 
     -a, --pad N,M           add N and M bytes of zeros at the head and tail [0,0]
     -s, --seek N            skip first N bytes and clear stream offset (after --pad) [0]
     -p, --patch FILE        patch the input stream with the patchfile (after --seek)
     -n, --bytes N..M        drop bytes out of the range (after --seek or --patch) [0:inf]
 
-  Slicing the stream
+  Slicing the stream (exclusive)
 
     -w, --width N           slice into N bytes (default) [16]
     -D, --find PATTERN      slice out every PATTERN location
     -G, --slice-by FILE     slice out [pos, pos + len) ranges loaded from the file
-    -A, --walk EXPR[,...]   split the stream into eval(EXPR)-byte chunks, repeat it until the end
+    -A, --walk EXPR[,...]   split the stream into eval(EXPR)-byte chunk(s), repeat it until the end
 
-    -O, --ops OP1[.OP2...]  apply a sequence of slice operations (after either of the command above)
+  Manipulating the slices
 
-                              filter(PRED1)             drop the slice if PRED1 == true
-                              map(RANGE1[,...])         maps the slice boundaries by RANGE1
-                              regex(REGEX,RANGE1[,...])
-                              pair(PRED2,RANGE2)
-                              reduce(PRED2,RANGE2)
+    -O, --ops OP1[.OP2...]  apply a sequence of slice operations
+
+      Possible operations are:
+
+        filter(PRED1,RANGE1[,...])  maps the slice to RANGE1(s) if PRED1 == true, otherwise drops it
+                                    note: map(RANGE1[,...]) is aliased to filter(true,RANGE1[,...])
+        regex(REGEX,RANGE1[,...])   maps the slice to RANGE1(s) if it matches with REGEX
+        pair(PRED2,RANGE2,PIN)      maps adjoining two slices to RANGE2 if PRED2 == true
+        reduce(PRED2,RANGE2,PIN)    incrementally merge slices if PRED2 == true, flush it if false
+
+      See README.md for the definitions and examples of RANGE1, RANGE2, PRED1, PRED2, and REGEX.
 
   Post-processing the slices
 
-    -l, --lines N..M        drop slices out of the range [0..inf]
     -j, --offset N,M        add N and M respectively to offset and length when formatting [0,0]
     -o, --scatter CMD       invoke shell command on each formatted slice []
     -d, --patch-back CMD    pipe formatted slices to command then patch back to the original stream []
@@ -79,7 +90,7 @@ OPTIONS:
     -v, --version           print version information
 ";
 
-fn main() {
+fn parse_args() -> Result<ArgMatches> {
     let is_allowed_wordsize = |x: &str| -> Result<(), String> {
         let is_numeric = x.parse::<usize>().is_ok();
         let is_allowed = matches!(x, "1" | "2" | "4" | "8" | "16");
@@ -96,7 +107,7 @@ fn main() {
 
     let m = clap::Command::new("zd")
         .version("0.0.1")
-        .about("streamed binary processor")
+        .about("streamed blob manipulator")
         .help_template(HELP_TEMPLATE)
         .override_usage(USAGE)
         .color(ColorChoice::Never)
@@ -201,79 +212,38 @@ fn main() {
                 .takes_value(true)
                 .number_of_values(1)
                 .validator(parse_usize)
-                .conflicts_with_all(&["match", "regex", "guide", "walk"]),
-            Arg::new("match")
-                .short('m')
-                .long("match")
-                .help("slice out every matches that have <= K different bits from the pattern")
-                .value_name("PATTERN[:K]")
+                .conflicts_with_all(&["find", "slice-by", "walk"]),
+            Arg::new("find")
+                .short('D')
+                .long("find")
+                .help("slice out every PATTERN location")
+                .value_name("PATTERN")
                 .takes_value(true)
                 .number_of_values(1)
-                .conflicts_with_all(&["width", "regex", "guide", "walk"]),
-            Arg::new("regex")
-                .short('e')
-                .long("regex")
-                .help("slice out every matches with regular expression")
-                .value_name("PATTERN[:N]")
-                .takes_value(true)
-                .number_of_values(1)
-                .conflicts_with_all(&["width", "match", "guide", "walk"]),
-            Arg::new("guide")
+                .conflicts_with_all(&["width", "slice-by", "walk"]),
+            Arg::new("slice-by")
                 .short('G')
-                .long("guide")
+                .long("slice-by")
                 .help("slice out [pos, pos + len) ranges loaded from the file")
                 .value_name("guide.txt")
                 .takes_value(true)
                 .number_of_values(1)
-                .conflicts_with_all(&["width", "match", "regex", "walk"]),
+                .conflicts_with_all(&["width", "find", "walk"]),
             Arg::new("walk")
                 .short('A')
                 .long("walk")
-                .help("evaluate the expressions on the stream and split it at the obtained indices")
+                .help("split the stream into eval(EXPR)-byte chunk(s), repeat it until the end")
                 .value_name("W:EXPR")
                 .takes_value(true)
                 .number_of_values(1)
-                .conflicts_with_all(&["width", "match", "regex", "guide"]),
-            Arg::new("extend")
-                .short('E')
-                .long("extend")
-                .help("extend slices left and right by N and M bytes [0:0]")
-                .value_name("N:M")
+                .conflicts_with_all(&["width", "match", "slice-by"]),
+            Arg::new("ops")
+                .short('O')
+                .long("ops")
+                .help("apply a sequence of slice operations")
+                .value_name("OPS")
                 .takes_value(true)
-                .number_of_values(1)
-                .validator(parse_isize_pair),
-            Arg::new("merge")
-                .short('M')
-                .long("merge")
-                .help("iteratively merge two slices with an overlap >= N bytes [-inf]")
-                .value_name("N")
-                .takes_value(true)
-                .number_of_values(1)
-                .validator(parse_isize),
-            Arg::new("intersection")
-                .short('I')
-                .long("intersection")
-                .help("take intersection of two slices whose overlap is >= N bytes [0]")
-                .value_name("N")
-                .takes_value(true)
-                .number_of_values(1)
-                .validator(parse_usize),
-            Arg::new("bridge")
-                .short('B')
-                .long("bridge")
-                .help("create a new slice from two adjoining slices, between offset N of the former to M of the latter [-1,-1]")
-                .value_name("N:M")
-                .takes_value(true)
-                .number_of_values(1)
-                .validator(parse_isize_pair),
-            Arg::new("lines")
-                .short('l')
-                .long("lines")
-                .help("drop slices out of the range [0:inf]")
-                .value_name("N:M")
-                .takes_value(true)
-                .number_of_values(1)
-                .validator(parse_range),
+                .number_of_values(1),
             Arg::new("offset")
                 .short('j')
                 .long("offset")
@@ -301,6 +271,204 @@ fn main() {
         ])
         .get_matches();
 
+    Ok(m)
+}
+
+fn collect_elems(x: &str) -> Vec<String> {
+    x.split(',').map(|x| x.to_string()).collect::<Vec<_>>()
+}
+
+fn split_op_and_args(stream: &str) -> Result<(&str, &str, &str)> {
+    let mut start = usize::MAX;
+    let mut depth = 0;
+
+    for (i, x) in stream.bytes().enumerate() {
+        if x == b'(' {
+            depth += 1;
+            start = std::cmp::min(start, i);
+        }
+        if x == b')' {
+            depth -= 1;
+            if depth == 0 {
+                debug_assert!(start + 1 < i);
+                let op = stream
+                    .get(..start)
+                    .with_context(|| format!("failed to slice {:?} as a utf-8 string from {:?}", ..start, stream))?;
+                let args = stream
+                    .get(start + 1..i)
+                    .with_context(|| format!("failed to slice {:?} as a utf-8 string from {:?}", start + 1..i, stream))?;
+                let rem = stream
+                    .get(i + 1..)
+                    .with_context(|| format!("failed to slice {:?} as a utf-8 string from {:?}", i + 1.., stream))?;
+                eprintln!("{:?}, {:?}, {:?}", op, args, rem);
+                return Ok((op, args, rem));
+            }
+        }
+    }
+    Err(anyhow!("parenthes not balanced in the operator chain {:?}", stream))
+}
+
+fn parse_bool(x: &str) -> Result<bool> {
+    match x {
+        "true" | "1" => Ok(true),
+        "false" | "0" => Ok(false),
+        _ => Err(anyhow!("failed to parse {:?} as a boolean.", x)),
+    }
+}
+
+fn parse_opcall(op: &str, args: &str) -> Result<PipelineNode> {
+    let unrecognized = || Err(anyhow!("unrecognized operator {:?}", op));
+
+    let (pred, args, pin, has_rem) = match op {
+        "map" => {
+            let args = args.split(',').collect::<Vec<_>>();
+            (Some("1"), args, false, false)
+        }
+        "filter" | "regex" => {
+            let mut it = args.split(',');
+            let pred = it.next();
+            let args: Vec<_> = it.collect();
+            (pred, args, false, false)
+        }
+        "pair" | "reduce" => {
+            let mut it = args.split(',');
+            let pred = it.next();
+            let args: Vec<_> = it.next().into_iter().collect();
+            let pin = parse_bool(it.next().unwrap_or("false"))?;
+            (pred, args, pin, it.next().is_some())
+        }
+        _ => return unrecognized(),
+    };
+
+    ensure!(
+        pred.is_some() && !args.is_empty() && !has_rem,
+        "operator {:?} must have {:?}",
+        op,
+        match op {
+            "map" => "one RANGE1 argument",
+            "filter" => "one PRED1 and at least one RANGE1 arguments",
+            "regex" => "one PRED1 and at least one RANGE1 arguments",
+            "pair" => "one PRED2 and one RANGE2 arguments",
+            "reduce" => "one PRED2 and one RANGE2 arguments",
+            _ => return unrecognized(),
+        }
+    );
+
+    let pred = pred.unwrap().trim();
+    Ok(match op {
+        "map" => PipelineNode::Filter(
+            SegmentPred::from_pred_single(pred)?,
+            args.iter().map(|x| SegmentMapper::from_range_single(x.trim()).unwrap()).collect(),
+        ),
+        "filter" => PipelineNode::Filter(
+            SegmentPred::from_pred_single(pred)?,
+            args.iter().map(|x| SegmentMapper::from_range_single(x.trim()).unwrap()).collect(),
+        ),
+        "regex" => PipelineNode::Regex(
+            SegmentPred::from_pred_single(pred)?,
+            args.iter().map(|x| SegmentMapper::from_range_single(x.trim()).unwrap()).collect(),
+        ),
+        "pair" => PipelineNode::Pair(
+            SegmentPred::from_pred_pair(pred)?,
+            SegmentMapper::from_range_pair(args[0].trim()).unwrap(),
+            pin,
+        ),
+        "reduce" => PipelineNode::Reduce(
+            SegmentPred::from_pred_pair(pred)?,
+            SegmentMapper::from_range_pair(args[0].trim()).unwrap(),
+            pin,
+        ),
+        _ => return unrecognized(),
+    })
+}
+
+fn parse_opcall_chain(stream: &str) -> Result<Vec<PipelineNode>> {
+    let mut nodes = Vec::new();
+    let mut rem = stream;
+
+    while !rem.is_empty() {
+        let (op, args, next_rem) = split_op_and_args(rem)?;
+        if !next_rem.is_empty() && next_rem.as_bytes()[0] != b'.' {
+            return Err(anyhow!("operator chain broken in {:?}", stream));
+        }
+
+        let node = parse_opcall(op, args)?;
+        nodes.push(node);
+
+        rem = next_rem;
+    }
+
+    Ok(nodes)
+}
+
+fn build_pipeline_nodes(m: &ArgMatches) -> Result<Vec<PipelineNode>> {
+    let mut nodes = Vec::new();
+
+    // input options are exclusive; we believe the options are already validated
+    let node = match (m.is_present("inplace"), m.value_of("cat"), m.value_of("zip")) {
+        (true, None, None) => PipelineNode::Inplace,
+        (false, Some(align), None) => PipelineNode::Cat(parse_usize(align).unwrap()),
+        (false, None, Some(word)) => PipelineNode::Zip(parse_usize(word).unwrap()),
+        (false, None, None) => PipelineNode::Cat(1),
+        _ => return Err(anyhow!("stream parameter conflict detected.")),
+    };
+    nodes.push(node);
+
+    // just append one-by-one
+    if let Some(pad) = m.value_of("pad") {
+        nodes.push(PipelineNode::Pad(parse_usize_pair(pad).unwrap()));
+    }
+    if let Some(seek) = m.value_of("seek") {
+        nodes.push(PipelineNode::Seek(parse_usize(seek).unwrap()));
+    }
+    if let Some(bytes) = m.value_of("bytes") {
+        nodes.push(PipelineNode::Bytes(parse_range(bytes).unwrap()));
+    }
+    if let Some(patch) = m.value_of("patch") {
+        nodes.push(PipelineNode::Patch(patch.to_string()));
+    }
+
+    // slicers are exclusive as well
+    let node = match (m.value_of("width"), m.value_of("find"), m.value_of("slice-by"), m.value_of("walk")) {
+        (Some(n), None, None, None) => PipelineNode::Width(parse_usize(n).unwrap()),
+        (None, Some(pattern), None, None) => PipelineNode::Find(pattern.to_string()),
+        (None, None, Some(file), None) => PipelineNode::SliceBy(file.to_string()),
+        (None, None, None, Some(expr)) => PipelineNode::Walk(collect_elems(expr)),
+        (None, None, None, None) => PipelineNode::Width(16),
+        _ => return Err(anyhow!("slicer parameter conflict detected.")),
+    };
+    nodes.push(node);
+
+    if let Some(ops) = m.value_of("ops") {
+        // split method chain
+        let ops = parse_opcall_chain(ops)?;
+        nodes.extend_from_slice(&ops);
+    }
+
+    let offsets = if let Some(offsets) = m.value_of("offset") {
+        parse_usize_pair(offsets).unwrap()
+    } else {
+        (0, 0)
+    };
+
+    let node = match (m.value_of("scatter"), m.value_of("patch-back"), m.value_of("pager")) {
+        (Some(command), None, None) => PipelineNode::Scatter(command.to_string(), offsets),
+        (None, Some(command), None) => PipelineNode::PatchBack(command.to_string(), offsets),
+        (None, None, Some(command)) => PipelineNode::Pager(command.to_string(), offsets),
+        (None, None, None) => PipelineNode::Pager("less -F".to_string(), offsets),
+        _ => return Err(anyhow!("postprocess parameter conflict detected.")),
+    };
+    nodes.push(node);
+
+    Ok(nodes)
+}
+
+fn main() -> Result<()> {
+    let m = parse_args()?;
+    let nodes = build_pipeline_nodes(&m)?;
+    let pipeline = Pipeline::from_nodes(nodes)?;
+    let _ = pipeline.spawn_stream(&[""]);
+
     // compose parameters
     let mut input_params = InputParams {
         files: m.values_of("inputs").unwrap().collect(),
@@ -313,11 +481,11 @@ fn main() {
             _ => panic!("stream parameter conflict detected."),
         },
         word_size: parse_usize(m.value_of("cat").unwrap_or_else(|| m.value_of("zip").unwrap_or("1"))).unwrap(),
-        clipper: ClipperParams::from_raw(&RawClipperParams {
-            pad: m.value_of("pad").map(|x| parse_usize_pair(x).unwrap()),
-            seek: m.value_of("seek").map(|x| parse_usize(x).unwrap()),
-            range: m.value_of("bytes").map(|x| parse_range(x).unwrap()),
-        }),
+        clipper: ClipperParams::from_raw(
+            m.value_of("pad").map(|x| parse_usize_pair(x).unwrap()),
+            m.value_of("seek").map(|x| parse_usize(x).unwrap()),
+            m.value_of("bytes").map(|x| parse_range(x).unwrap()),
+        ),
         patch: m.value_of("patch").map(|file| PatchParams {
             file,
             format: InoutFormat::from_str(m.value_of("patch-format").unwrap()).unwrap(),
@@ -355,7 +523,7 @@ fn main() {
     };
 
     if check_param_conflicts(&input_params, &stream_params) {
-        return;
+        return Err(anyhow!("parameter conflict detected."));
     }
 
     // patch parameters for constant-stride slicer
@@ -388,6 +556,8 @@ fn main() {
             }
         }
     }
+
+    Ok(())
 }
 
 fn check_param_conflicts(input_params: &InputParams, _stream_params: &StreamParams) -> bool {

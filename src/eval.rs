@@ -10,7 +10,7 @@ use std::ops::Range;
 pub enum Token {
     Val(i64),
     Op(char),
-    Prefix(char), // unary op; '+', '-', '!', '~'
+    Prefix(char), // unary op; '+', '-', '!', '~' (TODO: add deref operator '*')
     Paren(char),
     VarPrim(usize),
     VarArr(usize),
@@ -26,57 +26,79 @@ fn is_unary(c: char) -> bool {
     c == '+' || c == '-' || c == '!' || c == '~'
 }
 
-fn latter_precedes(former: char, latter: char) -> bool {
+fn latter_precedes(former: &Token, latter: &Token) -> bool {
     let is_muldiv = |c: char| -> bool { c == '*' || c == '/' || c == '%' };
     let is_addsub = |c: char| -> bool { c == '+' || c == '-' };
     let is_shift = |c: char| -> bool { c == '<' || c == '>' };
+    let is_cmp = |c: char| -> bool { c == 'g' || c == 'G' || c == 'l' || c == 'L' };
     let is_pow = |c: char| -> bool { c == '@' };
 
-    if is_muldiv(former) || is_muldiv(latter) {
-        return !is_muldiv(former);
-    } else if is_addsub(former) || is_addsub(latter) {
-        return !is_addsub(former);
-    } else if is_shift(former) || is_shift(latter) {
-        return !is_shift(former);
+    match (former, latter) {
+        (&Token::Prefix(_), &Token::Op(latter)) => is_pow(latter),
+        (&Token::Op(former), &Token::Op(latter)) => {
+            if is_muldiv(former) || is_muldiv(latter) {
+                return !is_muldiv(former);
+            } else if is_addsub(former) || is_addsub(latter) {
+                return !is_addsub(former);
+            } else if is_shift(former) || is_shift(latter) {
+                return !is_shift(former);
+            } else if is_pow(former) || is_pow(latter) {
+                return is_pow(latter);
+            }
+            debug_assert!(is_cmp(former) && is_cmp(latter));
+            false
+        }
+        _ => true,
     }
-    is_pow(former) && is_pow(latter)
 }
 
 #[test]
 fn test_precedence() {
-    assert_eq!(latter_precedes('*', '*'), false);
-    assert_eq!(latter_precedes('*', '/'), false);
-    assert_eq!(latter_precedes('*', '%'), false);
-    assert_eq!(latter_precedes('/', '*'), false);
-    assert_eq!(latter_precedes('%', '*'), false);
+    assert_eq!(latter_precedes(&Token::Op('*'), &Token::Op('*')), false);
+    assert_eq!(latter_precedes(&Token::Op('*'), &Token::Op('/')), false);
+    assert_eq!(latter_precedes(&Token::Op('*'), &Token::Op('%')), false);
+    assert_eq!(latter_precedes(&Token::Op('/'), &Token::Op('*')), false);
+    assert_eq!(latter_precedes(&Token::Op('%'), &Token::Op('*')), false);
 
-    assert_eq!(latter_precedes('*', '+'), false);
-    assert_eq!(latter_precedes('*', '+'), false);
-    assert_eq!(latter_precedes('*', '+'), false);
-    assert_eq!(latter_precedes('/', '+'), false);
-    assert_eq!(latter_precedes('%', '+'), false);
+    assert_eq!(latter_precedes(&Token::Op('*'), &Token::Op('+')), false);
+    assert_eq!(latter_precedes(&Token::Op('*'), &Token::Op('+')), false);
+    assert_eq!(latter_precedes(&Token::Op('*'), &Token::Op('+')), false);
+    assert_eq!(latter_precedes(&Token::Op('/'), &Token::Op('+')), false);
+    assert_eq!(latter_precedes(&Token::Op('%'), &Token::Op('+')), false);
 
-    assert_eq!(latter_precedes('+', '*'), true);
-    assert_eq!(latter_precedes('+', '*'), true);
-    assert_eq!(latter_precedes('+', '*'), true);
-    assert_eq!(latter_precedes('+', '/'), true);
-    assert_eq!(latter_precedes('+', '%'), true);
+    assert_eq!(latter_precedes(&Token::Op('+'), &Token::Op('*')), true);
+    assert_eq!(latter_precedes(&Token::Op('+'), &Token::Op('*')), true);
+    assert_eq!(latter_precedes(&Token::Op('+'), &Token::Op('*')), true);
+    assert_eq!(latter_precedes(&Token::Op('+'), &Token::Op('/')), true);
+    assert_eq!(latter_precedes(&Token::Op('+'), &Token::Op('%')), true);
 
-    assert_eq!(latter_precedes('+', '+'), false);
-    assert_eq!(latter_precedes('-', '+'), false);
-    assert_eq!(latter_precedes('+', '-'), false);
+    assert_eq!(latter_precedes(&Token::Op('+'), &Token::Op('+')), false);
+    assert_eq!(latter_precedes(&Token::Op('-'), &Token::Op('+')), false);
+    assert_eq!(latter_precedes(&Token::Op('+'), &Token::Op('-')), false);
 
-    assert_eq!(latter_precedes('*', '<'), false);
-    assert_eq!(latter_precedes('<', '*'), true);
-    assert_eq!(latter_precedes('+', '<'), false);
-    assert_eq!(latter_precedes('<', '+'), true);
-    assert_eq!(latter_precedes('<', '>'), false);
+    assert_eq!(latter_precedes(&Token::Op('*'), &Token::Op('<')), false);
+    assert_eq!(latter_precedes(&Token::Op('<'), &Token::Op('*')), true);
+    assert_eq!(latter_precedes(&Token::Op('+'), &Token::Op('<')), false);
+    assert_eq!(latter_precedes(&Token::Op('<'), &Token::Op('+')), true);
+    assert_eq!(latter_precedes(&Token::Op('<'), &Token::Op('>')), false);
 
-    assert_eq!(latter_precedes('*', '@'), false);
-    assert_eq!(latter_precedes('@', '*'), true);
-    assert_eq!(latter_precedes('+', '@'), false);
-    assert_eq!(latter_precedes('@', '+'), true);
-    assert_eq!(latter_precedes('@', '@'), true);
+    assert_eq!(latter_precedes(&Token::Op('*'), &Token::Op('@')), false);
+    assert_eq!(latter_precedes(&Token::Op('@'), &Token::Op('*')), true);
+    assert_eq!(latter_precedes(&Token::Op('+'), &Token::Op('@')), false);
+    assert_eq!(latter_precedes(&Token::Op('@'), &Token::Op('+')), true);
+    assert_eq!(latter_precedes(&Token::Op('@'), &Token::Op('@')), true);
+
+    assert_eq!(latter_precedes(&Token::Op('+'), &Token::Op('g')), false);
+    assert_eq!(latter_precedes(&Token::Op('g'), &Token::Op('+')), true);
+    assert_eq!(latter_precedes(&Token::Op('@'), &Token::Op('g')), false);
+    assert_eq!(latter_precedes(&Token::Op('g'), &Token::Op('@')), true);
+    assert_eq!(latter_precedes(&Token::Op('g'), &Token::Op('g')), false);
+
+    assert_eq!(latter_precedes(&Token::Prefix('+'), &Token::Op('*')), false);
+    assert_eq!(latter_precedes(&Token::Prefix('+'), &Token::Op('+')), false);
+    assert_eq!(latter_precedes(&Token::Prefix('+'), &Token::Op('<')), false);
+    assert_eq!(latter_precedes(&Token::Prefix('+'), &Token::Op('g')), false);
+    assert_eq!(latter_precedes(&Token::Prefix('+'), &Token::Op('@')), true);
 }
 
 fn parse_op<I>(first: char, it: &mut Peekable<I>) -> Option<Token>
@@ -85,8 +107,12 @@ where
 {
     // "<<" or ">>"
     if first == '<' || first == '>' {
-        if first != *it.peek()? {
-            return None;
+        let next = *it.peek()?;
+        if first != next {
+            let op_tags = [['g', 'G'], ['l', 'L']];
+            let is_eq = (next == '=') as usize;
+            let is_lt = (first == '<') as usize;
+            return Some(Token::Op(op_tags[is_lt][is_eq]));
         }
         it.next()?;
         return Some(Token::Op(first));
@@ -271,7 +297,107 @@ fn mark_prefices(tokens: &mut [Token]) -> Option<()> {
     Some(())
 }
 
-fn sort_into_rpn(tokens: &[Token]) -> Option<Vec<Token>> {
+fn apply_prefix(c: char, x: i64) -> Option<i64> {
+    match c {
+        '+' => Some(x),
+        '-' => Some(-x),
+        '!' | '~' => Some(!x),
+        _ => {
+            // eprintln!("unknown op: {:?}", c);
+            None
+        }
+    }
+}
+
+fn apply_op(c: char, x: i64, y: i64) -> Option<i64> {
+    match c {
+        '+' => Some(x + y),
+        '-' => Some(x - y),
+        '*' => Some(x * y),
+        '/' => Some(x / y),
+        '%' => Some(x % y),
+        '&' => Some(x & y),
+        '|' => Some(x | y),
+        '^' => Some(x ^ y),
+        '<' => Some(if y >= 0 {
+            x << ((y as usize) & 0x3f)
+        } else {
+            x >> ((-y as usize) & 0x3f)
+        }),
+        '>' => Some(if y >= 0 {
+            x >> ((y as usize) & 0x3f)
+        } else {
+            x << ((-y as usize) & 0x3f)
+        }),
+        '@' => Some(if y >= 0 { x.pow(y as u32) } else { 0 }), // FIXME
+        'g' => Some(if x > y { 1 } else { 0 }),
+        'G' => Some(if x >= y { 1 } else { 0 }),
+        'l' => Some(if x < y { 1 } else { 0 }),
+        'L' => Some(if x <= y { 1 } else { 0 }),
+        _ => {
+            // eprintln!("unknown op: {:?}", c);
+            None
+        }
+    }
+}
+
+fn find_val(lhs: usize, op: char, rpn: &mut [(Token, usize, usize)]) -> Option<&mut Token> {
+    let is_addsub = |c: char| -> bool { c == '+' || c == '-' };
+
+    let mut i = lhs;
+    let mut parity = false;
+
+    loop {
+        match rpn[i] {
+            (Token::Val(y), _, _) => {
+                return Some(&mut rpn[i].0);
+            }
+            (Token::Op(lhs_op), lhs, _) => {
+                if (is_addsub(op) && is_addsub(lhs_op)) || op == lhs_op {
+                    parity = parity ^ (op == lhs_op);
+                    i = lhs;
+                } else {
+                    return None;
+                }
+            }
+            _ => {
+                return None;
+            }
+        }
+    }
+}
+
+fn push_with_partial_eval(lhs: usize, rhs: usize, token: Token, rpn: &mut Vec<(Token, usize, usize)>) -> Option<()> {
+    let len = rpn.len();
+    let mut rpn = rpn;
+
+    match (rpn.pop(), token) {
+        (Some((Token::Val(y), down, up)), Token::Op(op)) => {
+            if let Some(Token::Val(x)) = find_val(lhs, op, &mut rpn) {
+                *x = apply_op(op, *x, y)?;
+            } else {
+                rpn.push((Token::Val(y), down, up));
+                rpn.push((token, lhs, len));
+                rpn[lhs].2 = len;
+                rpn[rhs].2 = len;
+            }
+        }
+        (Some((Token::Val(x), down, up)), Token::Prefix(op)) => {
+            rpn.push((Token::Val(apply_prefix(op, x)?), down, up));
+        }
+        (keep, token) => {
+            if let Some(keep) = keep {
+                rpn.push(keep);
+            }
+            rpn.push((token, lhs, len));
+            rpn[lhs].2 = len;
+            rpn[rhs].2 = len;
+        }
+    }
+    Some(())
+}
+
+fn sort_into_rpn(tokens: &[Token]) -> Option<Vec<(Token, usize, usize)>> {
     let mut rpn = Vec::new();
     let mut op_stack = Vec::new();
 
@@ -279,28 +405,29 @@ fn sort_into_rpn(tokens: &[Token]) -> Option<Vec<Token>> {
         match token {
             Token::Val(_) | Token::VarPrim(_) => {
                 // non-array variable is handled the same as values
-                rpn.push(token);
+                push_with_partial_eval(rpn.len(), rpn.len(), token, &mut rpn)?;
             }
             Token::Prefix(_) | Token::VarArr(_) | Token::Paren('(' | '[') => {
-                op_stack.push(token);
+                op_stack.push((rpn.len() + 1, token));
             }
             Token::Op(op) => {
-                while let Some(&Token::Op(former_op)) = op_stack.last() {
-                    if latter_precedes(former_op, op) {
+                while let Some(&(_, former_op)) = op_stack.last() {
+                    if latter_precedes(&former_op, &Token::Op(op)) {
                         break;
                     }
-                    rpn.push(op_stack.pop()?);
+                    let (i, op) = op_stack.pop()?;
+                    push_with_partial_eval(i - 1, rpn.len() - 1, op, &mut rpn)?;
                 }
-                op_stack.push(Token::Op(op));
+                op_stack.push((rpn.len(), Token::Op(op)));
             }
             Token::Paren(x @ (')' | ']')) => {
                 let other = if x == ')' { '(' } else { '[' };
                 loop {
-                    let op = op_stack.pop()?;
+                    let (i, op) = op_stack.pop()?;
                     if op == Token::Paren(other) {
                         break;
                     }
-                    rpn.push(op);
+                    push_with_partial_eval(i - 1, rpn.len() - 1, op, &mut rpn)?;
                 }
             }
             _ => {
@@ -316,53 +443,14 @@ fn sort_into_rpn(tokens: &[Token]) -> Option<Vec<Token>> {
     Some(rpn)
 }
 
-fn eval_rpn<F>(tokens: &[Token], get: F) -> Option<i64>
+fn eval_rpn<F>(tokens: &[(Token, usize, usize)], get: F) -> Option<i64>
 where
     F: FnMut(usize, i64) -> i64,
 {
     let mut get = get;
-    let apply_prefix = |c: char, x: i64| -> Option<i64> {
-        match c {
-            '+' => Some(x),
-            '-' => Some(-x),
-            '!' | '~' => Some(!x),
-            _ => {
-                // eprintln!("unknown op: {:?}", c);
-                None
-            }
-        }
-    };
-    let apply_op = |c: char, x: i64, y: i64| -> Option<i64> {
-        match c {
-            '+' => Some(x + y),
-            '-' => Some(x - y),
-            '*' => Some(x * y),
-            '/' => Some(x / y),
-            '%' => Some(x % y),
-            '&' => Some(x & y),
-            '|' => Some(x | y),
-            '^' => Some(x ^ y),
-            '<' => Some(if y >= 0 {
-                x << ((y as usize) & 0x3f)
-            } else {
-                x >> ((-y as usize) & 0x3f)
-            }),
-            '>' => Some(if y >= 0 {
-                x >> ((y as usize) & 0x3f)
-            } else {
-                x << ((-y as usize) & 0x3f)
-            }),
-            '@' => Some(if y >= 0 { x.pow(y as u32) } else { 0 }), // FIXME
-            _ => {
-                // eprintln!("unknown op: {:?}", c);
-                None
-            }
-        }
-    };
-
     let mut stack = Vec::new();
     for &token in tokens {
-        match token {
+        match token.0 {
             Token::Val(val) => {
                 stack.push(val);
             }
@@ -399,24 +487,35 @@ where
 }
 
 // public API
+#[derive(Clone, Debug, PartialEq)]
 pub struct Rpn {
-    tokens: Vec<Token>,
+    rpn: Vec<(Token, usize, usize)>,
+    has_deref: bool,
 }
 
 impl Rpn {
     pub fn new(input: &str, vars: Option<&HashMap<&[u8], VarAttr>>) -> Option<Self> {
         let mut tokens = tokenize(input, vars)?;
         mark_prefices(&mut tokens)?;
-        let tokens = sort_into_rpn(&tokens)?;
+        let rpn = sort_into_rpn(&tokens)?;
 
-        Some(Rpn { tokens })
+        let has_deref = rpn.iter().any(|x| match x.0 {
+            Token::VarPrim(_) | Token::VarArr(_) => true,
+            _ => false,
+        });
+
+        Some(Rpn { rpn, has_deref })
+    }
+
+    pub fn has_deref(&self) -> bool {
+        self.has_deref
     }
 
     pub fn evaluate<F>(&self, get: F) -> Option<i64>
     where
         F: FnMut(usize, i64) -> i64,
     {
-        eval_rpn(&self.tokens, get)
+        eval_rpn(&self.rpn, get)
     }
 }
 
