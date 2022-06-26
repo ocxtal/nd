@@ -6,7 +6,7 @@ mod fuse_clips;
 mod fuse_ops;
 
 pub use self::fuse_clips::{ClipperParams, FuseClips};
-pub use self::fuse_ops::{ConstSlicerParams, RawSlicerParams};
+pub use self::fuse_ops::{ConstSlicerParams, FuseOps, RawSlicerParams};
 
 use crate::pipeline::PipelineNode;
 

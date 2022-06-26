@@ -18,7 +18,7 @@ impl ClipperParams {
     pub fn from_raw(pad: Option<(usize, usize)>, seek: Option<usize>, range: Option<Range<usize>>) -> Self {
         let pad = pad.unwrap_or((0, 0));
         let seek = seek.unwrap_or(0);
-        let range = range.clone().unwrap_or(0..usize::MAX);
+        let range = range.unwrap_or(0..usize::MAX);
 
         // apply "pad"
         let (head_pad, tail_pad) = pad;

@@ -236,7 +236,7 @@ fn parse_args() -> Result<ArgMatches> {
                 .value_name("W:EXPR")
                 .takes_value(true)
                 .number_of_values(1)
-                .conflicts_with_all(&["width", "match", "slice-by"]),
+                .conflicts_with_all(&["width", "find", "slice-by"]),
             Arg::new("ops")
                 .short('O')
                 .long("ops")
@@ -386,7 +386,7 @@ fn parse_opcall_chain(stream: &str) -> Result<Vec<PipelineNode>> {
     let mut nodes = Vec::new();
     let mut rem = stream;
 
-    while !rem.is_empty() {
+    loop {
         let (op, args, next_rem) = split_op_and_args(rem)?;
         if !next_rem.is_empty() && next_rem.as_bytes()[0] != b'.' {
             return Err(anyhow!("operator chain broken in {:?}", stream));
@@ -395,7 +395,10 @@ fn parse_opcall_chain(stream: &str) -> Result<Vec<PipelineNode>> {
         let node = parse_opcall(op, args)?;
         nodes.push(node);
 
-        rem = next_rem;
+        if next_rem.is_empty() {
+            break;
+        }
+        rem = &next_rem[1..];
     }
 
     Ok(nodes)
@@ -759,7 +762,7 @@ fn build_stream(stream: Box<dyn ByteStream>, output: Box<dyn Write + Send>, para
 }
 
 fn create_drain(pager: Option<&str>) -> (Option<Child>, Box<dyn Write + Send>) {
-    let pager = pager.map(|x| x.to_string()).or(std::env::var("PAGER").ok());
+    let pager = pager.map(|x| x.to_string()).or_else(|| std::env::var("PAGER").ok());
     if pager.is_none() {
         return (None, Box::new(std::io::stdout()));
     }

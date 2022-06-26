@@ -14,6 +14,7 @@ pub struct HammingSlicer {
 }
 
 impl HammingSlicer {
+    #[allow(dead_code)]
     pub fn new(src: Box<dyn ByteStream>, _pattern: &str) -> Self {
         HammingSlicer {
             src,

@@ -3,7 +3,7 @@
 // @date 2022/6/11
 
 use crate::drain::StreamDrain;
-use crate::optimizer::{ClipperParams, ConstSlicerParams, FuseClips, GreedyOptimizer};
+use crate::optimizer::{ClipperParams, ConstSlicerParams, FuseClips, FuseOps, GreedyOptimizer};
 use crate::segment::{SegmentMapper, SegmentPred};
 use anyhow::{anyhow, Result};
 use std::ops::Range;
@@ -74,18 +74,17 @@ impl PipelineNode {
     }
 
     fn precedes(&self, next: &PipelineNode) -> bool {
-        match (self.class(), next.class()) {
-            (PipelineNodeClass::Placeholder, PipelineNodeClass::ByteFilter) => true,
-            (PipelineNodeClass::Placeholder, PipelineNodeClass::Slicer) => true,
-            (PipelineNodeClass::ByteFilter, PipelineNodeClass::ByteFilter) => true,
-            (PipelineNodeClass::ByteFilter, PipelineNodeClass::Slicer) => true,
-            (PipelineNodeClass::Slicer, PipelineNodeClass::SegmentFilter) => true,
-            (PipelineNodeClass::Slicer, PipelineNodeClass::Drain) => true,
-            (PipelineNodeClass::SegmentFilter, PipelineNodeClass::SegmentFilter) => true,
-            (PipelineNodeClass::SegmentFilter, PipelineNodeClass::Drain) => true,
-            // (PipelineNodeClass::Drain, PipelineNodeClass::Placeholder) => true,
-            _ => false,
-        }
+        matches!(
+            (self.class(), next.class()),
+            (PipelineNodeClass::Placeholder, PipelineNodeClass::ByteFilter)
+                | (PipelineNodeClass::Placeholder, PipelineNodeClass::Slicer)
+                | (PipelineNodeClass::ByteFilter, PipelineNodeClass::ByteFilter)
+                | (PipelineNodeClass::ByteFilter, PipelineNodeClass::Slicer)
+                | (PipelineNodeClass::Slicer, PipelineNodeClass::SegmentFilter)
+                | (PipelineNodeClass::Slicer, PipelineNodeClass::Drain)
+                | (PipelineNodeClass::SegmentFilter, PipelineNodeClass::SegmentFilter)
+                | (PipelineNodeClass::SegmentFilter, PipelineNodeClass::Drain)
+        )
     }
 }
 
@@ -96,7 +95,9 @@ pub struct Pipeline {
 impl Pipeline {
     pub fn from_nodes(nodes: Vec<PipelineNode>) -> Result<Self> {
         let mut pipeline = Pipeline { nodes };
+        pipeline.validate()?;
         pipeline.optimize()?;
+        pipeline.validate()?;
 
         Ok(pipeline)
     }
@@ -142,20 +143,27 @@ impl Pipeline {
         self.nodes.truncate(dst);
     }
 
-    pub fn optimize(&mut self) -> Result<()> {
-        let optimizers = [FuseClips::new()];
-
-        for p in &optimizers {
-            self.greedy(p);
+    pub fn validate(&self) -> Result<()> {
+        for x in self.nodes.windows(2) {
+            if !x[0].precedes(&x[1]) {
+                return Err(anyhow!("internal error: {:?} can't come before {:?}", x[0], x[1]));
+            }
         }
-
         Ok(())
     }
 
-    pub fn is_inplace(&self) -> bool {
-        false
+    pub fn optimize(&mut self) -> Result<()> {
+        self.greedy(&FuseClips::new());
+        self.greedy(&FuseOps::new());
+        Ok(())
     }
 
+    #[allow(dead_code)]
+    pub fn is_inplace(&self) -> bool {
+        matches!(self.nodes.first(), Some(PipelineNode::Inplace))
+    }
+
+    #[allow(unused_variables)]
     pub fn spawn_stream(&self, inputs: &[&str]) -> Result<Box<dyn StreamDrain>> {
         eprintln!("{:?}", self.nodes);
 

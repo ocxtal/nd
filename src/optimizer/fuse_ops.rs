@@ -2,9 +2,9 @@
 // @author Hajime Suzuki
 // @date 2022/6/12
 
-// use super::GreedyOptimizer;
-// use crate::segment::{SegmentMapper, SegmentPred};
-// use crate::pipeline::PipelineNode;
+use super::GreedyOptimizer;
+use crate::pipeline::PipelineNode;
+use crate::segment::{SegmentMapper, SegmentPred};
 
 use std::ops::Range;
 
@@ -30,140 +30,162 @@ impl ShiftRange for Range<isize> {
     }
 }
 
-// struct SegmentTracker {
-//     pitch: isize,
-//     first: Range<isize>,
-//     second: Range<isize>,
-//     last_offset: isize,
-//     infinite: bool,
-//     vanished: bool,
-// }
+struct SegmentTracker {
+    pitch: isize,
+    first: Range<isize>,
+    second: Range<isize>,
+    // last_offset: isize,
+    infinite: bool,
+    vanished: bool,
+}
 
-// impl SegmentTracker {
-//     fn new(pitch: usize) -> Self {
-//         let infinite = pitch >= isize::MAX as usize;
-//         let vanished = pitch == 0;
+impl SegmentTracker {
+    fn new(pitch: usize) -> Self {
+        let infinite = pitch >= isize::MAX as usize;
+        let vanished = pitch == 0;
 
-//         let pitch = if infinite { 0 } else { pitch as isize };
+        let pitch = if infinite { 0 } else { pitch as isize };
 
-//         SegmentTracker {
-//             pitch,
-//             first: 0..pitch,
-//             second: pitch..2 * pitch,
-//             last_offset: 0,
-//             infinite,
-//             vanished,
-//         }
-//     }
+        SegmentTracker {
+            pitch,
+            first: 0..pitch,
+            second: pitch..2 * pitch,
+            // last_offset: 0,
+            infinite,
+            vanished,
+        }
+    }
 
-//     fn filter(&mut self, pred: &SegmentPred, mapper: &SegmentMapper) {
-//         if !pred.eval_single(&self.first) {
-//             self.vanished = true;
-//             return;
-//         }
+    fn filter(&mut self, pred: &SegmentPred, mapper: &SegmentMapper) {
+        if !pred.eval_single(&self.first) {
+            self.vanished = true;
+            return;
+        }
 
-//         assert!(mapper.is_single());
-//         let mapped = mapper.map(&self.first, &self.second);
+        assert!(mapper.is_single());
+        if let Some(mapped) = mapper.map_single(&self.first) {
+            self.first = mapped.clone();
+            self.second = mapped.shift(self.pitch);
+        } else {
+            self.vanished = true;
+        }
+    }
 
-//         self.first = mapped.clone();
-//         self.second = mapped.shift(self.pitch);
-//     }
+    fn pair(&mut self, pred: &SegmentPred, mapper: &SegmentMapper, _pin: bool) {
+        if !pred.eval_pair(&self.first, &self.second) {
+            self.vanished = true;
+            return;
+        }
 
-//     fn pair(&mut self, pred: &SegmentPred, mapper: &SegmentMapper, pin: bool) {
-//         if !pred.eval_pair(&self.first, &self.second) {
-//             self.vanished = true;
-//             return;
-//         }
+        assert!(!mapper.is_single());
+        if let Some(mapped) = mapper.map_pair(&self.first, &self.second) {
+            self.first = mapped.clone().shift(-self.pitch);
+            self.second = mapped;
+        } else {
+            self.vanished = true;
+        }
+    }
 
-//         assert!(!mapper.is_single());
-//         let mapped = mapper.map(&self.first, &self.second);
+    #[allow(unused_variables)]
+    fn reduce(&mut self, pred: &SegmentPred, mapper: &SegmentMapper, _pin: bool) {
+        if pred.eval_pair(&self.first, &self.second) {
+            self.infinite = true;
+            self.first = 0..isize::MAX;
+            self.second = isize::MAX..isize::MAX;
+        }
+    }
+}
 
-//         self.first = mapped.shift(-self.pitch);
-//         self.second = mapped;
-//     }
+pub struct FuseOps();
 
-//     fn reduce(&mut self, pred: &SegmentPred, mapper: &SegmentMapper, pin: bool) {
-//         if pred.eval_pair(&self.first, &self.second) {
-//             self.infinite = true;
-//             self.first = 0..isize::MAX;
-//             self.second = isize::MAX..isize::MAX;
-//         }
-//     }
-// }
+impl FuseOps {
+    pub fn new() -> Self {
+        FuseOps()
+    }
 
-// pub struct FuseOps();
+    fn rank(&self, n: &PipelineNode) -> usize {
+        match n {
+            PipelineNode::Width(_) => 1,
+            PipelineNode::Filter(_, mapper) => {
+                if mapper.len() != 1 {
+                    0
+                } else {
+                    2
+                }
+            }
+            PipelineNode::Pair(_, _, _) => 2,
+            PipelineNode::Reduce(pred, _, _) => {
+                // check if the predicate is independent of the length of the accumulator
+                if pred.depends_on_variable("s0") {
+                    0
+                } else {
+                    2
+                }
+            }
+            _ => 0,
+        }
+    }
 
-// impl FuseOps {
-//     pub fn new() -> Self {
-//         FuseOps()
-//     }
+    fn longest_match(&self, nodes: &[PipelineNode]) -> usize {
+        for (i, n) in nodes.iter().enumerate() {
+            if self.rank(n) != 2 {
+                return i;
+            }
+        }
+        nodes.len()
+    }
 
-//     fn rank(&self, n: &PipelineNode) -> usize {
-//         match n {
-//             PipelineNode::Width(_) => 1,
-//             PipelineNode::Filter(_, mapper) => {
-//                 if mapper.len() != 1 { 0 } else { 2 }
-//             },
-//             PipelineNode::Pair(_, _) => 2,
-//             PipelineNode::Reduce(_, _) => {
-//                 // check if the predicate is independent of the length of the accumulator
-//                 if pred.depends_on_variable("s0") { 0 } else { 2 }
-//             },
-//             _ => 0,
-//         }
-//     }
+    fn track(&self, pitch: usize, nodes: &[PipelineNode]) -> (usize, SegmentTracker) {
+        let mut tracker = SegmentTracker::new(pitch);
 
-//     fn longest_match(&self, nodes: &[PipelineNode]) -> usize {
-//         for (i, n) in nodes.enumerate() {
-//             ;
-//         }
-//     }
+        for (i, n) in nodes.iter().enumerate() {
+            if tracker.vanished {
+                return (i, tracker);
+            }
+            match n {
+                PipelineNode::Filter(pred, mapper) => tracker.filter(pred, &mapper[0]),
+                PipelineNode::Pair(pred, mapper, pin) => tracker.pair(pred, mapper, *pin),
+                PipelineNode::Reduce(pred, mapper, pin) => tracker.reduce(pred, mapper, *pin),
+                _ => panic!("internal error"),
+            }
+        }
 
-//     fn track(&self, pitch: isize, nodes: &[PipelineNode]) -> (usize, SegmentTracker) {
-//         let mut tracker = SegmentTracker::new(pitch);
+        (nodes.len(), tracker)
+    }
+}
 
-//         for (i, n) in nodes[..len].enumerate().skip(1) {
-//             if tracker.vanished {
-//                 return (i, tracker);
-//             }
-//             match n {
-//                 PipelineNode::Filter(pred, mapper) => tracker.filter(&pred, &mapper[0]),
-//                 PipelineNode::Pair(pred, mapper, pin) => tracker.pair(&pred, &mapper, pin),
-//                 PipelineNode::Reduce(pred, mapper, pin) => tracker.reduce(&pred, &mapper, pin),
-//                 _ => panic!("internal error"),
-//             }
-//         }
+impl GreedyOptimizer for FuseOps {
+    fn substitute(&self, nodes: &[PipelineNode]) -> Option<(usize, usize, PipelineNode)> {
+        debug_assert!(!nodes.is_empty());
 
-//         (nodes.len(), tracker)
-//     }
-// }
+        if self.rank(&nodes[0]) != 1 {
+            return None;
+        }
 
-// impl GreedyOptimizer for FuseOps {
-//     fn substitute(&self, nodes: &[PipelineNode]) -> Option<(usize, usize, PipelineNode)> {
-//         debug_assert!(!nodes.is_empty());
+        let len = self.longest_match(&nodes[1..]);
+        if len == 0 {
+            return None;
+        }
 
-//         if self.rank(&nodes[0]) != 1 {
-//             return None;
-//         }
+        let pitch = match nodes[0] {
+            PipelineNode::Width(pitch) => pitch,
+            _ => panic!("internal error"),
+        };
+        let (len, tracker) = self.track(pitch, &nodes[1..1 + len]);
 
-//         let len = self.longest_match(&nodes[1..]);
-//         if len == 0 {
-//             return None;
-//         }
+        let node = PipelineNode::ConstSlicer(ConstSlicerParams {
+            infinite: tracker.infinite,
+            vanished: tracker.vanished,
+            clip: (0, 0),
+            margin: (0, 0),
+            pin: (false, false),
+            pitch: 0,
+            span: 0,
+        });
 
-//         let pitch = match nodes[0] {
-//             PipelineNode::Width(pitch) => pitch,
-//             _ => panic!("internal error"),
-//         };
-//         let (len, tracker) = self.track(pitch, nodes);
-
-//         ConstSlicer(ConstSlicerParams {
-//             infinite: tracker.infinite,
-//             vanished: tracker.vanished,
-//             clip:
-//         })
-//     }
-// }
+        Some((0, 1 + len, node))
+    }
+}
 
 #[derive(Debug)]
 pub struct RawSlicerParams {

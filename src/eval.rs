@@ -6,8 +6,12 @@ use std::collections::HashMap;
 use std::iter::Peekable;
 use std::ops::Range;
 
+use crate::Token::*;
+
+#[allow(dead_code)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Token {
+    Nop,
     Val(i64),
     Op(char),
     Prefix(char), // unary op; '+', '-', '!', '~' (TODO: add deref operator '*')
@@ -26,16 +30,30 @@ fn is_unary(c: char) -> bool {
     c == '+' || c == '-' || c == '!' || c == '~'
 }
 
-fn latter_precedes(former: &Token, latter: &Token) -> bool {
-    let is_muldiv = |c: char| -> bool { c == '*' || c == '/' || c == '%' };
-    let is_addsub = |c: char| -> bool { c == '+' || c == '-' };
-    let is_shift = |c: char| -> bool { c == '<' || c == '>' };
-    let is_cmp = |c: char| -> bool { c == 'g' || c == 'G' || c == 'l' || c == 'L' };
-    let is_pow = |c: char| -> bool { c == '@' };
+fn is_muldiv(c: char) -> bool {
+    c == '*' || c == '/' || c == '%'
+}
 
+fn is_addsub(c: char) -> bool {
+    c == '+' || c == '-'
+}
+
+fn is_shift(c: char) -> bool {
+    c == '<' || c == '>'
+}
+
+fn is_cmp(c: char) -> bool {
+    c == 'g' || c == 'G' || c == 'l' || c == 'L'
+}
+
+fn is_pow(c: char) -> bool {
+    c == '@'
+}
+
+fn latter_precedes(former: &Token, latter: &Token) -> bool {
     match (former, latter) {
-        (&Token::Prefix(_), &Token::Op(latter)) => is_pow(latter),
-        (&Token::Op(former), &Token::Op(latter)) => {
+        (&Prefix(_), &Op(latter)) => is_pow(latter),
+        (&Op(former), &Op(latter)) => {
             if is_muldiv(former) || is_muldiv(latter) {
                 return !is_muldiv(former);
             } else if is_addsub(former) || is_addsub(latter) {
@@ -54,51 +72,51 @@ fn latter_precedes(former: &Token, latter: &Token) -> bool {
 
 #[test]
 fn test_precedence() {
-    assert_eq!(latter_precedes(&Token::Op('*'), &Token::Op('*')), false);
-    assert_eq!(latter_precedes(&Token::Op('*'), &Token::Op('/')), false);
-    assert_eq!(latter_precedes(&Token::Op('*'), &Token::Op('%')), false);
-    assert_eq!(latter_precedes(&Token::Op('/'), &Token::Op('*')), false);
-    assert_eq!(latter_precedes(&Token::Op('%'), &Token::Op('*')), false);
+    assert_eq!(latter_precedes(&Op('*'), &Op('*')), false);
+    assert_eq!(latter_precedes(&Op('*'), &Op('/')), false);
+    assert_eq!(latter_precedes(&Op('*'), &Op('%')), false);
+    assert_eq!(latter_precedes(&Op('/'), &Op('*')), false);
+    assert_eq!(latter_precedes(&Op('%'), &Op('*')), false);
 
-    assert_eq!(latter_precedes(&Token::Op('*'), &Token::Op('+')), false);
-    assert_eq!(latter_precedes(&Token::Op('*'), &Token::Op('+')), false);
-    assert_eq!(latter_precedes(&Token::Op('*'), &Token::Op('+')), false);
-    assert_eq!(latter_precedes(&Token::Op('/'), &Token::Op('+')), false);
-    assert_eq!(latter_precedes(&Token::Op('%'), &Token::Op('+')), false);
+    assert_eq!(latter_precedes(&Op('*'), &Op('+')), false);
+    assert_eq!(latter_precedes(&Op('*'), &Op('+')), false);
+    assert_eq!(latter_precedes(&Op('*'), &Op('+')), false);
+    assert_eq!(latter_precedes(&Op('/'), &Op('+')), false);
+    assert_eq!(latter_precedes(&Op('%'), &Op('+')), false);
 
-    assert_eq!(latter_precedes(&Token::Op('+'), &Token::Op('*')), true);
-    assert_eq!(latter_precedes(&Token::Op('+'), &Token::Op('*')), true);
-    assert_eq!(latter_precedes(&Token::Op('+'), &Token::Op('*')), true);
-    assert_eq!(latter_precedes(&Token::Op('+'), &Token::Op('/')), true);
-    assert_eq!(latter_precedes(&Token::Op('+'), &Token::Op('%')), true);
+    assert_eq!(latter_precedes(&Op('+'), &Op('*')), true);
+    assert_eq!(latter_precedes(&Op('+'), &Op('*')), true);
+    assert_eq!(latter_precedes(&Op('+'), &Op('*')), true);
+    assert_eq!(latter_precedes(&Op('+'), &Op('/')), true);
+    assert_eq!(latter_precedes(&Op('+'), &Op('%')), true);
 
-    assert_eq!(latter_precedes(&Token::Op('+'), &Token::Op('+')), false);
-    assert_eq!(latter_precedes(&Token::Op('-'), &Token::Op('+')), false);
-    assert_eq!(latter_precedes(&Token::Op('+'), &Token::Op('-')), false);
+    assert_eq!(latter_precedes(&Op('+'), &Op('+')), false);
+    assert_eq!(latter_precedes(&Op('-'), &Op('+')), false);
+    assert_eq!(latter_precedes(&Op('+'), &Op('-')), false);
 
-    assert_eq!(latter_precedes(&Token::Op('*'), &Token::Op('<')), false);
-    assert_eq!(latter_precedes(&Token::Op('<'), &Token::Op('*')), true);
-    assert_eq!(latter_precedes(&Token::Op('+'), &Token::Op('<')), false);
-    assert_eq!(latter_precedes(&Token::Op('<'), &Token::Op('+')), true);
-    assert_eq!(latter_precedes(&Token::Op('<'), &Token::Op('>')), false);
+    assert_eq!(latter_precedes(&Op('*'), &Op('<')), false);
+    assert_eq!(latter_precedes(&Op('<'), &Op('*')), true);
+    assert_eq!(latter_precedes(&Op('+'), &Op('<')), false);
+    assert_eq!(latter_precedes(&Op('<'), &Op('+')), true);
+    assert_eq!(latter_precedes(&Op('<'), &Op('>')), false);
 
-    assert_eq!(latter_precedes(&Token::Op('*'), &Token::Op('@')), false);
-    assert_eq!(latter_precedes(&Token::Op('@'), &Token::Op('*')), true);
-    assert_eq!(latter_precedes(&Token::Op('+'), &Token::Op('@')), false);
-    assert_eq!(latter_precedes(&Token::Op('@'), &Token::Op('+')), true);
-    assert_eq!(latter_precedes(&Token::Op('@'), &Token::Op('@')), true);
+    assert_eq!(latter_precedes(&Op('*'), &Op('@')), false);
+    assert_eq!(latter_precedes(&Op('@'), &Op('*')), true);
+    assert_eq!(latter_precedes(&Op('+'), &Op('@')), false);
+    assert_eq!(latter_precedes(&Op('@'), &Op('+')), true);
+    assert_eq!(latter_precedes(&Op('@'), &Op('@')), true);
 
-    assert_eq!(latter_precedes(&Token::Op('+'), &Token::Op('g')), false);
-    assert_eq!(latter_precedes(&Token::Op('g'), &Token::Op('+')), true);
-    assert_eq!(latter_precedes(&Token::Op('@'), &Token::Op('g')), false);
-    assert_eq!(latter_precedes(&Token::Op('g'), &Token::Op('@')), true);
-    assert_eq!(latter_precedes(&Token::Op('g'), &Token::Op('g')), false);
+    assert_eq!(latter_precedes(&Op('+'), &Op('g')), false);
+    assert_eq!(latter_precedes(&Op('g'), &Op('+')), true);
+    assert_eq!(latter_precedes(&Op('@'), &Op('g')), false);
+    assert_eq!(latter_precedes(&Op('g'), &Op('@')), true);
+    assert_eq!(latter_precedes(&Op('g'), &Op('g')), false);
 
-    assert_eq!(latter_precedes(&Token::Prefix('+'), &Token::Op('*')), false);
-    assert_eq!(latter_precedes(&Token::Prefix('+'), &Token::Op('+')), false);
-    assert_eq!(latter_precedes(&Token::Prefix('+'), &Token::Op('<')), false);
-    assert_eq!(latter_precedes(&Token::Prefix('+'), &Token::Op('g')), false);
-    assert_eq!(latter_precedes(&Token::Prefix('+'), &Token::Op('@')), true);
+    assert_eq!(latter_precedes(&Prefix('+'), &Op('*')), false);
+    assert_eq!(latter_precedes(&Prefix('+'), &Op('+')), false);
+    assert_eq!(latter_precedes(&Prefix('+'), &Op('<')), false);
+    assert_eq!(latter_precedes(&Prefix('+'), &Op('g')), false);
+    assert_eq!(latter_precedes(&Prefix('+'), &Op('@')), true);
 }
 
 fn parse_op<I>(first: char, it: &mut Peekable<I>) -> Option<Token>
@@ -112,18 +130,18 @@ where
             let op_tags = [['g', 'G'], ['l', 'L']];
             let is_eq = (next == '=') as usize;
             let is_lt = (first == '<') as usize;
-            return Some(Token::Op(op_tags[is_lt][is_eq]));
+            return Some(Op(op_tags[is_lt][is_eq]));
         }
         it.next()?;
-        return Some(Token::Op(first));
+        return Some(Op(first));
     }
 
     // "**"
     if first == '*' && *it.peek()? == '*' {
         it.next()?;
-        return Some(Token::Op('@'));
+        return Some(Op('@'));
     }
-    Some(Token::Op(first))
+    Some(Op(first))
 }
 
 fn parse_char(c: char) -> Option<i64> {
@@ -201,7 +219,7 @@ where
         _ => 1,
     };
 
-    Some(Token::Val(val * scaler))
+    Some(Val(val * scaler))
 }
 
 fn parse_var<I>(first: char, vars: Option<&HashMap<&[u8], VarAttr>>, it: &mut Peekable<I>) -> Option<Token>
@@ -227,14 +245,14 @@ where
 
     let var = var.unwrap();
     if var.is_array {
-        Some(Token::VarArr(var.id))
+        Some(VarArr(var.id))
     } else {
-        Some(Token::VarPrim(var.id))
+        Some(VarPrim(var.id))
     }
 }
 
 fn tokenize(input: &str, vars: Option<&HashMap<&[u8], VarAttr>>) -> Option<Vec<Token>> {
-    let mut tokens = vec![Token::Paren('(')];
+    let mut tokens = vec![Paren('(')];
 
     let mut it = input.chars().peekable();
     while let Some(x) = it.next() {
@@ -243,7 +261,7 @@ fn tokenize(input: &str, vars: Option<&HashMap<&[u8], VarAttr>>) -> Option<Vec<T
                 continue;
             }
             '(' | ')' | '[' | ']' => {
-                tokens.push(Token::Paren(x));
+                tokens.push(Paren(x));
             }
             '+' | '-' | '~' | '!' | '*' | '/' | '%' | '&' | '|' | '^' | '<' | '>' => {
                 tokens.push(parse_op(x, &mut it)?);
@@ -260,7 +278,7 @@ fn tokenize(input: &str, vars: Option<&HashMap<&[u8], VarAttr>>) -> Option<Vec<T
             }
         }
     }
-    tokens.push(Token::Paren(')'));
+    tokens.push(Paren(')'));
 
     Some(tokens)
 }
@@ -271,19 +289,19 @@ fn mark_prefices(tokens: &mut [Token]) -> Option<()> {
         let (former, latter) = tokens.split_at_mut(1);
         match (former[0], latter[0]) {
             // fixup unary op
-            (Token::Op(_) | Token::Paren('('), Token::Op(y)) if is_unary(y) => {
-                latter[0] = Token::Prefix(y);
+            (Op(_) | Paren('('), Op(y)) if is_unary(y) => {
+                latter[0] = Prefix(y);
             }
             // prefix followed by an expression
-            (Token::Prefix(_), Token::Val(_) | Token::VarPrim(_) | Token::VarArr(_) | Token::Paren('(')) => {}
+            (Prefix(_), Val(_) | VarPrim(_) | VarArr(_) | Paren('(')) => {}
             // binary op; lhs and rhs
-            (Token::Val(_) | Token::VarPrim(_) | Token::Paren(']' | ')'), Token::Op(_)) => {}
-            (Token::Op(_), Token::Val(_) | Token::VarPrim(_) | Token::VarArr(_) | Token::Paren('(')) => {}
+            (Val(_) | VarPrim(_) | Paren(']' | ')'), Op(_)) => {}
+            (Op(_), Val(_) | VarPrim(_) | VarArr(_) | Paren('(')) => {}
             // parentheses inner
-            (Token::Paren('(' | '['), Token::Val(_) | Token::VarPrim(_) | Token::VarArr(_) | Token::Paren('(')) => {}
-            (Token::Val(_) | Token::VarPrim(_) | Token::Paren(']' | ')'), Token::Paren(']' | ')')) => {}
+            (Paren('(' | '['), Val(_) | VarPrim(_) | VarArr(_) | Paren('(')) => {}
+            (Val(_) | VarPrim(_) | Paren(']' | ')'), Paren(']' | ')')) => {}
             // opening bracket must follow array variable
-            (Token::VarArr(_), Token::Paren('[')) => {}
+            (VarArr(_), Paren('[')) => {}
             // otherwise invalid
             _ => {
                 // eprintln!("invalid tokens");
@@ -295,6 +313,97 @@ fn mark_prefices(tokens: &mut [Token]) -> Option<()> {
     }
 
     Some(())
+}
+
+fn sort_into_rpn(tokens: &[Token]) -> Option<Vec<(Token, usize)>> {
+    let mut rpn = Vec::new();
+    let mut op_stack = Vec::new();
+
+    let calc_lhs = |op: &Token, i: usize, len: usize| -> usize {
+        match *op {
+            Prefix(_) => 1,
+            Op(_) => len - i + 1,
+            _ => 0,
+        }
+    };
+
+    for &token in tokens {
+        match token {
+            Val(_) | VarPrim(_) => {
+                // non-array variable is handled the same as values
+                rpn.push((token, 0));
+            }
+            Prefix(_) | VarArr(_) | Paren('(' | '[') => {
+                op_stack.push((token, rpn.len() + 1));
+            }
+            Op(op) => {
+                while let Some(&(former_op, _)) = op_stack.last() {
+                    if latter_precedes(&former_op, &Op(op)) {
+                        break;
+                    }
+                    let (op, i) = op_stack.pop()?;
+                    rpn.push((op, calc_lhs(&op, i, rpn.len())));
+                }
+                op_stack.push((Op(op), rpn.len()));
+            }
+            Paren(x @ (')' | ']')) => {
+                let other = if x == ')' { '(' } else { '[' };
+                loop {
+                    let (op, i) = op_stack.pop()?;
+                    if op == Paren(other) {
+                        break;
+                    }
+                    rpn.push((op, calc_lhs(&op, i, rpn.len())));
+                }
+            }
+            _ => {
+                return None;
+            }
+        }
+    }
+
+    if !op_stack.is_empty() {
+        return None;
+    }
+
+    Some(rpn)
+}
+
+#[test]
+fn test_sort_into_rpn() {
+    macro_rules! test {
+        ( $input: expr, $expected: expr ) => {{
+            let mut v = vec![Paren('(')];
+            v.extend_from_slice($input.as_slice());
+            v.push(Paren(')'));
+
+            let rpn = sort_into_rpn(&v).unwrap();
+            assert_eq!(&rpn, $expected.as_slice());
+        }};
+    }
+
+    // empty
+    test!([], []);
+
+    // the simplest unary and binary ops
+    test!([Prefix('-'), Val(2)], [(Val(2), 0), (Prefix('-'), 1)]);
+    test!([Val(2), Op('-'), Val(3)], [(Val(2), 0), (Val(3), 0), (Op('-'), 2)]);
+
+    // chained unary ops
+    test!(
+        [Prefix('-'), Prefix('-'), Val(2)],
+        [(Val(2), 0), (Prefix('-'), 1), (Prefix('-'), 1)]
+    );
+
+    // parenthes
+    test!(
+        [Val(5), Op('*'), Paren('('), Prefix('-'), Val(2), Paren(')')],
+        [(Val(5), 0), (Val(2), 0), (Prefix('-'), 1), (Op('*'), 3)]
+    );
+    test!(
+        [Prefix('-'), Paren('('), Prefix('-'), Val(2), Paren(')')],
+        [(Val(2), 0), (Prefix('-'), 1), (Prefix('-'), 1)]
+    );
 }
 
 fn apply_prefix(c: char, x: i64) -> Option<i64> {
@@ -341,109 +450,524 @@ fn apply_op(c: char, x: i64, y: i64) -> Option<i64> {
     }
 }
 
-fn find_val(lhs: usize, op: char, rpn: &mut [(Token, usize, usize)]) -> Option<&mut Token> {
-    let is_addsub = |c: char| -> bool { c == '+' || c == '-' };
+// fn canonize_cmp(lhs: &[(Token, usize, usize)], rhs: &[(Token, usize, usize)], op: char, sign: i64, offset: i64) -> Option<Vec<(Token, usize, usize)>> {
+//     // compose lhs of the canonized cmp expression
+//     // a > b  -> a - b - 1
+//     // a >= b -> a - b
+//     // a < b  -> b - a - 1
+//     // a <= b -> b - a
+//     let sign = if op == 'g' || op =='G' { sign } else { -sign };
+//     let offset = if op == 'g' || op == 'l' { offset - 1 } else { offset };
 
-    let mut i = lhs;
-    let mut parity = false;
+//     let mut v = canonize_addsub(
+//         &canonize_rpn(lhs, 1, 0),
+//         &canonize_rpn(rhs, -1, 0),
+//         '-',
+//         sign,
+//         offset
+//     );
 
-    loop {
-        match rpn[i] {
-            (Token::Val(y), _, _) => {
-                return Some(&mut rpn[i].0);
-            }
-            (Token::Op(lhs_op), lhs, _) => {
-                if (is_addsub(op) && is_addsub(lhs_op)) || op == lhs_op {
-                    parity = parity ^ (op == lhs_op);
-                    i = lhs;
-                } else {
-                    return None;
-                }
-            }
-            _ => {
-                return None;
-            }
-        }
+//     // append trailing ">= 0"
+//     v.push(Val(0));
+//     v.push(Op('G'));
+//     return Some(v);
+// }
+
+fn is_comm_1(op: char) -> bool {
+    matches!(op, '+' | '*' | '&' | '|' | '^')
+}
+
+fn is_comm_2(op1: char, op2: char) -> bool {
+    if is_addsub(op1) && is_addsub(op2) {
+        return true;
+    }
+    (is_comm_1(op1) || op1 == '-') && op1 == op2
+}
+
+fn is_comm_3(op1: char, op2: char, op3: char) -> bool {
+    if is_addsub(op1) && is_addsub(op2) && is_addsub(op3) {
+        return true;
+    }
+    (is_comm_1(op1) || op1 == '-') && op1 == op2 && op1 == op3
+}
+
+fn fuse_op_2(op1: char, op2: char) -> char {
+    if !is_addsub(op1) {
+        return op1;
+    }
+    if op1 == op2 {
+        '+'
+    } else {
+        '-'
     }
 }
 
-fn push_with_partial_eval(lhs: usize, rhs: usize, token: Token, rpn: &mut Vec<(Token, usize, usize)>) -> Option<()> {
-    let len = rpn.len();
-    let mut rpn = rpn;
+fn fuse_op_3(op1: char, op2: char, op3: char) -> char {
+    fuse_op_2(op1, fuse_op_2(op2, op3))
+}
 
-    match (rpn.pop(), token) {
-        (Some((Token::Val(y), down, up)), Token::Op(op)) => {
-            if let Some(Token::Val(x)) = find_val(lhs, op, &mut rpn) {
-                *x = apply_op(op, *x, y)?;
+fn is_id(op: char, rhs_val: i64) -> bool {
+    match op {
+        '+' => rhs_val == 0,
+        '-' => rhs_val == 0,
+        '&' => rhs_val == -1,
+        '|' => rhs_val == 0,
+        '*' => rhs_val == 1,
+        '/' => rhs_val == 1,
+        _ => false,
+    }
+}
+
+fn is_equivalent(tokens: &[(Token, usize)], lhs: usize, rhs: usize) -> (bool, usize) {
+    match (tokens[lhs], tokens[rhs]) {
+        ((Val(x), _), (Val(y), _)) if x == y => (true, lhs),
+        ((VarPrim(x), _), (VarPrim(y), _)) if x == y => (true, lhs),
+        ((x, llhs), (y, rlhs)) if x == y => {
+            if is_equivalent(tokens, lhs - 1, rhs - 1).0 {
+                is_equivalent(tokens, lhs - llhs, rhs - rlhs)
             } else {
-                rpn.push((Token::Val(y), down, up));
-                rpn.push((token, lhs, len));
-                rpn[lhs].2 = len;
-                rpn[rhs].2 = len;
+                (false, 0)
             }
         }
-        (Some((Token::Val(x), down, up)), Token::Prefix(op)) => {
-            rpn.push((Token::Val(apply_prefix(op, x)?), down, up));
-        }
-        (keep, token) => {
-            if let Some(keep) = keep {
-                rpn.push(keep);
-            }
-            rpn.push((token, lhs, len));
-            rpn[lhs].2 = len;
-            rpn[rhs].2 = len;
-        }
+        _ => (false, 0),
     }
-    Some(())
 }
 
-fn sort_into_rpn(tokens: &[Token]) -> Option<Vec<(Token, usize, usize)>> {
-    let mut rpn = Vec::new();
-    let mut op_stack = Vec::new();
-
-    for &token in tokens {
-        match token {
-            Token::Val(_) | Token::VarPrim(_) => {
-                // non-array variable is handled the same as values
-                push_with_partial_eval(rpn.len(), rpn.len(), token, &mut rpn)?;
-            }
-            Token::Prefix(_) | Token::VarArr(_) | Token::Paren('(' | '[') => {
-                op_stack.push((rpn.len() + 1, token));
-            }
-            Token::Op(op) => {
-                while let Some(&(_, former_op)) = op_stack.last() {
-                    if latter_precedes(&former_op, &Token::Op(op)) {
-                        break;
-                    }
-                    let (i, op) = op_stack.pop()?;
-                    push_with_partial_eval(i - 1, rpn.len() - 1, op, &mut rpn)?;
-                }
-                op_stack.push((rpn.len(), Token::Op(op)));
-            }
-            Token::Paren(x @ (')' | ']')) => {
-                let other = if x == ')' { '(' } else { '[' };
-                loop {
-                    let (i, op) = op_stack.pop()?;
-                    if op == Token::Paren(other) {
-                        break;
-                    }
-                    push_with_partial_eval(i - 1, rpn.len() - 1, op, &mut rpn)?;
-                }
-            }
-            _ => {
-                return None;
-            }
-        }
-    }
-
-    if !op_stack.is_empty() {
+fn canonize_rpn(tokens: &mut [(Token, usize)]) -> Option<usize> {
+    if tokens.is_empty() {
         return None;
     }
+    if tokens.len() == 1 {
+        return Some(0); // no optimizable pattern for len < 2
+    }
 
-    Some(rpn)
+    let root = tokens.len() - 1;
+    let lhs = root - tokens[root].1;
+
+    let root = match tokens[root].0 {
+        Prefix(op) => {
+            let new_root = canonize_rpn(&mut tokens[..lhs + 1])? + 1;
+            tokens[new_root] = (Prefix(op), 1);
+            new_root
+        }
+        Op(op) => {
+            let new_lhs = canonize_rpn(&mut tokens[..lhs + 1])?;
+
+            tokens.copy_within(lhs + 1..root, new_lhs + 1);
+            let new_root = root - lhs + new_lhs;
+            let new_root = canonize_rpn(&mut tokens[..new_root])? + 1;
+
+            let (is_eq, lleaf) = is_equivalent(tokens, new_lhs, new_root - 1);
+            if is_eq && (op == '-' || op == '/') {
+                tokens[lleaf] = (Val(if op == '-' { 0 } else { 1 }), 0);
+                lleaf
+            } else {
+                tokens[new_root] = (Op(op), new_root - new_lhs);
+                new_root
+            }
+        }
+        _ => root,
+    };
+    if root == 0 {
+        return Some(root);
+    }
+
+    let lhs = root - tokens[root].1;
+    match (tokens[lhs], tokens[root].0) {
+        // -(2) => -2 (leaf)
+        ((Val(x), _), Prefix(op)) => {
+            tokens[lhs] = (Val(apply_prefix(op, x)?), 0);
+            return Some(lhs);
+        }
+        // -(-x) => x (can be non-leaf)
+        ((Prefix(op1), llhs), Prefix(op2)) if op1 == op2 => {
+            return Some(lhs - llhs);
+        }
+        _ => {}
+    }
+
+    if root < 2 {
+        return Some(root); // no other optimizable pattern for len < 3
+    }
+
+    match (tokens[lhs].0, tokens[root - 1].0, tokens[root].0) {
+        // 2 + 3 => 5 (leaf)
+        (Val(x), Val(y), Op(op)) => {
+            tokens[lhs] = (Val(apply_op(op, x, y)?), 0);
+            return Some(lhs);
+        }
+        // x + 0, x - 0, x & 0xff..ff, x | 0, x * 1, x / 1 -> x
+        (_, Val(x), Op(op)) if is_id(op, x) => {
+            return Some(lhs);
+        }
+        _ => {}
+    }
+
+    match (tokens[lhs].0, tokens[root].0) {
+        // 2 + x => x + 2 (non-leaf)
+        (Val(x), Op(op)) if is_comm_1(op) => {
+            tokens.copy_within(lhs + 1..root, lhs);
+            tokens[root - 1] = (Val(x), 0);
+            tokens[root] = (Op(op), 2);
+        }
+        _ => {}
+    }
+
+    let lhs = root - tokens[root].1;
+    if root < 4 {
+        return Some(root);
+    }
+
+    match (tokens[lhs].0, tokens[root - 2].0, tokens[root - 1], tokens[root].0) {
+        // x + (y + 2) => (x + y) + 2
+        (VarPrim(_) | VarArr(_) | Prefix(_), Val(x), (Op(op1), rlhs), Op(op2)) if is_comm_2(op1, op2) => {
+            let rlhs = (root - 1) - rlhs;
+            tokens[rlhs + 1] = (Op(op2), (rlhs + 1) - lhs);
+            tokens[rlhs + 2] = (Val(x), 0);
+            tokens[rlhs + 3] = (Op(fuse_op_2(op1, op2)), 2);
+            return Some(rlhs + 3);
+        }
+        _ => {}
+    }
+
+    if lhs == 0 {
+        return Some(root);
+    }
+
+    match (tokens[lhs - 1].0, tokens[lhs].0, tokens[root - 1].0, tokens[root].0) {
+        // (x + 2) + 3 => x + 5 (non-leaf)
+        (Val(x), Op(op1), Val(y), Op(op2)) if is_comm_2(op1, op2) => {
+            tokens[lhs - 1] = (Val(apply_op(fuse_op_2(op1, op2), x, y)?), 0);
+            return Some(lhs);
+        }
+        // (x + 2) + y => (x + y) + 2
+        (Val(x), Op(op1), VarPrim(_) | VarArr(_) | Prefix(_), Op(op2)) if is_comm_2(op1, op2) => {
+            tokens.copy_within(lhs + 1..root, lhs - 1);
+            tokens[root - 2] = (Op(op2), root - lhs);
+            tokens[root - 1] = (Val(x), 0);
+            tokens[root] = (Op(op1), 2);
+        }
+        _ => {}
+    }
+
+    if root < 6 {
+        return Some(root);
+    }
+
+    match (
+        tokens[lhs - 1].0,
+        tokens[lhs],
+        tokens[root - 2].0,
+        tokens[root - 1].0,
+        tokens[root].0,
+    ) {
+        // (x + 2) + (y + 3) => (x + y) + 5
+        (Val(x), (Op(op1), llhs), Val(y), Op(op2), Op(op3)) if is_comm_3(op1, op2, op3) => {
+            let llhs = lhs - llhs;
+            tokens.copy_within(lhs + 1..root - 2, llhs + 1); // rlhs -> lrhs
+
+            let lhs = (llhs + 1) + (root - 2) - (lhs + 1);
+            tokens[lhs] = (Op(op1), lhs - llhs);
+            tokens[lhs + 1] = (Val(apply_op(fuse_op_3(op1, op2, op3), x, y)?), 0);
+            tokens[lhs + 2] = (Op(op2), 2);
+            return Some(lhs + 2);
+        }
+        _ => {}
+    }
+    Some(root)
 }
 
-fn eval_rpn<F>(tokens: &[(Token, usize, usize)], get: F) -> Option<i64>
+#[test]
+fn test_canonize_rpn() {
+    macro_rules! test {
+        ( $input: expr, $expected: expr, $expected_root: expr ) => {{
+            let mut v = $input.to_vec();
+            eprintln!("start: {:?}", v);
+            let root = canonize_rpn(&mut v).unwrap();
+            eprintln!("done: {:?}", &v[..root + 1]);
+            assert_eq!(root, $expected_root);
+            assert_eq!(&v[..root + 1], &$expected[..root + 1]);
+        }};
+    }
+
+    // empty
+    let mut v = Vec::new();
+    assert_eq!(canonize_rpn(&mut v), None);
+
+    // constant folding: prefix removal
+    test!([(Val(1), 0)], [(Val(1), 0)], 0);
+    test!([(Val(1), 0), (Prefix('-'), 1)], [(Val(-1), 0), (Nop, 0)], 0);
+    test!(
+        [(Val(1), 0), (Prefix('-'), 1), (Prefix('-'), 1)],
+        [(Val(1), 0), (Nop, 0), (Nop, 0)],
+        0
+    );
+    test!(
+        [(Val(1), 0), (Prefix('-'), 1), (Prefix('-'), 1), (Prefix('-'), 1)],
+        [(Val(-1), 0), (Nop, 0), (Nop, 0), (Nop, 0)],
+        0
+    );
+    test!(
+        [(Nop, 0), (Val(1), 0), (Prefix('-'), 1), (Prefix('-'), 1)],
+        [(Nop, 0), (Val(1), 0), (Nop, 0), (Nop, 0)],
+        1
+    );
+
+    // constant folding: additions and subtractions
+    test!([(Val(1), 0), (Val(3), 0), (Op('-'), 2)], [(Val(-2), 0), (Nop, 0), (Nop, 0)], 0);
+    test!(
+        [(Nop, 0), (Val(1), 0), (Val(3), 0), (Op('-'), 2)],
+        [(Nop, 0), (Val(-2), 0), (Nop, 0), (Nop, 0)],
+        1
+    );
+
+    // constant folding: removing identity
+    test!(
+        [(VarPrim(0), 0), (Val(0), 0), (Op('-'), 2)],
+        [(VarPrim(0), 0), (Nop, 0), (Nop, 0)],
+        0
+    );
+    test!(
+        [(VarPrim(0), 0), (Val(-1), 0), (Op('&'), 2)],
+        [(VarPrim(0), 0), (Nop, 0), (Nop, 0)],
+        0
+    );
+
+    // canonize: removing equivalent lhs-rhs pairs
+    test!(
+        [(VarPrim(0), 0), (VarPrim(0), 0), (Op('-'), 2)],
+        [(Val(0), 0), (Nop, 0), (Nop, 0)],
+        0
+    );
+    test!(
+        [(VarPrim(0), 0), (VarPrim(0), 0), (Op('/'), 2)],
+        [(Val(1), 0), (Nop, 0), (Nop, 0)],
+        0
+    );
+    test!(
+        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (VarPrim(0), 0), (Op('-'), 2)],
+        [(Nop, 0), (Nop, 0), (Val(0), 0), (Nop, 0), (Nop, 0)],
+        2
+    );
+
+    // canonize: prefix
+    test!(
+        [(VarPrim(0), 0), (Prefix('-'), 1), (Prefix('-'), 1)],
+        [(VarPrim(0), 0), (Nop, 0), (Nop, 0)],
+        0
+    );
+    test!(
+        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Prefix('-'), 1), (Prefix('-'), 1)],
+        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Nop, 0), (Nop, 0)],
+        2
+    );
+
+    // canonize: move non-constant lhs
+    test!(
+        [(Val(2), 0), (VarPrim(0), 0), (Op('+'), 2)],
+        [(VarPrim(0), 0), (Val(2), 0), (Op('+'), 2)],
+        2
+    );
+    test!(
+        [(Val(2), 0), (VarPrim(0), 0), (Op('*'), 2)],
+        [(VarPrim(0), 0), (Val(2), 0), (Op('*'), 2)],
+        2
+    );
+    test!(
+        [(Val(2), 0), (VarPrim(0), 0), (Op('-'), 2)],
+        [(Val(2), 0), (VarPrim(0), 0), (Op('-'), 2)],
+        2
+    );
+    test!(
+        [(Val(2), 0), (VarPrim(0), 0), (Op('/'), 2)],
+        [(Val(2), 0), (VarPrim(0), 0), (Op('/'), 2)],
+        2
+    );
+    test!(
+        [(Nop, 0), (Nop, 0), (Val(2), 0), (VarPrim(0), 0), (Op('+'), 2)],
+        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Val(2), 0), (Op('+'), 2)],
+        4
+    );
+
+    // constant folding over parenthes
+    test!(
+        [(VarPrim(0), 0), (Val(2), 0), (Op('+'), 2), (Val(5), 0), (Op('+'), 2)],
+        [(VarPrim(0), 0), (Val(7), 0), (Op('+'), 2), (Nop, 0), (Nop, 0)],
+        2
+    );
+    test!(
+        [(VarPrim(0), 0), (Val(2), 0), (Op('-'), 2), (Val(5), 0), (Op('+'), 2)],
+        [(VarPrim(0), 0), (Val(-3), 0), (Op('-'), 2), (Nop, 0), (Nop, 0)],
+        2
+    );
+    test!(
+        [(VarPrim(0), 0), (Val(2), 0), (Op('+'), 2), (Val(5), 0), (Op('-'), 2)],
+        [(VarPrim(0), 0), (Val(-3), 0), (Op('+'), 2), (Nop, 0), (Nop, 0)],
+        2
+    );
+    test!(
+        [(VarPrim(0), 0), (Val(2), 0), (Op('-'), 2), (Val(5), 0), (Op('-'), 2)],
+        [(VarPrim(0), 0), (Val(7), 0), (Op('-'), 2), (Nop, 0), (Nop, 0)],
+        2
+    );
+    test!(
+        [
+            (Nop, 0),
+            (Nop, 0),
+            (Val(2), 0),
+            (VarPrim(0), 0),
+            (Op('+'), 2),
+            (Val(5), 0),
+            (Op('-'), 2)
+        ],
+        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Val(-3), 0), (Op('+'), 2), (Nop, 0), (Nop, 0)],
+        4
+    );
+    test!(
+        [
+            (Nop, 0),
+            (Nop, 0),
+            (VarPrim(0), 0),
+            (Val(2), 0),
+            (Op('+'), 2),
+            (Val(5), 0),
+            (Op('-'), 2)
+        ],
+        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Val(-3), 0), (Op('+'), 2), (Nop, 0), (Nop, 0)],
+        4
+    );
+
+    test!(
+        [
+            (VarPrim(0), 0),
+            (Val(2), 0),
+            (Op('+'), 2),
+            (VarPrim(1), 0),
+            (Val(5), 0),
+            (Op('+'), 2),
+            (Op('+'), 4)
+        ],
+        [
+            (VarPrim(0), 0),
+            (VarPrim(1), 0),
+            (Op('+'), 2),
+            (Val(7), 0),
+            (Op('+'), 2),
+            (Nop, 0),
+            (Nop, 0)
+        ],
+        4
+    );
+    test!(
+        [
+            (Nop, 0),
+            (Nop, 0),
+            (VarPrim(0), 0),
+            (Val(2), 0),
+            (Op('+'), 2),
+            (VarPrim(1), 0),
+            (Val(5), 0),
+            (Op('+'), 2),
+            (Op('+'), 4)
+        ],
+        [
+            (Nop, 0),
+            (Nop, 0),
+            (VarPrim(0), 0),
+            (VarPrim(1), 0),
+            (Op('+'), 2),
+            (Val(7), 0),
+            (Op('+'), 2),
+            (Nop, 0),
+            (Nop, 0)
+        ],
+        6
+    );
+    test!(
+        [
+            (Nop, 0),
+            (Nop, 0),
+            (VarPrim(0), 0),
+            (Val(2), 0),
+            (Op('+'), 2),
+            (Nop, 0),
+            (VarPrim(1), 0),
+            (Val(5), 0),
+            (Op('+'), 2),
+            (Op('+'), 5)
+        ],
+        [
+            (Nop, 0),
+            (Nop, 0),
+            (VarPrim(0), 0),
+            (Nop, 0),
+            (VarPrim(1), 0),
+            (Op('+'), 3),
+            (Val(7), 0),
+            (Op('+'), 2),
+            (Nop, 0),
+            (Nop, 0)
+        ],
+        7
+    );
+
+    test!(
+        [
+            (Val(2), 0),
+            (VarPrim(0), 0),
+            (Op('+'), 2),
+            (VarPrim(0), 0),
+            (Val(3), 0),
+            (Op('+'), 2),
+            (Op('+'), 4),
+            (Val(4), 0),
+            (Op('+'), 2)
+        ],
+        [
+            (VarPrim(0), 0),
+            (VarPrim(0), 0),
+            (Op('+'), 2),
+            (Val(9), 0),
+            (Op('+'), 2),
+            (Nop, 0),
+            (Nop, 0),
+            (Nop, 0),
+            (Nop, 0)
+        ],
+        4
+    );
+    test!(
+        [
+            (Nop, 0),
+            (Nop, 0),
+            (Val(2), 0),
+            (VarPrim(0), 0),
+            (Op('+'), 2),
+            (VarPrim(0), 0),
+            (Val(3), 0),
+            (Op('+'), 2),
+            (Op('+'), 4),
+            (Val(4), 0),
+            (Op('+'), 2)
+        ],
+        [
+            (Nop, 0),
+            (Nop, 0),
+            (VarPrim(0), 0),
+            (VarPrim(0), 0),
+            (Op('+'), 2),
+            (Val(9), 0),
+            (Op('+'), 2),
+            (Nop, 0),
+            (Nop, 0),
+            (Nop, 0),
+            (Nop, 0)
+        ],
+        6
+    );
+}
+
+fn eval_rpn<F>(tokens: &[(Token, usize)], get: F) -> Option<i64>
 where
     F: FnMut(usize, i64) -> i64,
 {
@@ -451,22 +975,22 @@ where
     let mut stack = Vec::new();
     for &token in tokens {
         match token.0 {
-            Token::Val(val) => {
+            Val(val) => {
                 stack.push(val);
             }
-            Token::Prefix(op) => {
+            Prefix(op) => {
                 let x = stack.last_mut()?;
                 *x = apply_prefix(op, *x)?;
             }
-            Token::Op(op) => {
+            Op(op) => {
                 let y = stack.pop()?;
                 let x = stack.last_mut()?;
                 *x = apply_op(op, *x, y)?;
             }
-            Token::VarPrim(id) => {
+            VarPrim(id) => {
                 stack.push(get(id, 0));
             }
-            Token::VarArr(id) => {
+            VarArr(id) => {
                 let x = stack.last_mut()?;
                 *x = get(id, *x);
             }
@@ -489,7 +1013,7 @@ where
 // public API
 #[derive(Clone, Debug, PartialEq)]
 pub struct Rpn {
-    rpn: Vec<(Token, usize, usize)>,
+    rpn: Vec<(Token, usize)>,
     has_deref: bool,
 }
 
@@ -497,19 +1021,24 @@ impl Rpn {
     pub fn new(input: &str, vars: Option<&HashMap<&[u8], VarAttr>>) -> Option<Self> {
         let mut tokens = tokenize(input, vars)?;
         mark_prefices(&mut tokens)?;
-        let rpn = sort_into_rpn(&tokens)?;
+        let mut rpn = sort_into_rpn(&tokens)?;
 
-        let has_deref = rpn.iter().any(|x| match x.0 {
-            Token::VarPrim(_) | Token::VarArr(_) => true,
-            _ => false,
-        });
+        let has_deref = rpn.iter().any(|x| matches!(x.0, VarPrim(_) | VarArr(_)));
+
+        eprintln!("rpn: {:?}", rpn);
+        let len = canonize_rpn(&mut rpn)? + 1;
+        eprintln!("len({}), rpn({:?})", len, &rpn[..len]);
 
         Some(Rpn { rpn, has_deref })
     }
 
-    pub fn has_deref(&self) -> bool {
-        self.has_deref
+    pub fn tokens(&self) -> Vec<Token> {
+        self.rpn.iter().map(|x| x.0).collect::<Vec<_>>()
     }
+
+    // pub fn has_deref(&self) -> bool {
+    //     self.has_deref
+    // }
 
     pub fn evaluate<F>(&self, get: F) -> Option<i64>
     where
