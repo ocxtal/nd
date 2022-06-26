@@ -677,6 +677,7 @@ fn canonize_rpn(tokens: &mut [(Token, usize)]) -> Option<usize> {
     Some(root)
 }
 
+#[rustfmt::skip]
 #[test]
 fn test_canonize_rpn() {
     macro_rules! test {
@@ -811,158 +812,40 @@ fn test_canonize_rpn() {
         2
     );
     test!(
-        [
-            (Nop, 0),
-            (Nop, 0),
-            (Val(2), 0),
-            (VarPrim(0), 0),
-            (Op('+'), 2),
-            (Val(5), 0),
-            (Op('-'), 2)
-        ],
+        [(Nop, 0), (Nop, 0), (Val(2), 0), (VarPrim(0), 0), (Op('+'), 2), (Val(5), 0), (Op('-'), 2)],
         [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Val(-3), 0), (Op('+'), 2), (Nop, 0), (Nop, 0)],
         4
     );
     test!(
-        [
-            (Nop, 0),
-            (Nop, 0),
-            (VarPrim(0), 0),
-            (Val(2), 0),
-            (Op('+'), 2),
-            (Val(5), 0),
-            (Op('-'), 2)
-        ],
+        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Val(2), 0), (Op('+'), 2), (Val(5), 0), (Op('-'), 2)],
         [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Val(-3), 0), (Op('+'), 2), (Nop, 0), (Nop, 0)],
         4
     );
 
     test!(
-        [
-            (VarPrim(0), 0),
-            (Val(2), 0),
-            (Op('+'), 2),
-            (VarPrim(1), 0),
-            (Val(5), 0),
-            (Op('+'), 2),
-            (Op('+'), 4)
-        ],
-        [
-            (VarPrim(0), 0),
-            (VarPrim(1), 0),
-            (Op('+'), 2),
-            (Val(7), 0),
-            (Op('+'), 2),
-            (Nop, 0),
-            (Nop, 0)
-        ],
+        [(VarPrim(0), 0), (Val(2), 0), (Op('+'), 2), (VarPrim(1), 0), (Val(5), 0), (Op('+'), 2), (Op('+'), 4)],
+        [(VarPrim(0), 0), (VarPrim(1), 0), (Op('+'), 2), (Val(7), 0), (Op('+'), 2), (Nop, 0), (Nop, 0)],
         4
     );
     test!(
-        [
-            (Nop, 0),
-            (Nop, 0),
-            (VarPrim(0), 0),
-            (Val(2), 0),
-            (Op('+'), 2),
-            (VarPrim(1), 0),
-            (Val(5), 0),
-            (Op('+'), 2),
-            (Op('+'), 4)
-        ],
-        [
-            (Nop, 0),
-            (Nop, 0),
-            (VarPrim(0), 0),
-            (VarPrim(1), 0),
-            (Op('+'), 2),
-            (Val(7), 0),
-            (Op('+'), 2),
-            (Nop, 0),
-            (Nop, 0)
-        ],
+        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Val(2), 0), (Op('+'), 2), (VarPrim(1), 0), (Val(5), 0), (Op('+'), 2), (Op('+'), 4)],
+        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (VarPrim(1), 0), (Op('+'), 2), (Val(7), 0), (Op('+'), 2), (Nop, 0), (Nop, 0)],
         6
     );
     test!(
-        [
-            (Nop, 0),
-            (Nop, 0),
-            (VarPrim(0), 0),
-            (Val(2), 0),
-            (Op('+'), 2),
-            (Nop, 0),
-            (VarPrim(1), 0),
-            (Val(5), 0),
-            (Op('+'), 2),
-            (Op('+'), 5)
-        ],
-        [
-            (Nop, 0),
-            (Nop, 0),
-            (VarPrim(0), 0),
-            (Nop, 0),
-            (VarPrim(1), 0),
-            (Op('+'), 3),
-            (Val(7), 0),
-            (Op('+'), 2),
-            (Nop, 0),
-            (Nop, 0)
-        ],
+        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Val(2), 0), (Op('+'), 2), (Nop, 0), (VarPrim(1), 0), (Val(5), 0), (Op('+'), 2), (Op('+'), 5)],
+        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Nop, 0), (VarPrim(1), 0), (Op('+'), 3), (Val(7), 0), (Op('+'), 2), (Nop, 0), (Nop, 0)],
         7
     );
 
     test!(
-        [
-            (Val(2), 0),
-            (VarPrim(0), 0),
-            (Op('+'), 2),
-            (VarPrim(0), 0),
-            (Val(3), 0),
-            (Op('+'), 2),
-            (Op('+'), 4),
-            (Val(4), 0),
-            (Op('+'), 2)
-        ],
-        [
-            (VarPrim(0), 0),
-            (VarPrim(0), 0),
-            (Op('+'), 2),
-            (Val(9), 0),
-            (Op('+'), 2),
-            (Nop, 0),
-            (Nop, 0),
-            (Nop, 0),
-            (Nop, 0)
-        ],
+        [(Val(2), 0), (VarPrim(0), 0), (Op('+'), 2), (VarPrim(0), 0), (Val(3), 0), (Op('+'), 2), (Op('+'), 4), (Val(4), 0), (Op('+'), 2)],
+        [(VarPrim(0), 0), (VarPrim(0), 0), (Op('+'), 2), (Val(9), 0), (Op('+'), 2), (Nop, 0), (Nop, 0), (Nop, 0), (Nop, 0)],
         4
     );
     test!(
-        [
-            (Nop, 0),
-            (Nop, 0),
-            (Val(2), 0),
-            (VarPrim(0), 0),
-            (Op('+'), 2),
-            (VarPrim(0), 0),
-            (Val(3), 0),
-            (Op('+'), 2),
-            (Op('+'), 4),
-            (Val(4), 0),
-            (Op('+'), 2)
-        ],
-        [
-            (Nop, 0),
-            (Nop, 0),
-            (VarPrim(0), 0),
-            (VarPrim(0), 0),
-            (Op('+'), 2),
-            (Val(9), 0),
-            (Op('+'), 2),
-            (Nop, 0),
-            (Nop, 0),
-            (Nop, 0),
-            (Nop, 0)
-        ],
+        [(Nop, 0), (Nop, 0), (Val(2), 0), (VarPrim(0), 0), (Op('+'), 2), (VarPrim(0), 0), (Val(3), 0), (Op('+'), 2), (Op('+'), 4), (Val(4), 0), (Op('+'), 2)],
+        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (VarPrim(0), 0), (Op('+'), 2), (Val(9), 0), (Op('+'), 2), (Nop, 0), (Nop, 0), (Nop, 0), (Nop, 0)],
         6
     );
 }
