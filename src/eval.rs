@@ -127,7 +127,6 @@ where
     if first == '<' || first == '>' {
         let next = *it.peek()?;
         if first != next {
-            eprintln!("first({}), next({})", first, next);
             if next == '=' {
                 it.next()?;
                 return Some(Op(if first == '>' { 'G' } else { 'L' }));
@@ -282,8 +281,6 @@ fn tokenize(input: &str, vars: Option<&HashMap<&[u8], VarAttr>>) -> Option<Vec<T
         }
     }
     tokens.push(Paren(')'));
-
-    eprintln!("tokens: {:?}", tokens);
 
     Some(tokens)
 }
