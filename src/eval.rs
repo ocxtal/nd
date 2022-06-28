@@ -132,7 +132,7 @@ where
                 it.next()?;
                 return Some(Op(if first == '>' { 'G' } else { 'L' }));
             }
-            Some(Op(if first == '>' { 'g' } else { 'l' }));
+            return Some(Op(if first == '>' { 'g' } else { 'l' }));
         }
         it.next()?;
         return Some(Op(first));
@@ -609,12 +609,6 @@ fn canonize_binary2(tokens: &mut [(Token, usize)]) -> Option<usize> {
             tokens[lhs] = (Val(apply_op(op, x, y)?), 0);
             lhs
         }
-        // x + 0, x - 0, x & 0xff..ff, x | 0, x * 1, x / 1 -> x
-        (_, Val(x), Op(op)) if is_id(op, x) => lhs,
-        (_, Val(x), Op(op)) if is_neg(op, x) => {
-            tokens[lhs + 1] = (Prefix('-'), 1);
-            lhs + 1
-        }
         // 2 + x => x + 2 (non-leaf)
         (Val(x), _, Op(op)) if is_comm_1(op) => {
             tokens.copy_within(lhs + 1..root, lhs);
@@ -625,40 +619,58 @@ fn canonize_binary2(tokens: &mut [(Token, usize)]) -> Option<usize> {
         _ => root,
     };
 
+    if root < 2 {
+        return Some(root);
+    }
+
+    let lhs = root - tokens[root].1;
+    let root = match (tokens[lhs].0, tokens[root - 1].0, tokens[root].0) {
+        // x + 0, x - 0, x & 0xff..ff, x | 0, x * 1, x / 1 -> x
+        (_, Val(x), Op(op)) if is_id(op, x) => lhs,
+        (_, Val(x), Op(op)) if is_neg(op, x) => {
+            tokens[lhs + 1] = (Prefix('-'), 1);
+            lhs + 1
+        }
+        _ => root,
+    };
+
     if root < 3 {
         return Some(root);
     }
 
     let lhs = root - tokens[root].1;
-    match (tokens[lhs].0, tokens[root - 1].0, tokens[root].0) {
+    let root = match (tokens[lhs].0, tokens[root - 1].0, tokens[root].0) {
+        (Prefix('-'), Prefix('-'), Op(op)) if is_comm_1(op) => {
+            tokens.copy_within(lhs + 1..root - 1, lhs);
+            tokens[root - 2] = (Op(op), (root - 2) - (lhs - 1));
+            tokens[root - 1] = (Prefix(op), 1);
+            root - 1
+        }
         // -x + y => -(x - y)
         (Prefix('-'), _, Op(op)) if is_comm_1(op) => {
             let (op1, op2) = squeeze_prefix(op);
             tokens.copy_within(lhs + 1..root, lhs);
             tokens[root - 1] = (Op(op2), (root - 1) - (lhs - 1));
-
-            let new_lhs = canonize_parenthes(&mut tokens[..root])?;
-            tokens[new_lhs + 1] = (Prefix(op1), 1);
-
-            let new_root = canonize_prefix(&mut tokens[..new_lhs + 2])?;
-
-            Some(new_root)
+            tokens[root] = (Prefix(op1), 1);
+            root
         }
         // x + -y => -(x ~ y)
         (_, Prefix('-'), Op(op)) if is_comm_1(op) => {
             let (op1, op2) = squeeze_prefix(swap_hands(op));
             let op2 = swap_hands(op2);
             tokens[root - 1] = (Op(op2), (root - 1) - lhs);
-
-            let new_lhs = canonize_parenthes(&mut tokens[..root])?;
-            tokens[new_lhs + 1] = (Prefix(op1), 1);
-
-            let new_root = canonize_prefix(&mut tokens[..new_lhs + 2])?;
-
-            Some(new_root)
+            tokens[root] = (Prefix(op1), 1);
+            root
         }
-        _ => Some(root),
-    }
+        _ => {
+            return Some(root);
+        }
+    };
+
+    let new_lhs = canonize_parenthes(&mut tokens[..root])?;
+
+    tokens.copy_within(root..root + 1, new_lhs + 1);
+    canonize_prefix(&mut tokens[..new_lhs + 2])
 }
 
 fn canonize_parenthes(tokens: &mut [(Token, usize)]) -> Option<usize> {
@@ -670,15 +682,6 @@ fn canonize_parenthes(tokens: &mut [(Token, usize)]) -> Option<usize> {
         ((Op(op2), rlhs), Op(op1)) if is_comm_2(op1, op2) => {
             let (op1, op2) = swap_order(op1, op2);
 
-            eprintln!("tokens: {:?}", &tokens[..root + 1]);
-            eprintln!(
-                "rlhs({}), root({}), {}..{}, {}",
-                rlhs,
-                root,
-                (root - 1) - rlhs + 1,
-                root - 1,
-                (root - 1) - rlhs + 2
-            );
             let rlhs = (root - 1) - rlhs;
             tokens.copy_within(rlhs + 1..root - 1, rlhs + 2);
             tokens[rlhs + 1] = (Op(op1), (rlhs + 1) - lhs);
@@ -712,6 +715,7 @@ fn canonize_parenthes(tokens: &mut [(Token, usize)]) -> Option<usize> {
 
             let new_lhs = canonize_parenthes(&mut tokens[..root - 1])?;
             let new_lhs = canonize_binary1(&mut tokens[..new_lhs + 1])?;
+
             tokens[new_lhs + 1] = (Val(x), 0);
             tokens[new_lhs + 2] = (Op(op1), 2);
 
@@ -730,6 +734,7 @@ fn canonize_parenthes(tokens: &mut [(Token, usize)]) -> Option<usize> {
         // (x + 2) + 3 => x + 5 (non-leaf)
         (Val(x), (Op(op1), llhs), Val(y), Op(op2)) if is_comm_2(op1, op2) => {
             let (op1, op2) = swap_order(op1, op2);
+
             tokens[lhs - 1] = (Val(apply_op(op2, x, y)?), 0);
             tokens[lhs] = (Op(op1), llhs);
             return Some(lhs);
@@ -752,23 +757,19 @@ fn canonize_rpn(tokens: &mut [(Token, usize)]) -> Option<usize> {
 
     let root = match tokens[root].0 {
         Prefix(op) => {
-            eprintln!("a, tokens: {:?}", &tokens[..lhs + 1]);
             let new_root = canonize_rpn(&mut tokens[..lhs + 1])? + 1;
             tokens[new_root] = (Prefix(op), 1);
-
-            eprintln!("b, tokens: {:?}", &tokens[..new_root + 1]);
             new_root
         }
         Op(op) => {
-            eprintln!("c, tokens: {:?}", &tokens[..lhs + 1]);
             let new_lhs = canonize_rpn(&mut tokens[..lhs + 1])?;
 
             tokens.copy_within(lhs + 1..root, new_lhs + 1);
+
             let new_root = root - lhs + new_lhs;
             let new_root = (new_lhs + 1) + canonize_rpn(&mut tokens[new_lhs + 1..new_root])? + 1;
-            tokens[new_root] = (Op(op), new_root - new_lhs);
 
-            eprintln!("d, tokens: {:?}", &tokens[..new_root + 1]);
+            tokens[new_root] = (Op(op), new_root - new_lhs);
 
             canonize_binary1(&mut tokens[..new_root + 1])?
         }
@@ -797,7 +798,6 @@ fn test_canonize_rpn() {
         ( $input: expr, $expected: expr ) => {{
             let mut v = $input.to_vec();
             let root = canonize_rpn(&mut v).unwrap();
-            assert_eq!(root, $expected.len() - 1);
             assert_eq!(&v[..root + 1], &$expected[..root + 1]);
         }};
     }
@@ -994,6 +994,12 @@ fn test_canonize_rpn() {
     test!(
         [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (VarPrim(1), 0), (Op('+'), 2), (VarPrim(1), 0), (Op('-'), 2)],
         [(Nop, 0), (Nop, 0), (VarPrim(0), 0)]
+    );
+
+    // s <= -s + (s + s) - (-s)  =>  s >= 0
+    test!(
+        [(VarPrim(0), 0), (VarPrim(0), 0), (Prefix('-'), 1), (VarPrim(0), 0), (VarPrim(0), 0), (Op('+'), 2), (Op('+'), 4), (VarPrim(0), 0), (Prefix('-'), 1), (Op('-'), 3), (Op('~'), 10), (Prefix('G'), 1)],
+        [(VarPrim(0), 0), (Prefix('G'), 1)]
     );
 }
 
