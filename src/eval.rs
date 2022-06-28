@@ -127,10 +127,12 @@ where
     if first == '<' || first == '>' {
         let next = *it.peek()?;
         if first != next {
-            let op_tags = [['g', 'G'], ['l', 'L']];
-            let is_eq = (next == '~') as usize;
-            let is_lt = (first == '<') as usize;
-            return Some(Op(op_tags[is_lt][is_eq]));
+            eprintln!("first({}), next({})", first, next);
+            if next == '=' {
+                it.next()?;
+                return Some(Op(if first == '>' { 'G' } else { 'L' }));
+            }
+            Some(Op(if first == '>' { 'g' } else { 'l' }));
         }
         it.next()?;
         return Some(Op(first));
@@ -281,6 +283,8 @@ fn tokenize(input: &str, vars: Option<&HashMap<&[u8], VarAttr>>) -> Option<Vec<T
     }
     tokens.push(Paren(')'));
 
+    eprintln!("tokens: {:?}", tokens);
+
     Some(tokens)
 }
 
@@ -316,12 +320,22 @@ fn mark_prefices(tokens: &mut [Token]) -> Option<()> {
     Some(())
 }
 
+fn expand_and_push_op(op: &Token, lhs: usize, rpn: &mut Vec<(Token, usize)>) {
+    match op {
+        Op('g') => rpn.extend_from_slice(&[(Op('-'), lhs), (Val(-1), 0), (Op('+'), 2), (Prefix('G'), 1)]),
+        Op('G') => rpn.extend_from_slice(&[(Op('-'), lhs), (Prefix('G'), 1)]),
+        Op('l') => rpn.extend_from_slice(&[(Op('~'), lhs), (Val(-1), 0), (Op('+'), 2), (Prefix('G'), 1)]),
+        Op('L') => rpn.extend_from_slice(&[(Op('~'), lhs), (Prefix('G'), 1)]),
+        _ => rpn.push((*op, lhs)),
+    }
+}
+
 fn sort_into_rpn(tokens: &[Token]) -> Option<Vec<(Token, usize)>> {
     let mut rpn = Vec::new();
     let mut op_stack = Vec::new();
 
     let calc_lhs = |op: &Token, i: usize, len: usize| -> usize {
-        match *op {
+        match op {
             Prefix(_) => 1,
             Op(_) => len - i + 1,
             _ => 0,
@@ -343,7 +357,7 @@ fn sort_into_rpn(tokens: &[Token]) -> Option<Vec<(Token, usize)>> {
                         break;
                     }
                     let (op, i) = op_stack.pop()?;
-                    rpn.push((op, calc_lhs(&op, i, rpn.len())));
+                    expand_and_push_op(&op, calc_lhs(&op, i, rpn.len()), &mut rpn);
                 }
                 op_stack.push((Op(op), rpn.len()));
             }
@@ -354,7 +368,7 @@ fn sort_into_rpn(tokens: &[Token]) -> Option<Vec<(Token, usize)>> {
                     if op == Paren(other) {
                         break;
                     }
-                    rpn.push((op, calc_lhs(&op, i, rpn.len())));
+                    expand_and_push_op(&op, calc_lhs(&op, i, rpn.len()), &mut rpn);
                 }
             }
             _ => {
@@ -412,6 +426,8 @@ fn apply_prefix(c: char, x: i64) -> Option<i64> {
         '+' => Some(x),
         '-' => Some(-x),
         '!' | '~' => Some(!x),
+        // 'g' => Some(if x > 0 { 1 } else { 0 }),
+        'G' => Some(if x >= 0 { 1 } else { 0 }),
         _ => {
             // eprintln!("unknown op: {:?}", c);
             None
@@ -441,10 +457,10 @@ fn apply_op(c: char, x: i64, y: i64) -> Option<i64> {
             x << ((-y as usize) & 0x3f)
         }),
         '@' => Some(if y >= 0 { x.pow(y as u32) } else { 0 }), // FIXME
-        'g' => Some(if x > y { 1 } else { 0 }),
-        'G' => Some(if x >= y { 1 } else { 0 }),
-        'l' => Some(if x < y { 1 } else { 0 }),
-        'L' => Some(if x <= y { 1 } else { 0 }),
+        // 'g' => Some(if x > y { 1 } else { 0 }),
+        // 'G' => Some(if x >= y { 1 } else { 0 }),
+        // 'l' => Some(if x < y { 1 } else { 0 }),
+        // 'L' => Some(if x <= y { 1 } else { 0 }),
         _ => {
             // eprintln!("unknown op: {:?}", c);
             None
@@ -525,6 +541,14 @@ fn is_id(op: char, rhs_val: i64) -> bool {
     }
 }
 
+fn is_neg(op: char, rhs_val: i64) -> bool {
+    match op {
+        '~' => rhs_val == 0,
+        '*' => rhs_val == -1,
+        _ => false,
+    }
+}
+
 fn is_equivalent(tokens: &[(Token, usize)], lhs: usize, rhs: usize) -> (bool, usize) {
     match (tokens[lhs], tokens[rhs]) {
         ((Val(x), _), (Val(y), _)) if x == y => (true, lhs),
@@ -587,6 +611,10 @@ fn canonize_binary2(tokens: &mut [(Token, usize)]) -> Option<usize> {
         }
         // x + 0, x - 0, x & 0xff..ff, x | 0, x * 1, x / 1 -> x
         (_, Val(x), Op(op)) if is_id(op, x) => lhs,
+        (_, Val(x), Op(op)) if is_neg(op, x) => {
+            tokens[lhs + 1] = (Prefix('-'), 1);
+            lhs + 1
+        }
         // 2 + x => x + 2 (non-leaf)
         (Val(x), _, Op(op)) if is_comm_1(op) => {
             tokens.copy_within(lhs + 1..root, lhs);
@@ -607,7 +635,7 @@ fn canonize_binary2(tokens: &mut [(Token, usize)]) -> Option<usize> {
         (Prefix('-'), _, Op(op)) if is_comm_1(op) => {
             let (op1, op2) = squeeze_prefix(op);
             tokens.copy_within(lhs + 1..root, lhs);
-            tokens[root - 1] = (Op(op2), 2);
+            tokens[root - 1] = (Op(op2), (root - 1) - (lhs - 1));
 
             let new_lhs = canonize_parenthes(&mut tokens[..root])?;
             tokens[new_lhs + 1] = (Prefix(op1), 1);
@@ -620,7 +648,7 @@ fn canonize_binary2(tokens: &mut [(Token, usize)]) -> Option<usize> {
         (_, Prefix('-'), Op(op)) if is_comm_1(op) => {
             let (op1, op2) = squeeze_prefix(swap_hands(op));
             let op2 = swap_hands(op2);
-            tokens[root - 1] = (Op(op2), 2);
+            tokens[root - 1] = (Op(op2), (root - 1) - lhs);
 
             let new_lhs = canonize_parenthes(&mut tokens[..root])?;
             tokens[new_lhs + 1] = (Prefix(op1), 1);
@@ -642,6 +670,15 @@ fn canonize_parenthes(tokens: &mut [(Token, usize)]) -> Option<usize> {
         ((Op(op2), rlhs), Op(op1)) if is_comm_2(op1, op2) => {
             let (op1, op2) = swap_order(op1, op2);
 
+            eprintln!("tokens: {:?}", &tokens[..root + 1]);
+            eprintln!(
+                "rlhs({}), root({}), {}..{}, {}",
+                rlhs,
+                root,
+                (root - 1) - rlhs + 1,
+                root - 1,
+                (root - 1) - rlhs + 2
+            );
             let rlhs = (root - 1) - rlhs;
             tokens.copy_within(rlhs + 1..root - 1, rlhs + 2);
             tokens[rlhs + 1] = (Op(op1), (rlhs + 1) - lhs);
@@ -715,17 +752,23 @@ fn canonize_rpn(tokens: &mut [(Token, usize)]) -> Option<usize> {
 
     let root = match tokens[root].0 {
         Prefix(op) => {
+            eprintln!("a, tokens: {:?}", &tokens[..lhs + 1]);
             let new_root = canonize_rpn(&mut tokens[..lhs + 1])? + 1;
             tokens[new_root] = (Prefix(op), 1);
+
+            eprintln!("b, tokens: {:?}", &tokens[..new_root + 1]);
             new_root
         }
         Op(op) => {
+            eprintln!("c, tokens: {:?}", &tokens[..lhs + 1]);
             let new_lhs = canonize_rpn(&mut tokens[..lhs + 1])?;
 
             tokens.copy_within(lhs + 1..root, new_lhs + 1);
             let new_root = root - lhs + new_lhs;
             let new_root = (new_lhs + 1) + canonize_rpn(&mut tokens[new_lhs + 1..new_root])? + 1;
             tokens[new_root] = (Op(op), new_root - new_lhs);
+
+            eprintln!("d, tokens: {:?}", &tokens[..new_root + 1]);
 
             canonize_binary1(&mut tokens[..new_root + 1])?
         }
@@ -751,10 +794,10 @@ fn canonize_rpn(tokens: &mut [(Token, usize)]) -> Option<usize> {
 #[test]
 fn test_canonize_rpn() {
     macro_rules! test {
-        ( $input: expr, $expected: expr, $expected_root: expr ) => {{
+        ( $input: expr, $expected: expr ) => {{
             let mut v = $input.to_vec();
             let root = canonize_rpn(&mut v).unwrap();
-            assert_eq!(root, $expected_root);
+            assert_eq!(root, $expected.len() - 1);
             assert_eq!(&v[..root + 1], &$expected[..root + 1]);
         }};
     }
@@ -765,231 +808,192 @@ fn test_canonize_rpn() {
 
     // constant folding: prefix removal
     // 1 => 1
-    test!([(Val(1), 0)], [(Val(1), 0)], 0);
+    test!([(Val(1), 0)], [(Val(1), 0)]);
     // -(1) => -1
-    test!([(Val(1), 0), (Prefix('-'), 1)], [(Val(-1), 0), (Nop, 0)], 0);
+    test!([(Val(1), 0), (Prefix('-'), 1)], [(Val(-1), 0)]);
     // -(-(1)) => 1
-    test!(
-        [(Val(1), 0), (Prefix('-'), 1), (Prefix('-'), 1)],
-        [(Val(1), 0), (Nop, 0), (Nop, 0)],
-        0
-    );
+    test!([(Val(1), 0), (Prefix('-'), 1), (Prefix('-'), 1)], [(Val(1), 0)]);
     // -(-(-(1))) => -1
-    test!(
-        [(Val(1), 0), (Prefix('-'), 1), (Prefix('-'), 1), (Prefix('-'), 1)],
-        [(Val(-1), 0), (Nop, 0), (Nop, 0), (Nop, 0)],
-        0
-    );
+    test!([(Val(1), 0), (Prefix('-'), 1), (Prefix('-'), 1), (Prefix('-'), 1)], [(Val(-1), 0)]);
     // -(-(1)) => 1 with Nop
-    test!(
-        [(Nop, 0), (Val(1), 0), (Prefix('-'), 1), (Prefix('-'), 1)],
-        [(Nop, 0), (Val(1), 0), (Nop, 0), (Nop, 0)],
-        1
-    );
+    test!([(Nop, 0), (Val(1), 0), (Prefix('-'), 1), (Prefix('-'), 1)], [(Nop, 0), (Val(1), 0)]);
 
     // constant folding: additions and subtractions
     // 1 - 3 => -2
-    test!([(Val(1), 0), (Val(3), 0), (Op('-'), 2)], [(Val(-2), 0), (Nop, 0), (Nop, 0)], 0);
+    test!([(Val(1), 0), (Val(3), 0), (Op('-'), 2)], [(Val(-2), 0)]);
     // 1 - 3 => -2 with Nop
-    test!(
-        [(Nop, 0), (Val(1), 0), (Val(3), 0), (Op('-'), 2)],
-        [(Nop, 0), (Val(-2), 0), (Nop, 0), (Nop, 0)],
-        1
-    );
+    test!([(Nop, 0), (Val(1), 0), (Val(3), 0), (Op('-'), 2)], [(Nop, 0), (Val(-2), 0)]);
 
     // constant folding: removing identity
     // x - 0 => x
-    test!(
-        [(VarPrim(0), 0), (Val(0), 0), (Op('-'), 2)],
-        [(VarPrim(0), 0), (Nop, 0), (Nop, 0)],
-        0
-    );
+    test!([(VarPrim(0), 0), (Val(0), 0), (Op('-'), 2)], [(VarPrim(0), 0)]);
     // x & 0xff..ff => x
-    test!(
-        [(VarPrim(0), 0), (Val(-1), 0), (Op('&'), 2)],
-        [(VarPrim(0), 0), (Nop, 0), (Nop, 0)],
-        0
-    );
+    test!([(VarPrim(0), 0), (Val(-1), 0), (Op('&'), 2)], [(VarPrim(0), 0)]);
 
     // canonize: removing equivalent lhs-rhs pairs
     // x - x => 0
-    test!(
-        [(VarPrim(0), 0), (VarPrim(0), 0), (Op('-'), 2)],
-        [(Val(0), 0), (Nop, 0), (Nop, 0)],
-        0
-    );
+    test!([(VarPrim(0), 0), (VarPrim(0), 0), (Op('-'), 2)], [(Val(0), 0)]);
     // x / x => 1 (TODO: this is wrong for the case x == 0)
-    test!(
-        [(VarPrim(0), 0), (VarPrim(0), 0), (Op('/'), 2)],
-        [(Val(1), 0), (Nop, 0), (Nop, 0)],
-        0
-    );
+    test!([(VarPrim(0), 0), (VarPrim(0), 0), (Op('/'), 2)], [(Val(1), 0)]);
     // x - x => 0 with Nops
     test!(
         [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (VarPrim(0), 0), (Op('-'), 2)],
-        [(Nop, 0), (Nop, 0), (Val(0), 0), (Nop, 0), (Nop, 0)],
-        2
+        [(Nop, 0), (Nop, 0), (Val(0), 0)]
     );
     // x - y => x - y
     test!(
         [(VarPrim(0), 0), (VarPrim(1), 0), (Op('-'), 2)],
-        [(VarPrim(0), 0), (VarPrim(1), 0), (Op('-'), 2)],
-        2
+        [(VarPrim(0), 0), (VarPrim(1), 0), (Op('-'), 2)]
     );
 
     // canonize: prefix
     // -(-x) => x
-    test!(
-        [(VarPrim(0), 0), (Prefix('-'), 1), (Prefix('-'), 1)],
-        [(VarPrim(0), 0), (Nop, 0), (Nop, 0)],
-        0
-    );
+    test!([(VarPrim(0), 0), (Prefix('-'), 1), (Prefix('-'), 1)], [(VarPrim(0), 0)]);
     // !(!x) => x
-    test!(
-        [(VarPrim(0), 0), (Prefix('!'), 1), (Prefix('!'), 1)],
-        [(VarPrim(0), 0), (Nop, 0), (Nop, 0)],
-        0
-    );
+    test!([(VarPrim(0), 0), (Prefix('!'), 1), (Prefix('!'), 1)], [(VarPrim(0), 0)]);
     // -(-x) => x with Nops
     test!(
         [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Prefix('-'), 1), (Prefix('-'), 1)],
-        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Nop, 0), (Nop, 0)],
-        2
+        [(Nop, 0), (Nop, 0), (VarPrim(0), 0)]
     );
     // +(-x) => -x
     test!(
         [(VarPrim(0), 0), (Prefix('-'), 1), (Prefix('+'), 1)],
-        [(VarPrim(0), 0), (Prefix('-'), 1), (Nop, 0)],
-        1
+        [(VarPrim(0), 0), (Prefix('-'), 1)]
     );
     // !(-x) => !(-x)
     test!(
         [(VarPrim(0), 0), (Prefix('-'), 1), (Prefix('!'), 1)],
-        [(VarPrim(0), 0), (Prefix('-'), 1), (Prefix('!'), 1)],
-        2
+        [(VarPrim(0), 0), (Prefix('-'), 1), (Prefix('!'), 1)]
     );
 
     // canonize: move non-constant lhs
     // 2 + x => x + 2
     test!(
         [(Val(2), 0), (VarPrim(0), 0), (Op('+'), 2)],
-        [(VarPrim(0), 0), (Val(2), 0), (Op('+'), 2)],
-        2
+        [(VarPrim(0), 0), (Val(2), 0), (Op('+'), 2)]
     );
     // 2 * x => x * 2
     test!(
         [(Val(2), 0), (VarPrim(0), 0), (Op('*'), 2)],
-        [(VarPrim(0), 0), (Val(2), 0), (Op('*'), 2)],
-        2
+        [(VarPrim(0), 0), (Val(2), 0), (Op('*'), 2)]
     );
     // 2 - x => x ~ 2
     test!(
         [(Val(2), 0), (VarPrim(0), 0), (Op('-'), 2)],
-        [(VarPrim(0), 0), (Val(2), 0), (Op('~'), 2)],
-        2
+        [(VarPrim(0), 0), (Val(2), 0), (Op('~'), 2)]
     );
     // 2 / x => 2 / x
     test!(
         [(Val(2), 0), (VarPrim(0), 0), (Op('/'), 2)],
-        [(Val(2), 0), (VarPrim(0), 0), (Op('/'), 2)],
-        2
+        [(Val(2), 0), (VarPrim(0), 0), (Op('/'), 2)]
     );
     // 2 + x => x + 2 with Nops
     test!(
         [(Nop, 0), (Nop, 0), (Val(2), 0), (VarPrim(0), 0), (Op('+'), 2)],
-        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Val(2), 0), (Op('+'), 2)],
-        4
+        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Val(2), 0), (Op('+'), 2)]
     );
 
     // canonize: squeeze out prefices
     // -x + 2 => -(x - 2)
     test!(
         [(Nop, 0), (VarPrim(0), 0), (Prefix('-'), 1), (Val(2), 0), (Op('+'), 2)],
-        [(Nop, 0), (VarPrim(0), 0), (Val(2), 0), (Op('-'), 2), (Prefix('-'), 1)],
-        4
+        [(Nop, 0), (VarPrim(0), 0), (Val(2), 0), (Op('-'), 2), (Prefix('-'), 1)]
+    );
+    test!(
+        [(Nop, 0), (VarPrim(0), 0), (Prefix('-'), 1), (Nop, 0), (Nop, 0), (Val(2), 0), (Op('+'), 4)],
+        [(Nop, 0), (VarPrim(0), 0), (Nop, 0), (Nop, 0), (Val(2), 0), (Op('-'), 4), (Prefix('-'), 1)]
     );
     // 2 + -x => -(x - 2)
     test!(
         [(Nop, 0), (Nop, 0), (Val(2), 0), (VarPrim(0), 0), (Prefix('-'), 1), (Op('+'), 3)],
-        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Val(2), 0), (Op('-'), 2), (Prefix('-'), 1)],
-        5
+        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Val(2), 0), (Op('-'), 2), (Prefix('-'), 1)]
     );
     // -x + y => -(x - y)
     test!(
         [(Nop, 0), (Nop, 0), (Nop, 0), (VarPrim(0), 0), (Prefix('-'), 1), (VarPrim(1), 0), (Op('+'), 2)],
-        [(Nop, 0), (Nop, 0), (Nop, 0), (VarPrim(0), 0), (VarPrim(1), 0), (Op('-'), 2), (Prefix('-'), 1)],
-        6
+        [(Nop, 0), (Nop, 0), (Nop, 0), (VarPrim(0), 0), (VarPrim(1), 0), (Op('-'), 2), (Prefix('-'), 1)]
     );
     // x + -y => -(x ~ y)
     test!(
         [(Nop, 0), (VarPrim(0), 0), (VarPrim(1), 0), (Prefix('-'), 1), (Op('+'), 3)],
-        [(Nop, 0), (VarPrim(0), 0), (VarPrim(1), 0), (Op('~'), 2), (Prefix('-'), 1)],
-        4
+        [(Nop, 0), (VarPrim(0), 0), (VarPrim(1), 0), (Op('~'), 2), (Prefix('-'), 1)]
     );
 
     // constant folding over parenthes
+    // (x + 2) + 5 => x + 7
     test!(
         [(VarPrim(0), 0), (Val(2), 0), (Op('+'), 2), (Val(5), 0), (Op('+'), 2)],
-        [(VarPrim(0), 0), (Val(7), 0), (Op('+'), 2), (Nop, 0), (Nop, 0)],
-        2
+        [(VarPrim(0), 0), (Val(7), 0), (Op('+'), 2)]
     );
+    // (x - 2) + 5 => x - 3
     test!(
         [(VarPrim(0), 0), (Val(2), 0), (Op('-'), 2), (Val(5), 0), (Op('+'), 2)],
-        [(VarPrim(0), 0), (Val(-3), 0), (Op('-'), 2), (Nop, 0), (Nop, 0)],
-        2
+        [(VarPrim(0), 0), (Val(-3), 0), (Op('-'), 2)]
     );
+    // (x + 2) - 5 => x - 3
     test!(
         [(VarPrim(0), 0), (Val(2), 0), (Op('+'), 2), (Val(5), 0), (Op('-'), 2)],
-        [(VarPrim(0), 0), (Val(-3), 0), (Op('+'), 2), (Nop, 0), (Nop, 0)],
-        2
+        [(VarPrim(0), 0), (Val(-3), 0), (Op('+'), 2)]
     );
+    // (x - 2) - 5 => x - 7
     test!(
         [(VarPrim(0), 0), (Val(2), 0), (Op('-'), 2), (Val(5), 0), (Op('-'), 2)],
-        [(VarPrim(0), 0), (Val(7), 0), (Op('-'), 2), (Nop, 0), (Nop, 0)],
-        2
+        [(VarPrim(0), 0), (Val(7), 0), (Op('-'), 2)]
     );
+    // (x + 2) - 5 => x - 3 with Nops
     test!(
         [(Nop, 0), (Nop, 0), (Val(2), 0), (VarPrim(0), 0), (Op('+'), 2), (Val(5), 0), (Op('-'), 2)],
-        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Val(-3), 0), (Op('+'), 2), (Nop, 0), (Nop, 0)],
-        4
-    );
-    test!(
-        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Val(2), 0), (Op('+'), 2), (Val(5), 0), (Op('-'), 2)],
-        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Val(-3), 0), (Op('+'), 2), (Nop, 0), (Nop, 0)],
-        4
+        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Val(-3), 0), (Op('+'), 2)]
     );
 
+    // (x + 2) + (y + 5) => (x + y) + 7
     test!(
         [(VarPrim(0), 0), (Val(2), 0), (Op('+'), 2), (VarPrim(1), 0), (Val(5), 0), (Op('+'), 2), (Op('+'), 4)],
-        [(VarPrim(0), 0), (VarPrim(1), 0), (Op('+'), 2), (Val(7), 0), (Op('+'), 2), (Nop, 0), (Nop, 0)],
-        4
+        [(VarPrim(0), 0), (VarPrim(1), 0), (Op('+'), 2), (Val(7), 0), (Op('+'), 2)]
     );
+    // (x + 2) + (y + 5) => (x + y) + 7 with Nops
     test!(
         [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Val(2), 0), (Op('+'), 2), (VarPrim(1), 0), (Val(5), 0), (Op('+'), 2), (Op('+'), 4)],
-        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (VarPrim(1), 0), (Op('+'), 2), (Val(7), 0), (Op('+'), 2), (Nop, 0), (Nop, 0)],
-        6
+        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (VarPrim(1), 0), (Op('+'), 2), (Val(7), 0), (Op('+'), 2)]
     );
+    // (x + 2) + (y + 5) => (x + y) + 7 with gap Nops
     test!(
         [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Val(2), 0), (Op('+'), 2), (Nop, 0), (VarPrim(1), 0), (Val(5), 0), (Op('+'), 2), (Op('+'), 5)],
-        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Nop, 0), (VarPrim(1), 0), (Op('+'), 3), (Val(7), 0), (Op('+'), 2), (Nop, 0), (Nop, 0)],
-        7
+        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Nop, 0), (VarPrim(1), 0), (Op('+'), 3), (Val(7), 0), (Op('+'), 2)]
     );
 
+    // ((2 + x) + (x + 3)) + 4 => (x + x) + 9
     test!(
         [(Val(2), 0), (VarPrim(0), 0), (Op('+'), 2), (VarPrim(0), 0), (Val(3), 0), (Op('+'), 2), (Op('+'), 4), (Val(4), 0), (Op('+'), 2)],
-        [(VarPrim(0), 0), (VarPrim(0), 0), (Op('+'), 2), (Val(9), 0), (Op('+'), 2), (Nop, 0), (Nop, 0), (Nop, 0), (Nop, 0)],
-        4
+        [(VarPrim(0), 0), (VarPrim(0), 0), (Op('+'), 2), (Val(9), 0), (Op('+'), 2)]
     );
+    // ((2 + x) + (x + 3)) + 4 => (x + x) + 9 with Nops
     test!(
         [(Nop, 0), (Nop, 0), (Val(2), 0), (VarPrim(0), 0), (Op('+'), 2), (VarPrim(0), 0), (Val(3), 0), (Op('+'), 2), (Op('+'), 4), (Val(4), 0), (Op('+'), 2)],
-        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (VarPrim(0), 0), (Op('+'), 2), (Val(9), 0), (Op('+'), 2), (Nop, 0), (Nop, 0), (Nop, 0), (Nop, 0)],
-        6
+        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (VarPrim(0), 0), (Op('+'), 2), (Val(9), 0), (Op('+'), 2)]
     );
 
+    // move parenthes
+    // x + (y + 2) => (x + y) + 2 with Nops
     test!(
-        [(Val(2), 0), (VarPrim(0), 0), (Op('+'), 2), (VarPrim(0), 0), (Val(3), 0), (Op('+'), 2), (Op('+'), 4), (Val(4), 0), (Op('+'), 2)],
-        [(VarPrim(0), 0), (VarPrim(0), 0), (Op('+'), 2), (Val(9), 0), (Op('+'), 2), (Nop, 0), (Nop, 0), (Nop, 0), (Nop, 0)],
-        4
+        [(Nop, 0), (Nop, 0), (Nop, 0), (VarPrim(0), 0), (VarPrim(1), 0), (Val(2), 0), (Op('+'), 2), (Op('+'), 4)],
+        [(Nop, 0), (Nop, 0), (Nop, 0), (VarPrim(0), 0), (VarPrim(1), 0), (Op('+'), 2), (Val(2), 0), (Op('+'), 2)]
+    );
+    // x + (y + 2) => (x + y) + 2 with gap Nops
+    test!(
+        [(Nop, 0), (VarPrim(0), 0), (Nop, 0), (Nop, 0), (VarPrim(1), 0), (Val(2), 0), (Op('+'), 2), (Op('+'), 6)],
+        [(Nop, 0), (VarPrim(0), 0), (Nop, 0), (Nop, 0), (VarPrim(1), 0), (Op('+'), 4), (Val(2), 0), (Op('+'), 2)]
+    );
+    // (x + 2) - y => (x + y) + 2 with Nops
+    test!(
+        [(Nop, 0), (Nop, 0), (Nop, 0), (VarPrim(0), 0), (Val(2), 0), (Op('+'), 2), (VarPrim(1), 0), (Op('-'), 2)],
+        [(Nop, 0), (Nop, 0), (Nop, 0), (VarPrim(0), 0), (VarPrim(1), 0), (Op('-'), 2), (Val(2), 0), (Op('+'), 2)]
+    );
+    // (x + y) - y => x with Nops
+    test!(
+        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (VarPrim(1), 0), (Op('+'), 2), (VarPrim(1), 0), (Op('-'), 2)],
+        [(Nop, 0), (Nop, 0), (VarPrim(0), 0)]
     );
 }
 
@@ -1049,9 +1053,11 @@ impl Rpn {
         mark_prefices(&mut tokens)?;
 
         let mut rpn = sort_into_rpn(&tokens)?;
+        eprintln!("tokens: {:?}", rpn);
 
         let len = canonize_rpn(&mut rpn)? + 1;
         rpn.truncate(len);
+        eprintln!("tokens: {:?}", rpn);
 
         let has_deref = rpn.iter().any(|x| matches!(x.0, VarPrim(_) | VarArr(_)));
         Some(Rpn { rpn, has_deref })

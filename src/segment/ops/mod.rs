@@ -150,6 +150,8 @@ impl SegmentMapper {
         let start = if start.is_empty() { "s" } else { start };
         let end = if end.is_empty() { "e" } else { end };
 
+        eprintln!("start({:?}), end({:?})", start, end);
+
         let start = Rpn::new(start, Some(&vars)).unwrap();
         let end = Rpn::new(end, Some(&vars)).unwrap();
 
