@@ -123,7 +123,7 @@ impl SegmentPred {
                 return false;
             }
         };
-        self.pred.tokens().iter().any(|&x| x == VarPrim(index))
+        self.pred.tokens().iter().any(|&x| x == VarPrim(index, 1))
     }
 }
 
@@ -143,7 +143,7 @@ impl SegmentMapperExpr {
 
         if tokens.len() == 1 {
             match tokens[0] {
-                VarPrim(index) => return Ok(SegmentMapperExpr { index, offset: 0 }),
+                VarPrim(index, _) => return Ok(SegmentMapperExpr { index, offset: 0 }),
                 Val(_) => return invalid_range,
                 _ => return Err(anyhow!("invalid token for SegmentMapperExpr (internal error)")),
             };
@@ -153,11 +153,11 @@ impl SegmentMapperExpr {
         }
 
         match (tokens[0], tokens[1], tokens[2]) {
-            (VarPrim(index), Val(offset), Op(op @ ('+' | '-'))) => {
+            (VarPrim(index, _), Val(offset), Op(op @ ('+' | '-'))) => {
                 let offset = if op == '+' { offset as isize } else { -offset as isize };
                 Ok(SegmentMapperExpr { index, offset })
             }
-            (Val(offset), VarPrim(index), Op('+')) => Ok(SegmentMapperExpr {
+            (Val(offset), VarPrim(index, _), Op('+')) => Ok(SegmentMapperExpr {
                 index,
                 offset: offset as isize,
             }),

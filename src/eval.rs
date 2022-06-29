@@ -16,8 +16,8 @@ pub enum Token {
     Op(char),
     Prefix(char), // unary op; '+', '-', '!', '~' (TODO: add deref operator '*')
     Paren(char),
-    VarPrim(usize),
-    VarArr(usize),
+    VarPrim(usize, i64),
+    VarArr(usize, i64),
 }
 
 #[derive(Copy, Clone)]
@@ -246,9 +246,9 @@ where
 
     let var = var.unwrap();
     if var.is_array {
-        Some(VarArr(var.id))
+        Some(VarArr(var.id, 1))
     } else {
-        Some(VarPrim(var.id))
+        Some(VarPrim(var.id, 1))
     }
 }
 
@@ -295,15 +295,15 @@ fn mark_prefices(tokens: &mut [Token]) -> Option<()> {
                 latter[0] = Prefix(y);
             }
             // prefix followed by an expression
-            (Prefix(_), Val(_) | VarPrim(_) | VarArr(_) | Paren('(')) => {}
+            (Prefix(_), Val(_) | VarPrim(_, _) | VarArr(_, _) | Paren('(')) => {}
             // binary op; lhs and rhs
-            (Val(_) | VarPrim(_) | Paren(']' | ')'), Op(_)) => {}
-            (Op(_), Val(_) | VarPrim(_) | VarArr(_) | Paren('(')) => {}
+            (Val(_) | VarPrim(_, _) | Paren(']' | ')'), Op(_)) => {}
+            (Op(_), Val(_) | VarPrim(_, _) | VarArr(_, _) | Paren('(')) => {}
             // parentheses inner
-            (Paren('(' | '['), Val(_) | VarPrim(_) | VarArr(_) | Paren('(')) => {}
-            (Val(_) | VarPrim(_) | Paren(']' | ')'), Paren(']' | ')')) => {}
+            (Paren('(' | '['), Val(_) | VarPrim(_, _) | VarArr(_, _) | Paren('(')) => {}
+            (Val(_) | VarPrim(_, _) | Paren(']' | ')'), Paren(']' | ')')) => {}
             // opening bracket must follow array variable
-            (VarArr(_), Paren('[')) => {}
+            (VarArr(_, _), Paren('[')) => {}
             // otherwise invalid
             _ => {
                 // eprintln!("invalid tokens");
@@ -341,11 +341,11 @@ fn sort_into_rpn(tokens: &[Token]) -> Option<Vec<(Token, usize)>> {
 
     for &token in tokens {
         match token {
-            Val(_) | VarPrim(_) => {
+            Val(_) | VarPrim(_, _) => {
                 // non-array variable is handled the same as values
                 rpn.push((token, 0));
             }
-            Prefix(_) | VarArr(_) | Paren('(' | '[') => {
+            Prefix(_) | VarArr(_, _) | Paren('(' | '[') => {
                 op_stack.push((token, rpn.len() + 1));
             }
             Op(op) => {
@@ -522,7 +522,7 @@ fn is_neg(op: char, rhs_val: i64) -> bool {
 fn is_equivalent(tokens: &[(Token, usize)], lhs: usize, rhs: usize) -> (bool, usize) {
     match (tokens[lhs], tokens[rhs]) {
         ((Val(x), _), (Val(y), _)) if x == y => (true, lhs),
-        ((VarPrim(x), _), (VarPrim(y), _)) if x == y => (true, lhs),
+        ((VarPrim(x, _), _), (VarPrim(y, _), _)) if x == y => (true, lhs),
         ((x, llhs), (y, rlhs)) if x == y => {
             if is_equivalent(tokens, lhs - 1, rhs - 1).0 {
                 is_equivalent(tokens, lhs - llhs, rhs - rlhs)
@@ -804,137 +804,137 @@ fn test_canonize_rpn() {
     // constant folding: removing identity
     // x - 0 => x
     test!(
-        [(Nop, 0), (VarPrim(0), 0), (Val(0), 0), (Op('-'), 2)],
-        [(Nop, 0), (VarPrim(0), 0)]
+        [(Nop, 0), (VarPrim(0, 1), 0), (Val(0), 0), (Op('-'), 2)],
+        [(Nop, 0), (VarPrim(0, 1), 0)]
     );
     // x & 0xff..ff => x
     test!(
-        [(Nop, 0), (VarPrim(0), 0), (Val(-1), 0), (Op('&'), 2)],
-        [(Nop, 0), (VarPrim(0), 0)]
+        [(Nop, 0), (VarPrim(0, 1), 0), (Val(-1), 0), (Op('&'), 2)],
+        [(Nop, 0), (VarPrim(0, 1), 0)]
     );
 
     // canonize: removing equivalent lhs-rhs pairs
     // x - x => 0
     test!(
-        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (VarPrim(0), 0), (Op('-'), 2)],
+        [(Nop, 0), (Nop, 0), (VarPrim(0, 1), 0), (VarPrim(0, 1), 0), (Op('-'), 2)],
         [(Nop, 0), (Nop, 0), (Val(0), 0)]
     );
 
     // canonize: prefix
     // -(-x) => x
     test!(
-        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Prefix('-'), 1), (Prefix('-'), 1)],
-        [(Nop, 0), (Nop, 0), (VarPrim(0), 0)]
+        [(Nop, 0), (Nop, 0), (VarPrim(0, 1), 0), (Prefix('-'), 1), (Prefix('-'), 1)],
+        [(Nop, 0), (Nop, 0), (VarPrim(0, 1), 0)]
     );
     // +(-x) => -x
     test!(
-        [(Nop, 0), (VarPrim(0), 0), (Prefix('-'), 1), (Prefix('+'), 1)],
-        [(Nop, 0), (VarPrim(0), 0), (Prefix('-'), 1)]
+        [(Nop, 0), (VarPrim(0, 1), 0), (Prefix('-'), 1), (Prefix('+'), 1)],
+        [(Nop, 0), (VarPrim(0, 1), 0), (Prefix('-'), 1)]
     );
     // !(-x) => !(-x)
     test!(
-        [(Nop, 0), (VarPrim(0), 0), (Prefix('-'), 1), (Prefix('!'), 1)],
-        [(Nop, 0), (VarPrim(0), 0), (Prefix('-'), 1), (Prefix('!'), 1)]
+        [(Nop, 0), (VarPrim(0, 1), 0), (Prefix('-'), 1), (Prefix('!'), 1)],
+        [(Nop, 0), (VarPrim(0, 1), 0), (Prefix('-'), 1), (Prefix('!'), 1)]
     );
 
     // canonize: move non-constant lhs
     // 2 * x => x * 2
     test!(
-        [(Nop, 0), (Val(2), 0), (VarPrim(0), 0), (Op('*'), 2)],
-        [(Nop, 0), (VarPrim(0), 0), (Val(2), 0), (Op('*'), 2)]
+        [(Nop, 0), (Val(2), 0), (VarPrim(0, 1), 0), (Op('*'), 2)],
+        [(Nop, 0), (VarPrim(0, 1), 0), (Val(2), 0), (Op('*'), 2)]
     );
     // 2 - x => x ~ 2
     test!(
-        [(Nop, 0), (Val(2), 0), (VarPrim(0), 0), (Op('-'), 2)],
-        [(Nop, 0), (VarPrim(0), 0), (Val(2), 0), (Op('~'), 2)]
+        [(Nop, 0), (Val(2), 0), (VarPrim(0, 1), 0), (Op('-'), 2)],
+        [(Nop, 0), (VarPrim(0, 1), 0), (Val(2), 0), (Op('~'), 2)]
     );
     // 2 / x => 2 / x
     test!(
-        [(Nop, 0), (Val(2), 0), (VarPrim(0), 0), (Op('/'), 2)],
-        [(Nop, 0), (Val(2), 0), (VarPrim(0), 0), (Op('/'), 2)]
+        [(Nop, 0), (Val(2), 0), (VarPrim(0, 1), 0), (Op('/'), 2)],
+        [(Nop, 0), (Val(2), 0), (VarPrim(0, 1), 0), (Op('/'), 2)]
     );
     // 2 + x => x + 2
     test!(
-        [(Nop, 0), (Nop, 0), (Val(2), 0), (VarPrim(0), 0), (Op('+'), 2)],
-        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Val(2), 0), (Op('+'), 2)]
+        [(Nop, 0), (Nop, 0), (Val(2), 0), (VarPrim(0, 1), 0), (Op('+'), 2)],
+        [(Nop, 0), (Nop, 0), (VarPrim(0, 1), 0), (Val(2), 0), (Op('+'), 2)]
     );
 
     // canonize: squeeze out prefices
     // -x + 2 => -(x - 2)
     test!(
-        [(Nop, 0), (VarPrim(0), 0), (Prefix('-'), 1), (Val(2), 0), (Op('+'), 2)],
-        [(Nop, 0), (VarPrim(0), 0), (Val(2), 0), (Op('-'), 2), (Prefix('-'), 1)]
+        [(Nop, 0), (VarPrim(0, 1), 0), (Prefix('-'), 1), (Val(2), 0), (Op('+'), 2)],
+        [(Nop, 0), (VarPrim(0, 1), 0), (Val(2), 0), (Op('-'), 2), (Prefix('-'), 1)]
     );
     test!(
-        [(Nop, 0), (VarPrim(0), 0), (Prefix('-'), 1), (Nop, 0), (Nop, 0), (Val(2), 0), (Op('+'), 4)],
-        [(Nop, 0), (VarPrim(0), 0), (Nop, 0), (Nop, 0), (Val(2), 0), (Op('-'), 4), (Prefix('-'), 1)]
+        [(Nop, 0), (VarPrim(0, 1), 0), (Prefix('-'), 1), (Nop, 0), (Nop, 0), (Val(2), 0), (Op('+'), 4)],
+        [(Nop, 0), (VarPrim(0, 1), 0), (Nop, 0), (Nop, 0), (Val(2), 0), (Op('-'), 4), (Prefix('-'), 1)]
     );
     // 2 + -x => -(x - 2)
     test!(
-        [(Nop, 0), (Nop, 0), (Val(2), 0), (VarPrim(0), 0), (Prefix('-'), 1), (Op('+'), 3)],
-        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Val(2), 0), (Op('-'), 2), (Prefix('-'), 1)]
+        [(Nop, 0), (Nop, 0), (Val(2), 0), (VarPrim(0, 1), 0), (Prefix('-'), 1), (Op('+'), 3)],
+        [(Nop, 0), (Nop, 0), (VarPrim(0, 1), 0), (Val(2), 0), (Op('-'), 2), (Prefix('-'), 1)]
     );
     // -x + y => -(x - y)
     test!(
-        [(Nop, 0), (Nop, 0), (Nop, 0), (VarPrim(0), 0), (Prefix('-'), 1), (VarPrim(1), 0), (Op('+'), 2)],
-        [(Nop, 0), (Nop, 0), (Nop, 0), (VarPrim(0), 0), (VarPrim(1), 0), (Op('-'), 2), (Prefix('-'), 1)]
+        [(Nop, 0), (Nop, 0), (Nop, 0), (VarPrim(0, 1), 0), (Prefix('-'), 1), (VarPrim(1, 1), 0), (Op('+'), 2)],
+        [(Nop, 0), (Nop, 0), (Nop, 0), (VarPrim(0, 1), 0), (VarPrim(1, 1), 0), (Op('-'), 2), (Prefix('-'), 1)]
     );
     // x + -y => -(x ~ y)
     test!(
-        [(Nop, 0), (VarPrim(0), 0), (VarPrim(1), 0), (Prefix('-'), 1), (Op('+'), 3)],
-        [(Nop, 0), (VarPrim(0), 0), (VarPrim(1), 0), (Op('~'), 2), (Prefix('-'), 1)]
+        [(Nop, 0), (VarPrim(0, 1), 0), (VarPrim(1, 1), 0), (Prefix('-'), 1), (Op('+'), 3)],
+        [(Nop, 0), (VarPrim(0, 1), 0), (VarPrim(1, 1), 0), (Op('~'), 2), (Prefix('-'), 1)]
     );
 
     // constant folding over parenthes
     // (x + 2) + 5 => x + 7
     test!(
-        [(Nop, 0), (VarPrim(0), 0), (Val(2), 0), (Op('+'), 2), (Val(5), 0), (Op('+'), 2)],
-        [(Nop, 0), (VarPrim(0), 0), (Val(7), 0), (Op('+'), 2)]
+        [(Nop, 0), (VarPrim(0, 1), 0), (Val(2), 0), (Op('+'), 2), (Val(5), 0), (Op('+'), 2)],
+        [(Nop, 0), (VarPrim(0, 1), 0), (Val(7), 0), (Op('+'), 2)]
     );
     // (x - 2) + 5 => x - 3
     test!(
-        [(Nop, 0), (VarPrim(0), 0), (Val(2), 0), (Op('-'), 2), (Val(5), 0), (Op('+'), 2)],
-        [(Nop, 0), (VarPrim(0), 0), (Val(-3), 0), (Op('-'), 2)]
+        [(Nop, 0), (VarPrim(0, 1), 0), (Val(2), 0), (Op('-'), 2), (Val(5), 0), (Op('+'), 2)],
+        [(Nop, 0), (VarPrim(0, 1), 0), (Val(-3), 0), (Op('-'), 2)]
     );
 
     // (x + 2) + (y + 5) => (x + y) + 7
     test!(
-        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Val(2), 0), (Op('+'), 2), (VarPrim(1), 0), (Val(5), 0), (Op('+'), 2), (Op('+'), 4)],
-        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (VarPrim(1), 0), (Op('+'), 2), (Val(7), 0), (Op('+'), 2)]
+        [(Nop, 0), (Nop, 0), (VarPrim(0, 1), 0), (Val(2), 0), (Op('+'), 2), (VarPrim(1, 1), 0), (Val(5), 0), (Op('+'), 2), (Op('+'), 4)],
+        [(Nop, 0), (Nop, 0), (VarPrim(0, 1), 0), (VarPrim(1, 1), 0), (Op('+'), 2), (Val(7), 0), (Op('+'), 2)]
     );
     // (x + 2) + (y + 5) => (x + y) + 7
     test!(
-        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Val(2), 0), (Op('+'), 2), (Nop, 0), (VarPrim(1), 0), (Val(5), 0), (Op('+'), 2), (Op('+'), 5)],
-        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (Nop, 0), (VarPrim(1), 0), (Op('+'), 3), (Val(7), 0), (Op('+'), 2)]
+        [(Nop, 0), (Nop, 0), (VarPrim(0, 1), 0), (Val(2), 0), (Op('+'), 2), (Nop, 0), (VarPrim(1, 1), 0), (Val(5), 0), (Op('+'), 2), (Op('+'), 5)],
+        [(Nop, 0), (Nop, 0), (VarPrim(0, 1), 0), (Nop, 0), (VarPrim(1, 1), 0), (Op('+'), 3), (Val(7), 0), (Op('+'), 2)]
     );
 
     // ((2 + x) + (x + 3)) + 4 => (x + x) + 9
     test!(
-        [(Nop, 0), (Nop, 0), (Val(2), 0), (VarPrim(0), 0), (Op('+'), 2), (VarPrim(0), 0), (Val(3), 0), (Op('+'), 2), (Op('+'), 4), (Val(4), 0), (Op('+'), 2)],
-        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (VarPrim(0), 0), (Op('+'), 2), (Val(9), 0), (Op('+'), 2)]
+        [(Nop, 0), (Nop, 0), (Val(2), 0), (VarPrim(0, 1), 0), (Op('+'), 2), (VarPrim(0, 1), 0), (Val(3), 0), (Op('+'), 2), (Op('+'), 4), (Val(4), 0), (Op('+'), 2)],
+        [(Nop, 0), (Nop, 0), (VarPrim(0, 1), 0), (VarPrim(0, 1), 0), (Op('+'), 2), (Val(9), 0), (Op('+'), 2)]
     );
 
     // move parenthes
     // x + (y + 2) => (x + y) + 2
     test!(
-        [(Nop, 0), (VarPrim(0), 0), (Nop, 0), (Nop, 0), (VarPrim(1), 0), (Val(2), 0), (Op('+'), 2), (Op('+'), 6)],
-        [(Nop, 0), (VarPrim(0), 0), (Nop, 0), (Nop, 0), (VarPrim(1), 0), (Op('+'), 4), (Val(2), 0), (Op('+'), 2)]
+        [(Nop, 0), (VarPrim(0, 1), 0), (Nop, 0), (Nop, 0), (VarPrim(1, 1), 0), (Val(2), 0), (Op('+'), 2), (Op('+'), 6)],
+        [(Nop, 0), (VarPrim(0, 1), 0), (Nop, 0), (Nop, 0), (VarPrim(1, 1), 0), (Op('+'), 4), (Val(2), 0), (Op('+'), 2)]
     );
     // (x + 2) - y => (x + y) + 2
     test!(
-        [(Nop, 0), (Nop, 0), (Nop, 0), (VarPrim(0), 0), (Val(2), 0), (Op('+'), 2), (VarPrim(1), 0), (Op('-'), 2)],
-        [(Nop, 0), (Nop, 0), (Nop, 0), (VarPrim(0), 0), (VarPrim(1), 0), (Op('-'), 2), (Val(2), 0), (Op('+'), 2)]
+        [(Nop, 0), (Nop, 0), (Nop, 0), (VarPrim(0, 1), 0), (Val(2), 0), (Op('+'), 2), (VarPrim(1, 1), 0), (Op('-'), 2)],
+        [(Nop, 0), (Nop, 0), (Nop, 0), (VarPrim(0, 1), 0), (VarPrim(1, 1), 0), (Op('-'), 2), (Val(2), 0), (Op('+'), 2)]
     );
     // (x + y) - y => x
     test!(
-        [(Nop, 0), (Nop, 0), (VarPrim(0), 0), (VarPrim(1), 0), (Op('+'), 2), (VarPrim(1), 0), (Op('-'), 2)],
-        [(Nop, 0), (Nop, 0), (VarPrim(0), 0)]
+        [(Nop, 0), (Nop, 0), (VarPrim(0, 1), 0), (VarPrim(1, 1), 0), (Op('+'), 2), (VarPrim(1, 1), 0), (Op('-'), 2)],
+        [(Nop, 0), (Nop, 0), (VarPrim(0, 1), 0)]
     );
 
     // s <= -s + (s + s) - (-s)  =>  s >= 0
     test!(
-        [(VarPrim(0), 0), (VarPrim(0), 0), (Prefix('-'), 1), (VarPrim(0), 0), (VarPrim(0), 0), (Op('+'), 2), (Op('+'), 4), (VarPrim(0), 0), (Prefix('-'), 1), (Op('-'), 3), (Op('~'), 10), (Prefix('G'), 1)],
-        [(VarPrim(0), 0), (Prefix('G'), 1)]
+        [(VarPrim(0, 1), 0), (VarPrim(0, 1), 0), (Prefix('-'), 1), (VarPrim(0, 1), 0), (VarPrim(0, 1), 0), (Op('+'), 2), (Op('+'), 4), (VarPrim(0, 1), 0), (Prefix('-'), 1), (Op('-'), 3), (Op('~'), 10), (Prefix('G'), 1)],
+        [(VarPrim(0, 1), 0), (Prefix('G'), 1)]
     );
 }
 
@@ -1038,12 +1038,12 @@ where
                 let x = stack.last_mut()?;
                 *x = apply_op(op, *x, y)?;
             }
-            VarPrim(id) => {
-                stack.push(get(id, 0));
+            VarPrim(id, coef) => {
+                stack.push(coef * get(id, 0));
             }
-            VarArr(id) => {
+            VarArr(id, coef) => {
                 let x = stack.last_mut()?;
-                *x = get(id, *x);
+                *x = coef * get(id, *x);
             }
             _ => {
                 // eprintln!("unexpected token: {:?}", token);
@@ -1080,7 +1080,7 @@ impl Rpn {
         rpn.truncate(len);
         eprintln!("tokens: {:?}", rpn);
 
-        let has_deref = rpn.iter().any(|x| matches!(x.0, VarPrim(_) | VarArr(_)));
+        let has_deref = rpn.iter().any(|x| matches!(x.0, VarPrim(_, _) | VarArr(_, _)));
         Some(Rpn { rpn, has_deref })
     }
 
