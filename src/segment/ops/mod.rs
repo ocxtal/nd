@@ -2,7 +2,8 @@
 // @author Hajime Suzuki
 // @date 2022/6/13
 
-use crate::eval::{Rpn, Token, VarAttr};
+use crate::eval::Token::*;
+use crate::eval::{Rpn, VarAttr};
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 use std::ops::Range;
@@ -10,12 +11,54 @@ use std::ops::Range;
 #[derive(Clone, Debug, PartialEq)]
 pub struct SegmentPred {
     pred: Rpn,
+    // plus: usize,
+    // minus: usize,
+    // offset: i64,
     input_elems: usize,
 }
 
+// fn is_sub(op: char) {
+//     op == '-' || op == '~'
+// }
+
+// fn is_addsub(op: char) {
+//     op == '+' || op == '-' || op == '~'
+// }
+
+// fn is_const(tokens: &[Tokens]) -> Result<Self> {
+//     match token[0] {
+//         Val(x), Prefix('G') => {
+//             return Ok(SegmentPred {
+//                 ;
+//             });
+//         }
+//         _ => {}
+//     }
+
+//     match (token[0], tokens[1], tokens[2]) {
+//         (VarPrim(x), VarPrim(y), Op('-') => {
+//             ;
+//         }
+//         (VarPrim(x), VarPrim(y), Op('~') => {
+//             ;
+//         }
+//         _ => {}
+//     }
+
+//     match (token[0], tokens[1], tokens[2], tokens[3], tokens[4]) {
+//         (VarPrim(x), VarPrim(y), Op('-'), Val(z), Op(op2)) if is_addsub(op2) => {
+//             ;
+//         }
+//         (VarPrim(x), VarPrim(y), Op('~'), Val(z), Op(op2)) if is_addsub(op2) => {
+//             ;
+//         }
+//         _ => {}
+//     }
+// }
+
 #[allow(dead_code)]
 impl SegmentPred {
-    pub fn from_pred_single(pred: &str) -> Result<SegmentPred> {
+    pub fn from_pred_single(pred: &str) -> Result<Self> {
         eprintln!("pred({:?})", pred);
         let vars: HashMap<&[u8], VarAttr> = [
             (b"s".as_slice(), VarAttr { is_array: false, id: 0 }),
@@ -28,7 +71,7 @@ impl SegmentPred {
         Ok(SegmentPred { pred, input_elems: 1 })
     }
 
-    pub fn from_pred_pair(pred: &str) -> Result<SegmentPred> {
+    pub fn from_pred_pair(pred: &str) -> Result<Self> {
         let vars: HashMap<&[u8], VarAttr> = [
             (b"s0".as_slice(), VarAttr { is_array: false, id: 0 }),
             (b"e0".as_slice(), VarAttr { is_array: false, id: 1 }),
@@ -80,7 +123,7 @@ impl SegmentPred {
                 return false;
             }
         };
-        self.pred.tokens().iter().any(|&x| x == Token::VarPrim(index))
+        self.pred.tokens().iter().any(|&x| x == VarPrim(index))
     }
 }
 
@@ -100,8 +143,8 @@ impl SegmentMapperExpr {
 
         if tokens.len() == 1 {
             match tokens[0] {
-                Token::VarPrim(index) => return Ok(SegmentMapperExpr { index, offset: 0 }),
-                Token::Val(_) => return invalid_range,
+                VarPrim(index) => return Ok(SegmentMapperExpr { index, offset: 0 }),
+                Val(_) => return invalid_range,
                 _ => return Err(anyhow!("invalid token for SegmentMapperExpr (internal error)")),
             };
         }
@@ -110,11 +153,11 @@ impl SegmentMapperExpr {
         }
 
         match (tokens[0], tokens[1], tokens[2]) {
-            (Token::VarPrim(index), Token::Val(offset), Token::Op(op @ ('+' | '-'))) => {
+            (VarPrim(index), Val(offset), Op(op @ ('+' | '-'))) => {
                 let offset = if op == '+' { offset as isize } else { -offset as isize };
                 Ok(SegmentMapperExpr { index, offset })
             }
-            (Token::Val(offset), Token::VarPrim(index), Token::Op('+')) => Ok(SegmentMapperExpr {
+            (Val(offset), VarPrim(index), Op('+')) => Ok(SegmentMapperExpr {
                 index,
                 offset: offset as isize,
             }),
