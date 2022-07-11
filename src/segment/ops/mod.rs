@@ -36,20 +36,20 @@ pub struct SegmentPred {
 //     }
 
 //     match (token[0], tokens[1], tokens[2]) {
-//         (VarPrim(x), VarPrim(y), Op('-') => {
+//         (Var(x), Var(y), Op('-') => {
 //             ;
 //         }
-//         (VarPrim(x), VarPrim(y), Op('~') => {
+//         (Var(x), Var(y), Op('~') => {
 //             ;
 //         }
 //         _ => {}
 //     }
 
 //     match (token[0], tokens[1], tokens[2], tokens[3], tokens[4]) {
-//         (VarPrim(x), VarPrim(y), Op('-'), Val(z), Op(op2)) if is_addsub(op2) => {
+//         (Var(x), Var(y), Op('-'), Val(z), Op(op2)) if is_addsub(op2) => {
 //             ;
 //         }
-//         (VarPrim(x), VarPrim(y), Op('~'), Val(z), Op(op2)) if is_addsub(op2) => {
+//         (Var(x), Var(y), Op('~'), Val(z), Op(op2)) if is_addsub(op2) => {
 //             ;
 //         }
 //         _ => {}
@@ -123,7 +123,7 @@ impl SegmentPred {
                 return false;
             }
         };
-        self.pred.tokens().iter().any(|&x| x == VarPrim(index, 1))
+        self.pred.tokens().iter().any(|&x| x == Var(index, 1))
     }
 }
 
@@ -143,7 +143,7 @@ impl SegmentMapperExpr {
 
         if tokens.len() == 1 {
             match tokens[0] {
-                VarPrim(index, _) => return Ok(SegmentMapperExpr { index, offset: 0 }),
+                Var(index, _) => return Ok(SegmentMapperExpr { index, offset: 0 }),
                 Val(_) => return invalid_range,
                 _ => return Err(anyhow!("invalid token for SegmentMapperExpr (internal error)")),
             };
@@ -153,11 +153,11 @@ impl SegmentMapperExpr {
         }
 
         match (tokens[0], tokens[1], tokens[2]) {
-            (VarPrim(index, _), Val(offset), Op(op @ ('+' | '-'))) => {
+            (Var(index, _), Val(offset), Op(op @ ('+' | '-'))) => {
                 let offset = if op == '+' { offset as isize } else { -offset as isize };
                 Ok(SegmentMapperExpr { index, offset })
             }
-            (Val(offset), VarPrim(index, _), Op('+')) => Ok(SegmentMapperExpr {
+            (Val(offset), Var(index, _), Op('+')) => Ok(SegmentMapperExpr {
                 index,
                 offset: offset as isize,
             }),
