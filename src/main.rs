@@ -68,7 +68,7 @@ OPTIONS:
 
     -O, --ops OP1[.OP2...]  apply a sequence of slice operations
 
-      Possible operations are:
+      Supported operations are:
 
         filter(PRED1,RANGE1[,...])  maps the slice to RANGE1(s) if PRED1 == true, otherwise drops it
                                     note: map(RANGE1[,...]) is aliased to filter(true,RANGE1[,...])
@@ -76,7 +76,7 @@ OPTIONS:
         pair(PRED2,RANGE2,PIN)      maps adjoining two slices to RANGE2 if PRED2 == true
         reduce(PRED2,RANGE2,PIN)    incrementally merge slices if PRED2 == true, flush it if false
 
-      See README.md for the definitions and examples of RANGE1, RANGE2, PRED1, PRED2, and REGEX.
+      See README.md for the definitions and examples of RANGE1, RANGE2, PRED1, PRED2, REGEX, and PIN
 
   Post-processing the slices
 
@@ -88,6 +88,7 @@ OPTIONS:
 
     -h, --help              print help (this) message
     -v, --version           print version information
+        --pager PAGER       use PAGER to view the output on the terminal [less -S -F]
 ";
 
 fn parse_args() -> Result<ArgMatches> {
@@ -268,6 +269,7 @@ fn parse_args() -> Result<ArgMatches> {
                 .number_of_values(1),
             Arg::new("help").short('h').long("help").help("print help (this) message"),
             Arg::new("version").short('v').long("version").help("print version information"),
+            Arg::new("pager").long("pager").help("use PAGER to view the output on the terminal"),
         ])
         .get_matches();
 
@@ -458,7 +460,7 @@ fn build_pipeline_nodes(m: &ArgMatches) -> Result<Vec<PipelineNode>> {
         (Some(command), None, None) => PipelineNode::Scatter(command.to_string(), offsets),
         (None, Some(command), None) => PipelineNode::PatchBack(command.to_string(), offsets),
         (None, None, Some(command)) => PipelineNode::Pager(command.to_string(), offsets),
-        (None, None, None) => PipelineNode::Pager("less -F".to_string(), offsets),
+        (None, None, None) => PipelineNode::Pager("less -S -F".to_string(), offsets),
         _ => return Err(anyhow!("postprocess parameter conflict detected.")),
     };
     nodes.push(node);

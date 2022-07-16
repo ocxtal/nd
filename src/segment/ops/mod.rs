@@ -6,253 +6,111 @@ use crate::eval::Token::*;
 use crate::eval::{Rpn, VarAttr};
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
-use std::ops::Range;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SegmentPred {
-    pred: Rpn,
-    // plus: usize,
-    // minus: usize,
-    // offset: i64,
-    input_elems: usize,
+    positive: usize,
+    negative: usize,
+    offset: isize,
+    expected_input_len: usize,
 }
-
-// fn is_sub(op: char) {
-//     op == '-' || op == '~'
-// }
-
-// fn is_addsub(op: char) {
-//     op == '+' || op == '-' || op == '~'
-// }
-
-// fn is_const(tokens: &[Tokens]) -> Result<Self> {
-//     match token[0] {
-//         Val(x), Prefix('G') => {
-//             return Ok(SegmentPred {
-//                 ;
-//             });
-//         }
-//         _ => {}
-//     }
-
-//     match (token[0], tokens[1], tokens[2]) {
-//         (Var(x), Var(y), Op('-') => {
-//             ;
-//         }
-//         (Var(x), Var(y), Op('~') => {
-//             ;
-//         }
-//         _ => {}
-//     }
-
-//     match (token[0], tokens[1], tokens[2], tokens[3], tokens[4]) {
-//         (Var(x), Var(y), Op('-'), Val(z), Op(op2)) if is_addsub(op2) => {
-//             ;
-//         }
-//         (Var(x), Var(y), Op('~'), Val(z), Op(op2)) if is_addsub(op2) => {
-//             ;
-//         }
-//         _ => {}
-//     }
-// }
 
 #[allow(dead_code)]
 impl SegmentPred {
+    fn extract_coefs(rpn: &Rpn) -> Result<(usize, usize, isize)> {
+        let tokens = rpn.tokens();
+
+        match tokens.as_slice() {
+            &[Val(c)] => {
+                let offset = if c == 0 { 0 } else { 1 };
+                Ok((0, 0, offset))
+            }
+            &[Var(x, xc), Var(y, yc), Op('+'), Prefix('G')] if xc * yc == -1 => {
+                let (p, n) = if xc == 1 { (x, y) } else { (y, x) };
+                Ok((p, n, 0))
+            }
+            &[Var(x, xc), Var(y, yc), Op('+'), Val(c), Op('+'), Prefix('G')] if xc * yc == -1 => {
+                let (p, n) = if xc == 1 { (x, y) } else { (y, x) };
+                Ok((p, n, c as isize))
+            }
+            _ => Err(anyhow!("failed to evaluate PRED")),
+        }
+    }
+
     pub fn from_pred_single(pred: &str) -> Result<Self> {
         eprintln!("pred({:?})", pred);
         let vars: HashMap<&[u8], VarAttr> = [
-            (b"s".as_slice(), VarAttr { is_array: false, id: 0 }),
-            (b"e".as_slice(), VarAttr { is_array: false, id: 1 }),
+            (b"s".as_slice(), VarAttr { is_array: false, id: 1 }),
+            (b"e".as_slice(), VarAttr { is_array: false, id: 2 }),
         ]
         .into_iter()
         .collect();
 
-        let pred = Rpn::new(pred, Some(&vars)).unwrap();
-        Ok(SegmentPred { pred, input_elems: 1 })
+        let pred = Rpn::new(pred, Some(&vars))?;
+        let (positive, negative, offset) = Self::extract_coefs(&pred)?;
+
+        Ok(SegmentPred {
+            positive,
+            negative,
+            offset,
+            expected_input_len: 3,
+        })
     }
 
     pub fn from_pred_pair(pred: &str) -> Result<Self> {
         let vars: HashMap<&[u8], VarAttr> = [
-            (b"s0".as_slice(), VarAttr { is_array: false, id: 0 }),
-            (b"e0".as_slice(), VarAttr { is_array: false, id: 1 }),
-            (b"s1".as_slice(), VarAttr { is_array: false, id: 2 }),
-            (b"e1".as_slice(), VarAttr { is_array: false, id: 3 }),
+            (b"s0".as_slice(), VarAttr { is_array: false, id: 1 }),
+            (b"e0".as_slice(), VarAttr { is_array: false, id: 2 }),
+            (b"s1".as_slice(), VarAttr { is_array: false, id: 3 }),
+            (b"e1".as_slice(), VarAttr { is_array: false, id: 4 }),
         ]
         .into_iter()
         .collect();
 
-        let pred = Rpn::new(pred, Some(&vars)).unwrap();
-        Ok(SegmentPred { pred, input_elems: 2 })
+        let pred = Rpn::new(pred, Some(&vars))?;
+        let (positive, negative, offset) = Self::extract_coefs(&pred)?;
+
+        Ok(SegmentPred {
+            positive,
+            negative,
+            offset,
+            expected_input_len: 5,
+        })
     }
 
-    pub fn eval_single(&self, first: &Range<isize>) -> bool {
-        debug_assert!(self.input_elems == 1);
-
-        let input = [first.start, first.end];
-        let get = |id: usize, _: i64| -> i64 {
-            if id >= 2 {
-                return 0;
-            }
-            input[id] as i64
-        };
-
-        self.pred.evaluate(&get).unwrap() != 0
+    pub fn eval(&self, input: &[isize]) -> bool {
+        debug_assert!(input.len() == self.expected_input_len);
+        input[self.positive] - input[self.negative] + self.offset >= 0
     }
 
-    pub fn eval_pair(&self, first: &Range<isize>, second: &Range<isize>) -> bool {
-        debug_assert!(self.input_elems == 2);
-
-        let input = [first.start, first.end, second.start, second.end];
-        let get = |id: usize, _: i64| -> i64 {
-            if id >= 4 {
-                return 0;
-            }
-            input[id] as i64
-        };
-
-        self.pred.evaluate(&get).unwrap() != 0
+    pub fn eval_dep(&self, input: &[bool]) -> bool {
+        debug_assert!(input.len() == self.expected_input_len);
+        input[self.positive] | input[self.negative]
     }
 
-    pub fn depends_on_variable(&self, name: &str) -> bool {
-        let index = match name {
-            "s" | "s0" => 0,
-            "e" | "e0" => 1,
-            "s1" => 2,
-            "e1" => 3,
-            _ => {
-                return false;
-            }
-        };
-        self.pred.tokens().iter().any(|&x| x == Var(index, 1))
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct SegmentMapperExpr {
-    index: usize,
-    offset: isize,
-}
-
-impl SegmentMapperExpr {
-    fn from_rpn(rpn: &Rpn) -> Result<Self> {
-        // debug_assert!(!rpn.is_empty());
-        let invalid_range = Err(anyhow!("RANGE1 / RANGE2 expression must be relative to input segment boundaries."));
-
-        let tokens = rpn.tokens();
-        eprintln!("{:?}", tokens);
-
-        if tokens.len() == 1 {
-            match tokens[0] {
-                Var(index, _) => return Ok(SegmentMapperExpr { index, offset: 0 }),
-                Val(_) => return invalid_range,
-                _ => return Err(anyhow!("invalid token for SegmentMapperExpr (internal error)")),
-            };
-        }
-        if tokens.len() == 2 {
-            return invalid_range;
-        }
-
-        match (tokens[0], tokens[1], tokens[2]) {
-            (Var(index, _), Val(offset), Op(op @ ('+' | '-'))) => {
-                let offset = if op == '+' { offset as isize } else { -offset as isize };
-                Ok(SegmentMapperExpr { index, offset })
-            }
-            (Val(offset), Var(index, _), Op('+')) => Ok(SegmentMapperExpr {
-                index,
-                offset: offset as isize,
-            }),
-            _ => invalid_range,
-        }
-    }
-
-    fn evaluate(&self, input: &[isize]) -> isize {
-        debug_assert!(self.index < input.len());
-        input[self.index] + self.offset
+    pub fn is_single(&self) -> bool {
+        self.expected_input_len == 3
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SegmentMapper {
-    start: SegmentMapperExpr,
-    end: SegmentMapperExpr,
-    input_elems: usize,
+    start: (usize, isize),
+    end: (usize, isize),
+    expected_input_len: usize,
 }
 
 #[allow(dead_code)]
 impl SegmentMapper {
-    pub fn from_range_single(range: &str) -> Result<Self> {
-        eprintln!("range({:?})", range);
-        let vars: HashMap<&[u8], VarAttr> = [
-            (b"s".as_slice(), VarAttr { is_array: false, id: 0 }),
-            (b"e".as_slice(), VarAttr { is_array: false, id: 1 }),
-        ]
-        .into_iter()
-        .collect();
+    fn extract_coefs(rpn: &Rpn) -> Result<(usize, isize)> {
+        let tokens = rpn.tokens();
 
-        let (start, end) = Self::split_range_str(range)?;
-        let start = if start.is_empty() { "s" } else { start };
-        let end = if end.is_empty() { "e" } else { end };
-
-        eprintln!("start({:?}), end({:?})", start, end);
-
-        let start = Rpn::new(start, Some(&vars)).unwrap();
-        let end = Rpn::new(end, Some(&vars)).unwrap();
-
-        Ok(SegmentMapper {
-            start: SegmentMapperExpr::from_rpn(&start)?,
-            end: SegmentMapperExpr::from_rpn(&end)?,
-            input_elems: 1,
-        })
-    }
-
-    pub fn from_range_pair(range: &str) -> Result<Self> {
-        let vars: HashMap<&[u8], VarAttr> = [
-            (b"s0".as_slice(), VarAttr { is_array: false, id: 0 }),
-            (b"e0".as_slice(), VarAttr { is_array: false, id: 1 }),
-            (b"s1".as_slice(), VarAttr { is_array: false, id: 2 }),
-            (b"e1".as_slice(), VarAttr { is_array: false, id: 3 }),
-        ]
-        .into_iter()
-        .collect();
-
-        let (start, end) = Self::split_range_str(range)?;
-        let start = if start.is_empty() { "s0" } else { start };
-        let end = if end.is_empty() { "e0" } else { end };
-
-        let start = Rpn::new(start, Some(&vars)).unwrap();
-        let end = Rpn::new(end, Some(&vars)).unwrap();
-
-        Ok(SegmentMapper {
-            start: SegmentMapperExpr::from_rpn(&start)?,
-            end: SegmentMapperExpr::from_rpn(&end)?,
-            input_elems: 2,
-        })
-    }
-
-    pub fn map_single(&self, first: &Range<isize>) -> Option<Range<isize>> {
-        debug_assert!(self.input_elems == 1);
-
-        let input = [first.start, first.end];
-        let start = self.start.evaluate(input.as_slice());
-        let end = self.end.evaluate(input.as_slice());
-
-        if start >= end {
-            return None;
+        match tokens.as_slice() {
+            &[Val(c)] => Ok((0, c as isize)),
+            &[Var(id, 1)] => Ok((id, 0)),
+            &[Var(id, 1), Val(c), Op('+')] => Ok((id, c as isize)),
+            _ => Err(anyhow!("RANGE1 / RANGE2 expression must be relative to input segment boundaries.")),
         }
-        Some(start..end)
-    }
-
-    pub fn map_pair(&self, first: &Range<isize>, second: &Range<isize>) -> Option<Range<isize>> {
-        debug_assert!(self.input_elems == 2);
-
-        let input = [first.start, first.end, second.start, second.end];
-        let start = self.start.evaluate(input.as_slice());
-        let end = self.end.evaluate(input.as_slice());
-
-        if start >= end {
-            return None;
-        }
-        Some(start..end)
     }
 
     fn split_range_str(range: &str) -> Result<(&str, &str)> {
@@ -267,8 +125,71 @@ impl SegmentMapper {
         Ok((start, end))
     }
 
+    pub fn from_range_single(range: &str) -> Result<Self> {
+        eprintln!("range({:?})", range);
+        let vars: HashMap<&[u8], VarAttr> = [
+            (b"s".as_slice(), VarAttr { is_array: false, id: 1 }),
+            (b"e".as_slice(), VarAttr { is_array: false, id: 2 }),
+        ]
+        .into_iter()
+        .collect();
+
+        let (start, end) = Self::split_range_str(range)?;
+        let start = if start.is_empty() { "s" } else { start };
+        let end = if end.is_empty() { "e" } else { end };
+
+        eprintln!("start({:?}), end({:?})", start, end);
+
+        let start = Rpn::new(start, Some(&vars)).unwrap();
+        let end = Rpn::new(end, Some(&vars)).unwrap();
+
+        Ok(SegmentMapper {
+            start: Self::extract_coefs(&start)?,
+            end: Self::extract_coefs(&end)?,
+            expected_input_len: 3,
+        })
+    }
+
+    pub fn from_range_pair(range: &str) -> Result<Self> {
+        let vars: HashMap<&[u8], VarAttr> = [
+            (b"s0".as_slice(), VarAttr { is_array: false, id: 1 }),
+            (b"e0".as_slice(), VarAttr { is_array: false, id: 2 }),
+            (b"s1".as_slice(), VarAttr { is_array: false, id: 3 }),
+            (b"e1".as_slice(), VarAttr { is_array: false, id: 4 }),
+        ]
+        .into_iter()
+        .collect();
+
+        let (start, end) = Self::split_range_str(range)?;
+        let start = if start.is_empty() { "s0" } else { start };
+        let end = if end.is_empty() { "e1" } else { end };
+
+        let start = Rpn::new(start, Some(&vars)).unwrap();
+        let end = Rpn::new(end, Some(&vars)).unwrap();
+
+        Ok(SegmentMapper {
+            start: Self::extract_coefs(&start)?,
+            end: Self::extract_coefs(&end)?,
+            expected_input_len: 5,
+        })
+    }
+
+    pub fn map(&self, input: &[isize]) -> (isize, isize) {
+        debug_assert!(input.len() == self.expected_input_len);
+
+        let eval = |coef: &(usize, isize), input: &[isize]| -> isize { input[coef.0].saturating_add(coef.1) };
+        (eval(&self.start, input), eval(&self.end, &input))
+    }
+
+    pub fn map_dep(&self, input: &[bool]) -> (bool, bool) {
+        debug_assert!(input.len() == self.expected_input_len);
+
+        let eval = |coef: &(usize, isize), input: &[bool]| -> bool { input[coef.0] };
+        (eval(&self.start, input), eval(&self.end, &input))
+    }
+
     pub fn is_single(&self) -> bool {
-        self.input_elems == 1
+        self.expected_input_len == 3
     }
 }
 

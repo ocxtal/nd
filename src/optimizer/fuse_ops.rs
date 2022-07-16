@@ -8,33 +8,85 @@ use crate::segment::{SegmentMapper, SegmentPred};
 
 use std::ops::Range;
 
-trait ShiftRange {
-    fn overlap(&self, pitch: isize) -> isize;
-    fn shift(self, amount: isize) -> Self;
-    fn extend(self, amount: (isize, isize)) -> Self;
+#[derive(Clone, Debug)]
+struct SegmentTrace {
+    is_coherent: (bool, bool),
+    range: Range<isize>,
 }
 
-// TODO: panic on overflow
-impl ShiftRange for Range<isize> {
-    fn overlap(&self, pitch: isize) -> isize {
-        debug_assert!(pitch > 0);
-        (self.len() as isize).saturating_sub(pitch)
+impl SegmentTrace {
+    fn new(is_coherent: bool, range: Range<isize>) -> Self {
+        SegmentTrace {
+            is_coherent: (is_coherent, is_coherent),
+            range,
+        }
     }
 
-    fn shift(self, amount: isize) -> Range<isize> {
-        self.start + amount..self.end + amount
+    fn eval_single(&self, pred: &SegmentPred) -> bool {
+        pred.eval(&[0, self.range.start, self.range.end])
     }
 
-    fn extend(self, amount: (isize, isize)) -> Range<isize> {
-        self.start - amount.0..self.end + amount.1
+    fn eval_pair(&self, other: &SegmentTrace, pred: &SegmentPred) -> bool {
+        pred.eval(&[0, self.range.start, self.range.end, other.range.start, other.range.end])
     }
+
+    fn map_single(&self, mapper: &SegmentMapper) -> Self {
+        let is_coherent = mapper.map_dep(&[false, self.is_coherent.0, self.is_coherent.1]);
+        let (start, end) = mapper.map(&[0, self.range.start, self.range.end]);
+
+        SegmentTrace {
+            is_coherent,
+            range: start..end,
+        }
+    }
+
+    fn map_pair(&self, other: &SegmentTrace, mapper: &SegmentMapper) -> Self {
+        let is_coherent = mapper.map_dep(&[
+            false,
+            self.is_coherent.0,
+            self.is_coherent.1,
+            other.is_coherent.0,
+            other.is_coherent.1,
+        ]);
+        let (start, end) = mapper.map(&[0, self.range.start, self.range.end, other.range.start, other.range.end]);
+
+        SegmentTrace {
+            is_coherent,
+            range: start..end,
+        }
+    }
+
+    fn preserves_coherency(&self) -> bool {
+        self.is_coherent.0 && self.is_coherent.1
+    }
+
+    // TODO: panic on overflow
+    // fn overlap(&self, pitch: isize) -> isize {
+    //     debug_assert!(pitch > 0);
+    //     (self.range.len() as isize).saturating_sub(pitch)
+    // }
+
+    fn shift(self, amount: isize) -> Self {
+        let start = self.range.start.saturating_add(amount);
+        let end = self.range.end.saturating_add(amount);
+
+        SegmentTrace {
+            is_coherent: self.is_coherent,
+            range: start..end,
+        }
+    }
+
+    // fn extend(self, amount: (isize, isize)) -> Range<isize> {
+    //     self.range.start.saturating_sub(amount.0)..self.range.end.saturating_add(amount.1)
+    // }
 }
 
+#[derive(Debug)]
 struct SegmentTracker {
     pitch: isize,
-    first: Range<isize>,
-    second: Range<isize>,
-    // last_offset: isize,
+    // head_clip: isize,
+    head: Vec<SegmentTrace>,
+    tail: Vec<SegmentTrace>,
     infinite: bool,
     vanished: bool,
 }
@@ -48,51 +100,171 @@ impl SegmentTracker {
 
         SegmentTracker {
             pitch,
-            first: 0..pitch,
-            second: pitch..2 * pitch,
-            // last_offset: 0,
+            // head_clip: 0,
+            head: vec![SegmentTrace::new(true, 0..pitch)],
+            tail: vec![SegmentTrace::new(true, 0..pitch)],
             infinite,
             vanished,
         }
     }
 
+    fn adjust_head_clip(&mut self) {
+        if self.head.is_empty() {
+            return;
+        }
+
+        // duplicate mid segments
+        loop {
+            let last = self.head.last().unwrap().clone();
+            if !last.preserves_coherency() || last.range.end > 0 {
+                // self.head_clip += -last.range.start;
+                break;
+            }
+
+            // self.head_clip += self.pitch;
+            self.head.push(last.shift(self.pitch));
+        }
+
+        // clip segments at zero
+        self.head = self
+            .head
+            .iter()
+            .filter_map(|x| {
+                if x.range.end < 0 {
+                    return None;
+                }
+
+                let is_coherent = x.range.start >= 0;
+                let start = std::cmp::max(0, x.range.start);
+                let end = x.range.end;
+
+                Some(SegmentTrace::new(is_coherent, start..end))
+            })
+            .collect::<Vec<_>>();
+    }
+
     fn filter(&mut self, pred: &SegmentPred, mapper: &SegmentMapper) {
-        if !pred.eval_single(&self.first) {
-            self.vanished = true;
-            return;
-        }
+        let map = |s: &[SegmentTrace]| -> Vec<SegmentTrace> {
+            s.iter()
+                .filter_map(|x| {
+                    if !x.eval_single(pred) {
+                        return None;
+                    }
+                    Some(x.map_single(mapper))
+                })
+                .collect::<Vec<_>>()
+        };
 
-        assert!(mapper.is_single());
-        if let Some(mapped) = mapper.map_single(&self.first) {
-            self.first = mapped.clone();
-            self.second = mapped.shift(self.pitch);
-        } else {
-            self.vanished = true;
-        }
+        eprintln!("filter map_head (b): {:?}", self.head);
+        eprintln!("filter map_tail (b): {:?}", self.tail);
+
+        self.head = map(&self.head);
+        self.tail = map(&self.tail);
+
+        eprintln!("filter map_head (a): {:?}", self.head);
+        eprintln!("filter map_tail (a): {:?}", self.tail);
+        // self.adjust_head_clip();
     }
 
-    fn pair(&mut self, pred: &SegmentPred, mapper: &SegmentMapper, _pin: bool) {
-        if !pred.eval_pair(&self.first, &self.second) {
-            self.vanished = true;
-            return;
-        }
+    fn pair(&mut self, pred: &SegmentPred, mapper: &SegmentMapper, pin: bool) {
+        let map_head = |s: &[SegmentTrace]| -> Vec<SegmentTrace> {
+            let mut s = s.iter().map(|x| x.clone()).collect::<Vec<_>>();
+            if s.is_empty() {
+                return s;
+            }
 
+            // add the head-side inf anchor
+            if pin {
+                s.insert(0, SegmentTrace::new(false, isize::MIN..isize::MIN));
+            }
+
+            // add one more mid segment to pair
+            let next = s.last().unwrap().clone();
+            if next.preserves_coherency() {
+                s.push(next.shift(self.pitch));
+            }
+            eprintln!("pair map_head (b): {:?}", s);
+
+            // pair all
+            s.windows(2)
+                .filter_map(|x| {
+                    if !x[0].eval_pair(&x[1], pred) {
+                        return None;
+                    }
+                    Some(x[0].map_pair(&x[1], mapper))
+                })
+                .collect::<Vec<_>>()
+        };
+
+        let map_tail = |s: &[SegmentTrace]| -> Vec<SegmentTrace> {
+            let mut s = s.iter().map(|x| x.clone()).collect::<Vec<_>>();
+            if s.is_empty() {
+                return s;
+            }
+
+            // add the tail-side inf anchor
+            if pin {
+                s.push(SegmentTrace::new(false, isize::MAX..isize::MAX));
+            }
+
+            let prev = s.first().unwrap().clone();
+            if prev.preserves_coherency() {
+                s.insert(0, prev.shift(-self.pitch));
+            }
+            eprintln!("pair map_tail (b): {:?}", s);
+
+            // pair all
+            s.windows(2)
+                .filter_map(|x| {
+                    if !x[0].eval_pair(&x[1], pred) {
+                        return None;
+                    }
+                    Some(x[0].map_pair(&x[1], mapper))
+                })
+                .collect::<Vec<_>>()
+        };
+
+        self.head = map_head(&self.head);
+        self.tail = map_tail(&self.tail);
+
+        eprintln!("pair map_head (a): {:?}", self.head);
+        eprintln!("pair map_tail (a): {:?}", self.tail);
+        // self.adjust_head_clip();
+    }
+
+    fn reduce(&mut self, pred: &SegmentPred, mapper: &SegmentMapper, pin: bool) {
+        assert!(!pred.eval_dep(&[false, true, false, false, false]));
         assert!(!mapper.is_single());
-        if let Some(mapped) = mapper.map_pair(&self.first, &self.second) {
-            self.first = mapped.clone().shift(-self.pitch);
-            self.second = mapped;
-        } else {
-            self.vanished = true;
-        }
-    }
 
-    #[allow(unused_variables)]
-    fn reduce(&mut self, pred: &SegmentPred, mapper: &SegmentMapper, _pin: bool) {
-        if pred.eval_pair(&self.first, &self.second) {
-            self.infinite = true;
-            self.first = 0..isize::MAX;
-            self.second = isize::MAX..isize::MAX;
-        }
+        // let map_head = |s: &[SegmentTrace]| -> Vec<SegmentTrace> {
+        //     let mut s = s.iter().collect::<Vec<_>>();
+        //     if pin {
+        //         s.insert(0, (false, isize::MIN..isize::MIN));
+        //     }
+
+        //     let next = s.last().unwrap();
+        //     if next.0 {
+        //         s.push((true, next.1.clone().shift(self.pitch)));
+        //     }
+
+        //     if s.is_empty() {
+        //         return s;
+        //     }
+
+        //     let mut acc = vec![s[0].clone()];
+        //     for x in &s[1..] {
+        //         let i = acc.len() - 1;
+        //         if !pred.eval_pair(&acc[i].1, &x.range) {
+        //             acc.push(x.clone());
+        //             continue;
+        //         }
+        //         if let Some(mapped) = mapper.map_pair(&acc[i].1, &x.range) {
+        //             acc[i] = (acc[i].0 && x.preserves_coherency(), mapped);
+        //         } else {
+        //             acc.push(x.clone());
+        //         }
+        //     }
+        // };
     }
 }
 
@@ -116,7 +288,7 @@ impl FuseOps {
             PipelineNode::Pair(_, _, _) => 2,
             PipelineNode::Reduce(pred, _, _) => {
                 // check if the predicate is independent of the length of the accumulator
-                if pred.depends_on_variable("s0") {
+                if pred.eval_dep(&[false, true, false, false, false]) {
                     0
                 } else {
                     2
@@ -138,6 +310,7 @@ impl FuseOps {
     fn track(&self, pitch: usize, nodes: &[PipelineNode]) -> (usize, SegmentTracker) {
         let mut tracker = SegmentTracker::new(pitch);
 
+        eprintln!("b: {:?}", tracker);
         for (i, n) in nodes.iter().enumerate() {
             if tracker.vanished {
                 return (i, tracker);
@@ -149,6 +322,7 @@ impl FuseOps {
                 _ => panic!("internal error"),
             }
         }
+        eprintln!("a: {:?}", tracker);
 
         (nodes.len(), tracker)
     }
@@ -179,7 +353,7 @@ impl GreedyOptimizer for FuseOps {
             clip: (0, 0),
             margin: (0, 0),
             pin: (false, false),
-            pitch: 0,
+            pitch: tracker.pitch as usize,
             span: 0,
         });
 
@@ -240,22 +414,25 @@ impl ConstSlicerParams {
         let pitch = params.width as isize;
         let extend = params.extend.unwrap_or((0, 0));
 
-        let mut head = (0..pitch).extend(extend);
-        let mut tail = (0..pitch).extend(extend);
+        // let mut head = (0..pitch).extend(extend);
+        // let mut tail = (0..pitch).extend(extend);
+        let mut head = -extend.0..pitch + extend.1;
+        let mut tail = -extend.0..pitch + extend.1;
+
         if head.is_empty() {
             // segments diminished after extension
             return Self::make_infinite(true, has_intersection, has_bridge);
         }
 
         let merge = params.merge.unwrap_or(isize::MAX);
-        if head.overlap(pitch) >= merge {
+        if (head.len() as isize).saturating_sub(pitch) >= merge {
             // fallen into a single contiguous section
             return Self::make_infinite(false, has_intersection, has_bridge);
         }
 
         // then apply "intersection"
         if has_intersection {
-            let span = head.overlap(pitch);
+            let span = (head.len() as isize).saturating_sub(pitch);
             if span < params.intersection.unwrap() as isize {
                 return Self::make_infinite(true, false, has_bridge);
             }

@@ -2,6 +2,7 @@
 // @author Hajime Suzuki
 // @brief integer math expression evaluator (for command-line arguments)
 
+use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
 use std::iter::Peekable;
 use std::ops::Range;
@@ -193,7 +194,7 @@ where
     let (first, num_base) = if first != '0' {
         (first, 10)
     } else {
-            match it.peek() {
+        match it.peek() {
             Some(&x) if tolower(x) == 'b' => { it.next()?; (it.next()?, 2) }
             Some(&x) if tolower(x) == 'o' => { it.next()?; (it.next()?, 8) }
             Some(&x) if tolower(x) == 'd' => { it.next()?; (it.next()?, 10) }
@@ -228,19 +229,17 @@ where
     I: Iterator<Item = char>,
 {
     let mut v = vec![first as u8];
-    while let Some(x @ ('a'..='z' | 'A'..='Z')) = it.peek() {
+    while let Some(x @ ('a'..='z' | 'A'..='Z' | '0'..='9')) = it.peek() {
         v.push(*x as u8);
         it.next()?;
     }
 
     if vars.is_none() {
-        eprintln!("vars being None");
         return None;
     }
 
     let var = vars.unwrap().get(v.as_slice());
     if var.is_none() {
-        eprintln!("vars being None");
         return None;
     }
 
@@ -252,7 +251,7 @@ where
     }
 }
 
-fn tokenize(input: &str, vars: Option<&HashMap<&[u8], VarAttr>>) -> Option<Vec<Token>> {
+fn tokenize(input: &str, vars: Option<&HashMap<&[u8], VarAttr>>) -> Result<Vec<Token>> {
     let mut tokens = vec![Paren('(')];
 
     let mut it = input.chars().peekable();
@@ -265,23 +264,22 @@ fn tokenize(input: &str, vars: Option<&HashMap<&[u8], VarAttr>>) -> Option<Vec<T
                 tokens.push(Paren(x));
             }
             '+' | '-' | '~' | '!' | '*' | '/' | '%' | '&' | '|' | '^' | '<' | '>' => {
-                tokens.push(parse_op(x, &mut it)?);
+                tokens.push(parse_op(x, &mut it).with_context(|| format!("parsing failed at an operator in {:?}", input))?);
             }
             '0'..='9' => {
-                tokens.push(parse_val(x, &mut it)?);
+                tokens.push(parse_val(x, &mut it).with_context(|| format!("parsing failed at a value in {:?}", input))?);
             }
             x @ ('a'..='z' | 'A'..='Z') => {
-                tokens.push(parse_var(x, vars, &mut it)?);
+                tokens.push(parse_var(x, vars, &mut it).with_context(|| format!("parsing failed at a variable in {:?}", input))?);
             }
             _ => {
-                // eprintln!("unexpected char found: {}", x);
-                return None;
+                return Err(anyhow!("unexpected char {:?} found in {:?}", x, input));
             }
         }
     }
     tokens.push(Paren(')'));
 
-    Some(tokens)
+    Ok(tokens)
 }
 
 fn mark_prefices(tokens: &mut [Token]) -> Option<()> {
@@ -305,7 +303,6 @@ fn mark_prefices(tokens: &mut [Token]) -> Option<()> {
             (VarArr(_), Paren('[')) => {}
             // otherwise invalid
             _ => {
-                // eprintln!("invalid tokens");
                 return None;
             }
         }
@@ -856,9 +853,7 @@ fn remove_prefix_unary(tokens: &mut [(Token, usize)]) -> Option<usize> {
             Some(lhs)
         }
         ((Var(id, c), _), Prefix(s)) if is_addsub(s) => {
-            eprintln!("remove prefix: {:?}", &tokens[..root + 1]);
             tokens[lhs] = (Var(id, apply_prefix(s, c)), 0);
-            eprintln!("done: {:?}", &tokens[..root + 1]);
             Some(lhs)
         }
         ((Op(op), llhs), Prefix(s)) if is_comm_2(op, s) => {
@@ -876,15 +871,15 @@ fn simplify_down_unary(tokens: &mut [(Token, usize)]) -> Option<usize> {
     }
 
     match tokens[root].0 {
-        VarArr(op) => {
+        VarArr(id) => {
             let root = simplify_rpn(&mut tokens[..root])? + 1;
-            tokens[root] = (Var(op, 1), 1); // we use Var as well for array variables to make eval impl simpler
+            tokens[root] = (Var(id, 1), 1); // we use Var as well for array variables to make eval impl simpler
             Some(root)
         }
         Prefix(op) => {
             let root = simplify_rpn(&mut tokens[..root])? + 1;
             tokens[root] = (Prefix(op), 1);
-            Some(root)
+            remove_prefix_unary(&mut tokens[..root + 1])
         }
         _ => simplify_rpn(&mut tokens[..root + 1]),
     }
@@ -995,6 +990,9 @@ fn canonize_signs(tokens: &mut [(Token, usize)]) {
             flip_leaf_signs(tokens);
             tokens[root] = (Op(peel_sign_from_op(op).1), lhs);
         }
+        _ => {}
+    }
+    match tokens[root] {
         // the root node is not an addition / subtraction. recur to the children
         // to find flippable subtree(s)
         (Prefix(_) | Var(_, _), 1) => {
@@ -1010,9 +1008,9 @@ fn canonize_signs(tokens: &mut [(Token, usize)]) {
 
 fn canonize_rpn(tokens: &mut [(Token, usize)]) -> Option<usize> {
     let len = simplify_rpn(tokens)? + 1;
-    eprintln!("{:?}", &tokens[..len]);
+    // eprintln!("{:?}", &tokens[..len]);
     canonize_signs(&mut tokens[..len]);
-    eprintln!("{:?}", &tokens[..len]);
+    // eprintln!("{:?}", &tokens[..len]);
     Some(len)
 }
 
@@ -1034,13 +1032,9 @@ fn test_simplify_rpn() {
             .into_iter()
             .collect();
 
-            eprintln!("{:?}", $input);
             let mut x = tokenize($input, Some(&vars)).unwrap();
-            eprintln!("{:?}", x);
             mark_prefices(&mut x).unwrap();
-            eprintln!("{:?}", x);
             let mut x = sort_into_rpn(&x).unwrap();
-            eprintln!("{:?}", x);
 
             let len = canonize_rpn(&mut x).unwrap();
             x.truncate(len);
@@ -1048,7 +1042,6 @@ fn test_simplify_rpn() {
             let vars_rev: HashMap<usize, &[u8]> = vars.iter().map(|(&x, y)| (y.id, x)).collect();
             let mut s = String::new();
             to_string(&x, &vars_rev, &mut s);
-            eprintln!("{}, {:?}, {:?}", len, &x[..len], s);
 
             assert_eq!(&s, $expected);
         }};
@@ -1114,17 +1107,24 @@ fn test_simplify_rpn() {
     test!("((2 + x) - 4) - (x + 3)", "-5");
     test!("3 + (x - ((2 + x) + 4))", "-3");
     test!("x + (y + 2) - 4 * x + -3 * y", "((-3 * x + -2 * y) + 2)");
+    test!("4 >= 0", "1");
+    test!("-4 >= 0", "0");
+    test!("4 < 0", "0");
     test!("x >= 0", "G(x)");
     test!("x > 0", "G((x + -1))");
     test!("x <= 0", "G(-1 * x)");
     test!("x < 0", "G((-1 * x + -1))");
+    test!("x + 4 < 0", "G((-1 * x + -5))");
+    test!("-(y - x) < -4", "G(((-1 * x + y) + -5))");
     test!("x <= -x + (x + x) - (-x)", "G(x)");
 }
 
-fn eval_rpn<F>(tokens: &[(Token, usize)], get: F) -> Option<i64>
+fn eval_rpn<F>(tokens: &[(Token, usize)], get: F) -> Result<i64>
 where
     F: FnMut(usize, i64) -> i64,
 {
+    let starved = "stack starved in evaluating expression (internal error)";
+
     let mut get = get;
     let mut stack = Vec::new();
     for &token in tokens {
@@ -1133,38 +1133,38 @@ where
                 stack.push(val);
             }
             (Prefix(op), _) => {
-                let x = stack.last_mut()?;
+                let x = stack.last_mut().context(starved)?;
                 *x = apply_prefix(op, *x);
             }
             (Op(op), _) => {
-                let y = stack.pop()?;
-                let x = stack.last_mut()?;
+                let y = stack.pop().context(starved)?;
+                let x = stack.last_mut().context(starved)?;
                 *x = apply_op(op, *x, y);
             }
             (Var(id, c), lhs) => {
                 if lhs == 0 {
                     stack.push(c * get(id, 0));
                 } else {
-                    let x = stack.last_mut()?;
+                    let x = stack.last_mut().context(starved)?;
                     *x = c * get(id, *x);
                 }
             }
             _ => {
-                eprintln!("unexpected token: {:?}", token);
-                return None;
+                return Err(anyhow!("unexpected token: {:?}", token));
             }
         }
     }
 
     if stack.is_empty() {
-        return None;
+        return Err(anyhow!(starved));
     }
 
     assert!(stack.len() == 1);
-    let result = stack.pop()?;
-    Some(result)
+    let result = stack.pop().context(starved)?;
+    Ok(result)
 }
 
+#[warn(dead_code)]
 fn to_string(tokens: &[(Token, usize)], vars: &HashMap<usize, &[u8]>, v: &mut String) {
     let root = tokens.len() - 1;
 
@@ -1228,23 +1228,23 @@ pub struct Rpn {
 }
 
 impl Rpn {
-    pub fn new(input: &str, vars: Option<&HashMap<&[u8], VarAttr>>) -> Option<Self> {
+    pub fn new(input: &str, vars: Option<&HashMap<&[u8], VarAttr>>) -> Result<Self> {
         let mut tokens = tokenize(input, vars)?;
-        mark_prefices(&mut tokens)?;
+        mark_prefices(&mut tokens).with_context(|| format!("invalid token order found in {:?}", input))?;
 
-        let mut rpn = sort_into_rpn(&tokens)?;
+        let mut rpn = sort_into_rpn(&tokens).with_context(|| format!("parenthes not balanced in {:?}", input))?;
 
-        let len = canonize_rpn(&mut rpn)?;
+        let len = canonize_rpn(&mut rpn).context("failed to canonize rpn (internal error)")?;
         rpn.truncate(len);
 
-        Some(Rpn { rpn })
+        Ok(Rpn { rpn })
     }
 
     pub fn tokens(&self) -> Vec<Token> {
         self.rpn.iter().map(|x| x.0).collect::<Vec<_>>()
     }
 
-    pub fn evaluate<F>(&self, get: F) -> Option<i64>
+    pub fn evaluate<F>(&self, get: F) -> Result<i64>
     where
         F: FnMut(usize, i64) -> i64,
     {
@@ -1274,114 +1274,112 @@ fn test_parse_vals() {
     test!("5 + ((x[11] & 0xff) << 4)", &[(b"x", VarAttr { is_array: true, id: 0 })]);
 }
 
-pub fn parse_int(input: &str) -> Option<i64> {
+pub fn parse_int(input: &str) -> Result<i64> {
     let rpn = Rpn::new(input, None)?;
     rpn.evaluate(|_, _| 0)
 }
 
 #[test]
 fn test_parse_int() {
-    assert_eq!(parse_int(""), None);
-    assert_eq!(parse_int("0"), Some(0));
-    assert_eq!(parse_int("+0"), Some(0));
-    assert_eq!(parse_int("-0"), Some(0));
-    assert_eq!(parse_int("!2"), Some(-3));
-    assert_eq!(parse_int("~3"), Some(-4));
+    // TODO: check what kind of error being reported
+    assert!(parse_int("").is_err());
+    assert_eq!(parse_int("0"), Ok(0));
+    assert_eq!(parse_int("+0"), Ok(0));
+    assert_eq!(parse_int("-0"), Ok(0));
+    assert_eq!(parse_int("!2"), Ok(-3));
+    assert_eq!(parse_int("~3"), Ok(-4));
 
-    assert_eq!(parse_int("0b"), None);
-    assert_eq!(parse_int("0B"), None);
-    assert_eq!(parse_int("0x"), None);
-    assert_eq!(parse_int("0b0"), Some(0));
-    assert_eq!(parse_int("0b10"), Some(2));
-    assert_eq!(parse_int("0b12"), None);
-    assert_eq!(parse_int("0d123"), Some(123));
-    assert_eq!(parse_int("0d123a"), None);
-    assert_eq!(parse_int("0xabcdef"), Some(0xabcdef));
-    assert_eq!(parse_int("0xFEDCBA"), Some(0xFEDCBA));
+    assert!(parse_int("0b").is_err());
+    assert!(parse_int("0B").is_err());
+    assert!(parse_int("0x").is_err());
+    assert_eq!(parse_int("0b0"), Ok(0));
+    assert_eq!(parse_int("0b10"), Ok(2));
+    assert!(parse_int("0b12").is_err());
+    assert_eq!(parse_int("0d123"), Ok(123));
+    assert!(parse_int("0d123a").is_err());
+    assert_eq!(parse_int("0xabcdef"), Ok(0xabcdef));
+    assert_eq!(parse_int("0xFEDCBA"), Ok(0xFEDCBA));
 
-    assert_eq!(parse_int("1k"), Some(1000));
-    assert_eq!(parse_int("1K"), Some(1000));
-    assert_eq!(parse_int("1ki"), Some(1024));
-    assert_eq!(parse_int("1Ki"), Some(1024));
+    assert_eq!(parse_int("1k"), Ok(1000));
+    assert_eq!(parse_int("1K"), Ok(1000));
+    assert_eq!(parse_int("1ki"), Ok(1024));
+    assert_eq!(parse_int("1Ki"), Ok(1024));
 
-    assert_eq!(parse_int("1Mi"), Some(1024 * 1024));
-    assert_eq!(parse_int("1g"), Some(1000 * 1000 * 1000));
-    assert_eq!(parse_int("4ki"), Some(4096));
-    assert_eq!(parse_int("-3k"), Some(-3000));
+    assert_eq!(parse_int("1Mi"), Ok(1024 * 1024));
+    assert_eq!(parse_int("1g"), Ok(1000 * 1000 * 1000));
+    assert_eq!(parse_int("4ki"), Ok(4096));
+    assert_eq!(parse_int("-3k"), Ok(-3000));
 
-    assert_eq!(parse_int("0+1"), Some(1));
-    assert_eq!(parse_int("4 - 3"), Some(1));
-    assert_eq!(parse_int("2 * 5"), Some(10));
-    assert_eq!(parse_int("4-1+2"), Some(5));
-    assert_eq!(parse_int("4- 1 +2"), Some(5));
-    assert_eq!(parse_int("4 -1+ 2"), Some(5));
-    assert_eq!(parse_int("4 -1+2"), Some(5));
-    assert_eq!(parse_int("4-1+   2"), Some(5));
+    assert_eq!(parse_int("0+1"), Ok(1));
+    assert_eq!(parse_int("4 - 3"), Ok(1));
+    assert_eq!(parse_int("2 * 5"), Ok(10));
+    assert_eq!(parse_int("4-1+2"), Ok(5));
+    assert_eq!(parse_int("4- 1 +2"), Ok(5));
+    assert_eq!(parse_int("4 -1+ 2"), Ok(5));
+    assert_eq!(parse_int("4 -1+2"), Ok(5));
+    assert_eq!(parse_int("4-1+   2"), Ok(5));
 
-    assert_eq!(parse_int("(4 - 1)"), Some(3));
-    assert_eq!(parse_int("2 * (4 - 1)"), Some(6));
-    assert_eq!(parse_int("(4 - 1) * 2"), Some(6));
-    assert_eq!(parse_int("-(4 - 1) * 2"), Some(-6));
-    assert_eq!(parse_int("-(4 - (1 + 2)) * 2"), Some(-2));
-    assert_eq!(parse_int("-(4 - ((1 + 2))) * 2"), Some(-2));
+    assert_eq!(parse_int("(4 - 1)"), Ok(3));
+    assert_eq!(parse_int("2 * (4 - 1)"), Ok(6));
+    assert_eq!(parse_int("(4 - 1) * 2"), Ok(6));
+    assert_eq!(parse_int("-(4 - 1) * 2"), Ok(-6));
+    assert_eq!(parse_int("-(4 - (1 + 2)) * 2"), Ok(-2));
+    assert_eq!(parse_int("-(4 - ((1 + 2))) * 2"), Ok(-2));
 
-    assert_eq!(parse_int("(*4 - 1) * 2"), None);
-    assert_eq!(parse_int("(4 - 1+) * 2"), None);
-    assert_eq!(parse_int("(4 -* 1) * 2"), None);
-    assert_eq!(parse_int("(4 - 1 * 2"), None);
-    assert_eq!(parse_int("4 - 1) * 2"), None);
-    assert_eq!(parse_int("(4 - 1)) * 2"), None);
+    assert!(parse_int("(*4 - 1) * 2").is_err());
+    assert!(parse_int("(4 - 1+) * 2").is_err());
+    assert!(parse_int("(4 -* 1) * 2").is_err());
+    assert!(parse_int("(4 - 1 * 2").is_err());
+    assert!(parse_int("4 - 1) * 2").is_err());
+    assert!(parse_int("(4 - 1)) * 2").is_err());
 
-    assert_eq!(parse_int("4+-2"), Some(2));
-    assert_eq!(parse_int("4+ -2"), Some(2));
-    assert_eq!(parse_int("4 +-2"), Some(2));
-    assert_eq!(parse_int("4+- 2"), Some(2));
-    assert_eq!(parse_int("4 + -2"), Some(2));
-    assert_eq!(parse_int("15 & !2"), Some(13));
+    assert_eq!(parse_int("4+-2"), Ok(2));
+    assert_eq!(parse_int("4+ -2"), Ok(2));
+    assert_eq!(parse_int("4 +-2"), Ok(2));
+    assert_eq!(parse_int("4+- 2"), Ok(2));
+    assert_eq!(parse_int("4 + -2"), Ok(2));
+    assert_eq!(parse_int("15 & !2"), Ok(13));
 
-    assert_eq!(parse_int("15 << 0"), Some(15));
-    assert_eq!(parse_int("15 >> 0"), Some(15));
-    assert_eq!(parse_int("15 << 2"), Some(60));
-    assert_eq!(parse_int("15 >> 2"), Some(3));
-    assert_eq!(parse_int("15 << -2"), Some(3));
-    assert_eq!(parse_int("15 >> -2"), Some(60));
-    assert_eq!(parse_int("15 <<-2"), Some(3));
-    assert_eq!(parse_int("15 >>-2"), Some(60));
+    assert_eq!(parse_int("15 << 0"), Ok(15));
+    assert_eq!(parse_int("15 >> 0"), Ok(15));
+    assert_eq!(parse_int("15 << 2"), Ok(60));
+    assert_eq!(parse_int("15 >> 2"), Ok(3));
+    assert_eq!(parse_int("15 << -2"), Ok(3));
+    assert_eq!(parse_int("15 >> -2"), Ok(60));
+    assert_eq!(parse_int("15 <<-2"), Ok(3));
+    assert_eq!(parse_int("15 >>-2"), Ok(60));
 
-    assert_eq!(parse_int("3 * 4 - 1"), Some(11));
-    assert_eq!(parse_int("4 - 1 * 5"), Some(-1));
+    assert_eq!(parse_int("3 * 4 - 1"), Ok(11));
+    assert_eq!(parse_int("4 - 1 * 5"), Ok(-1));
 
-    assert_eq!(parse_int("3 << 2 - 1"), Some(6));
-    assert_eq!(parse_int("3 - 2 << 1"), Some(2));
+    assert_eq!(parse_int("3 << 2 - 1"), Ok(6));
+    assert_eq!(parse_int("3 - 2 << 1"), Ok(2));
 
-    assert_eq!(parse_int("4 - 2 ** 3"), Some(8));
-    assert_eq!(parse_int("3 ** 2 - 1"), Some(3));
-    assert_eq!(parse_int("2 ** 3 ** 2"), Some(512));
+    assert_eq!(parse_int("4 - 2 ** 3"), Ok(8));
+    assert_eq!(parse_int("3 ** 2 - 1"), Ok(3));
+    assert_eq!(parse_int("2 ** 3 ** 2"), Ok(512));
 
-    assert_eq!(parse_int("3 ** (0 - 2)"), Some(0));
-    assert_eq!(parse_int("3**-2"), Some(0));
-    assert_eq!(parse_int("-12**2"), Some(-144));
-    assert_eq!(parse_int("(-12)**2"), Some(144));
+    assert_eq!(parse_int("3 ** (0 - 2)"), Ok(0));
+    assert_eq!(parse_int("3**-2"), Ok(0));
+    assert_eq!(parse_int("-12**2"), Ok(-144));
+    assert_eq!(parse_int("(-12)**2"), Ok(144));
 
-    assert_eq!(parse_int("4 : 3"), None);
-    assert_eq!(parse_int("4 + 3;"), None);
-    assert_eq!(parse_int("4 - `3"), None);
-    assert_eq!(parse_int("4,3"), None);
+    assert!(parse_int("4 : 3").is_err());
+    assert!(parse_int("4 + 3;").is_err());
+    assert!(parse_int("4 - `3").is_err());
+    assert!(parse_int("4,3").is_err());
 }
 
 pub fn parse_usize(s: &str) -> Result<usize, String> {
     let val = parse_int(s);
-    if val.is_none() {
-        return Err(format!("failed to evaluate \'{}\' as an integer.", s));
+    if let Err(e) = val {
+        return Err(format!("failed to evaluate {:?} as an integer: {:?}.", s, e));
     }
 
     let val = val.unwrap();
     let converted = val.try_into();
     if converted.is_err() {
-        return Err(format!(
-            "negative value is not allowed for this option (\'{}\' gave \'{}\').",
-            s, val
-        ));
+        return Err(format!("negative value is not allowed for this option ({:?} gave {:?}).", s, val));
     }
     Ok(converted.unwrap())
 }
@@ -1398,13 +1396,13 @@ fn test_parse_usize() {
 
 pub fn parse_isize(s: &str) -> Result<isize, String> {
     let val = parse_int(s);
-    if val.is_none() {
-        return Err(format!("failed to evaluate \'{}\' as an integer.", s));
+    if let Err(e) = val {
+        return Err(format!("failed to evaluate {:?} as an integer: {:?}", s, e));
     }
 
     let val = val.unwrap().try_into();
     if val.is_err() {
-        return Err(format!("failed to interpret \'{}\' as a signed integer.", s));
+        return Err(format!("failed to interpret {:?} as a signed integer.", s));
     }
     Ok(val.unwrap())
 }
@@ -1430,10 +1428,10 @@ pub fn parse_delimited(s: &str) -> Result<Vec<Option<i64>>, String> {
         }
 
         let val = parse_int(x);
-        if val.is_none() {
-            return Err(format!("failed to parse \'{}\' at \'{}\'", s, x));
+        if let Err(e) = val {
+            return Err(format!("failed to parse {:?} at {:?}: {:?}", s, x, e));
         }
-        v.push(val);
+        v.push(val.ok());
     }
     Ok(v)
 }
@@ -1468,7 +1466,7 @@ pub fn parse_usize_pair(s: &str) -> Result<(usize, usize), String> {
 
     if head.is_err() || tail.is_err() {
         return Err(format!(
-            "negative values are not allowed for this option (\'{}\' gave \'{}\' and \'{}\').",
+            "negative values are not allowed for this option ({:?} gave {:?} and {:?}).",
             s, head_raw, tail_raw
         ));
     }
@@ -1502,7 +1500,7 @@ pub fn parse_isize_pair(s: &str) -> Result<(isize, isize), String> {
 
     if head.is_err() || tail.is_err() {
         return Err(format!(
-            "failed to interpret {:?}, which gave \'{}\' and \'{}\', as an isize pair.",
+            "failed to interpret {:?}, which gave {:?} and {:?}, as an isize pair.",
             s, head_raw, tail_raw
         ));
     }
@@ -1528,12 +1526,12 @@ fn test_parse_isize_pair() {
 pub fn parse_range(s: &str) -> Result<Range<usize>, String> {
     let vals = parse_delimited(s)?;
     if vals.len() != 2 {
-        return Err(format!("\"start:end\" format expected for this option (got: \'{}\').", s));
+        return Err(format!("\"start:end\" format expected for this option (got: {:?}).", s));
     }
 
     if vals.iter().map(|x| x.unwrap_or(0)).any(|x| x < 0) {
         return Err(format!(
-            "negative values are not allowed for this option (\'{}\' gave \'{}\' and \'{}\').",
+            "negative values are not allowed for this option ({:?} gave {:?} and {:?}).",
             s,
             vals[0].unwrap_or(0),
             vals[1].map_or("inf".to_string(), |x| format!("{}", x)),
@@ -1544,7 +1542,7 @@ pub fn parse_range(s: &str) -> Result<Range<usize>, String> {
     let end = vals[1].map_or(Ok(usize::MAX), |x| x.try_into()).unwrap();
     if start > end {
         return Err(format!(
-            "start pos must not be greater than end pos (\'{}\' gave \'{}\' and \'{}\').",
+            "start pos must not be greater than end pos ({:?} gave {:?} and {:?}).",
             s, start, end
         ));
     }

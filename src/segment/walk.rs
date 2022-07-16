@@ -89,7 +89,7 @@ impl SpanFetcher {
         .map(|(x, y)| (x.as_slice(), *y))
         .collect();
 
-        let rpn = Rpn::new(expr, Some(&vars)).unwrap_or_else(|| panic!("failed to parse expression: {:?}.", expr));
+        let rpn = Rpn::new(expr, Some(&vars)).unwrap_or_else(|_| panic!("failed to parse expression: {:?}.", expr));
         SpanFetcher {
             expr: expr.to_string(),
             rpn,
@@ -100,7 +100,7 @@ impl SpanFetcher {
         let val = self
             .rpn
             .evaluate(|id: usize, val: i64| -> i64 { src.get_array_element(skip, id, val) });
-        if val.is_none() {
+        if val.is_err() {
             panic!("failed on evaluating expression: {:?}", &self.expr);
         }
 
