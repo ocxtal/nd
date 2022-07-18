@@ -10,14 +10,14 @@ use std::ops::Range;
 
 #[derive(Clone, Debug)]
 struct SegmentTrace {
-    is_coherent: (bool, bool),
+    coherency: (bool, bool),
     range: Range<isize>,
 }
 
 impl SegmentTrace {
-    fn new(is_coherent: bool, range: Range<isize>) -> Self {
+    fn new(is_head_coherent: bool, is_tail_coherent: bool, range: Range<isize>) -> Self {
         SegmentTrace {
-            is_coherent: (is_coherent, is_coherent),
+            coherency: (is_head_coherent, is_tail_coherent),
             range,
         }
     }
@@ -31,33 +31,27 @@ impl SegmentTrace {
     }
 
     fn map_single(&self, mapper: &SegmentMapper) -> Self {
-        let is_coherent = mapper.map_dep(&[false, self.is_coherent.0, self.is_coherent.1]);
+        let coherency = mapper.map_dep(&[false, self.coherency.0, self.coherency.1]);
         let (start, end) = mapper.map(&[0, self.range.start, self.range.end]);
 
         SegmentTrace {
-            is_coherent,
+            coherency,
             range: start..end,
         }
     }
 
     fn map_pair(&self, other: &SegmentTrace, mapper: &SegmentMapper) -> Self {
-        let is_coherent = mapper.map_dep(&[
-            false,
-            self.is_coherent.0,
-            self.is_coherent.1,
-            other.is_coherent.0,
-            other.is_coherent.1,
-        ]);
+        let coherency = mapper.map_dep(&[false, self.coherency.0, self.coherency.1, other.coherency.0, other.coherency.1]);
         let (start, end) = mapper.map(&[0, self.range.start, self.range.end, other.range.start, other.range.end]);
 
         SegmentTrace {
-            is_coherent,
+            coherency,
             range: start..end,
         }
     }
 
-    fn preserves_coherency(&self) -> bool {
-        self.is_coherent.0 && self.is_coherent.1
+    fn is_coherent(&self) -> bool {
+        self.coherency.0 && self.coherency.1
     }
 
     // TODO: panic on overflow
@@ -71,7 +65,7 @@ impl SegmentTrace {
         let end = self.range.end.saturating_add(amount);
 
         SegmentTrace {
-            is_coherent: self.is_coherent,
+            coherency: self.coherency,
             range: start..end,
         }
     }
@@ -84,27 +78,22 @@ impl SegmentTrace {
 #[derive(Debug)]
 struct SegmentTracker {
     pitch: isize,
-    // head_clip: isize,
     head: Vec<SegmentTrace>,
     tail: Vec<SegmentTrace>,
-    infinite: bool,
-    vanished: bool,
 }
 
 impl SegmentTracker {
     fn new(pitch: usize) -> Self {
-        let infinite = pitch >= isize::MAX as usize;
-        let vanished = pitch == 0;
-
-        let pitch = if infinite { 0 } else { pitch as isize };
+        let pitch = if pitch >= isize::MAX as usize {
+            isize::MAX
+        } else {
+            pitch as isize
+        };
 
         SegmentTracker {
             pitch,
-            // head_clip: 0,
-            head: vec![SegmentTrace::new(true, 0..pitch)],
-            tail: vec![SegmentTrace::new(true, 0..pitch)],
-            infinite,
-            vanished,
+            head: vec![SegmentTrace::new(true, true, 0..pitch)],
+            tail: vec![SegmentTrace::new(true, true, 0..pitch)],
         }
     }
 
@@ -116,12 +105,9 @@ impl SegmentTracker {
         // duplicate mid segments
         loop {
             let last = self.head.last().unwrap().clone();
-            if !last.preserves_coherency() || last.range.end > 0 {
-                // self.head_clip += -last.range.start;
+            if !last.is_coherent() || last.range.end > 0 {
                 break;
             }
-
-            // self.head_clip += self.pitch;
             self.head.push(last.shift(self.pitch));
         }
 
@@ -138,9 +124,13 @@ impl SegmentTracker {
                 let start = std::cmp::max(0, x.range.start);
                 let end = x.range.end;
 
-                Some(SegmentTrace::new(is_coherent, start..end))
+                Some(SegmentTrace::new(is_coherent, true, start..end))
             })
             .collect::<Vec<_>>();
+    }
+
+    fn cleanup_tail(&mut self) {
+        self.tail = self.tail.iter().filter(|x| x.range != (isize::MAX..isize::MAX)).map(|x| x.clone()).collect::<Vec<_>>();
     }
 
     fn filter(&mut self, pred: &SegmentPred, mapper: &SegmentMapper) {
@@ -160,33 +150,34 @@ impl SegmentTracker {
 
         self.head = map(&self.head);
         self.tail = map(&self.tail);
+        self.adjust_head_clip();
+        self.cleanup_tail();
 
         eprintln!("filter map_head (a): {:?}", self.head);
         eprintln!("filter map_tail (a): {:?}", self.tail);
-        // self.adjust_head_clip();
     }
 
     fn pair(&mut self, pred: &SegmentPred, mapper: &SegmentMapper, pin: bool) {
         let map_head = |s: &[SegmentTrace]| -> Vec<SegmentTrace> {
-            let mut s = s.iter().map(|x| x.clone()).collect::<Vec<_>>();
-            if s.is_empty() {
-                return s;
+            let mut v = s.to_vec();
+            if v.is_empty() {
+                return v;
             }
 
             // add the head-side inf anchor
             if pin {
-                s.insert(0, SegmentTrace::new(false, isize::MIN..isize::MIN));
+                v.insert(0, SegmentTrace::new(false, false, isize::MIN..isize::MIN));
             }
 
             // add one more mid segment to pair
-            let next = s.last().unwrap().clone();
-            if next.preserves_coherency() {
-                s.push(next.shift(self.pitch));
+            let next = v.last().unwrap().clone();
+            if next.is_coherent() {
+                v.push(next.shift(self.pitch));
             }
-            eprintln!("pair map_head (b): {:?}", s);
+            eprintln!("pair map_head (b): {:?}", v);
 
             // pair all
-            s.windows(2)
+            v.windows(2)
                 .filter_map(|x| {
                     if !x[0].eval_pair(&x[1], pred) {
                         return None;
@@ -197,24 +188,24 @@ impl SegmentTracker {
         };
 
         let map_tail = |s: &[SegmentTrace]| -> Vec<SegmentTrace> {
-            let mut s = s.iter().map(|x| x.clone()).collect::<Vec<_>>();
-            if s.is_empty() {
-                return s;
+            let mut v = s.to_vec();
+            if v.is_empty() {
+                return v;
             }
 
             // add the tail-side inf anchor
             if pin {
-                s.push(SegmentTrace::new(false, isize::MAX..isize::MAX));
+                v.push(SegmentTrace::new(false, false, isize::MAX..isize::MAX));
             }
 
-            let prev = s.first().unwrap().clone();
-            if prev.preserves_coherency() {
-                s.insert(0, prev.shift(-self.pitch));
+            let prev = v.first().unwrap().clone();
+            if prev.is_coherent() {
+                v.insert(0, prev.shift(-self.pitch));
             }
-            eprintln!("pair map_tail (b): {:?}", s);
+            eprintln!("pair map_tail (b): {:?}", v);
 
             // pair all
-            s.windows(2)
+            v.windows(2)
                 .filter_map(|x| {
                     if !x[0].eval_pair(&x[1], pred) {
                         return None;
@@ -226,45 +217,11 @@ impl SegmentTracker {
 
         self.head = map_head(&self.head);
         self.tail = map_tail(&self.tail);
+        self.adjust_head_clip();
+        self.cleanup_tail();
 
         eprintln!("pair map_head (a): {:?}", self.head);
         eprintln!("pair map_tail (a): {:?}", self.tail);
-        // self.adjust_head_clip();
-    }
-
-    fn reduce(&mut self, pred: &SegmentPred, mapper: &SegmentMapper, pin: bool) {
-        assert!(!pred.eval_dep(&[false, true, false, false, false]));
-        assert!(!mapper.is_single());
-
-        // let map_head = |s: &[SegmentTrace]| -> Vec<SegmentTrace> {
-        //     let mut s = s.iter().collect::<Vec<_>>();
-        //     if pin {
-        //         s.insert(0, (false, isize::MIN..isize::MIN));
-        //     }
-
-        //     let next = s.last().unwrap();
-        //     if next.0 {
-        //         s.push((true, next.1.clone().shift(self.pitch)));
-        //     }
-
-        //     if s.is_empty() {
-        //         return s;
-        //     }
-
-        //     let mut acc = vec![s[0].clone()];
-        //     for x in &s[1..] {
-        //         let i = acc.len() - 1;
-        //         if !pred.eval_pair(&acc[i].1, &x.range) {
-        //             acc.push(x.clone());
-        //             continue;
-        //         }
-        //         if let Some(mapped) = mapper.map_pair(&acc[i].1, &x.range) {
-        //             acc[i] = (acc[i].0 && x.preserves_coherency(), mapped);
-        //         } else {
-        //             acc.push(x.clone());
-        //         }
-        //     }
-        // };
     }
 }
 
@@ -286,14 +243,6 @@ impl FuseOps {
                 }
             }
             PipelineNode::Pair(_, _, _) => 2,
-            PipelineNode::Reduce(pred, _, _) => {
-                // check if the predicate is independent of the length of the accumulator
-                if pred.eval_dep(&[false, true, false, false, false]) {
-                    0
-                } else {
-                    2
-                }
-            }
             _ => 0,
         }
     }
@@ -312,13 +261,12 @@ impl FuseOps {
 
         eprintln!("b: {:?}", tracker);
         for (i, n) in nodes.iter().enumerate() {
-            if tracker.vanished {
+            if tracker.head.is_empty() && tracker.tail.is_empty() {
                 return (i, tracker);
             }
             match n {
                 PipelineNode::Filter(pred, mapper) => tracker.filter(pred, &mapper[0]),
                 PipelineNode::Pair(pred, mapper, pin) => tracker.pair(pred, mapper, *pin),
-                PipelineNode::Reduce(pred, mapper, pin) => tracker.reduce(pred, mapper, *pin),
                 _ => panic!("internal error"),
             }
         }
@@ -347,15 +295,56 @@ impl GreedyOptimizer for FuseOps {
         };
         let (len, tracker) = self.track(pitch, &nodes[1..1 + len]);
 
-        let node = PipelineNode::ConstSlicer(ConstSlicerParams {
-            infinite: tracker.infinite,
-            vanished: tracker.vanished,
-            clip: (0, 0),
-            margin: (0, 0),
-            pin: (false, false),
-            pitch: tracker.pitch as usize,
-            span: 0,
-        });
+        let node = if tracker.head.is_empty() && tracker.tail.is_empty() {
+            PipelineNode::ConstSlicer(ConstSlicerParams {
+                infinite: false,
+                vanished: true,
+                clip: (0, 0),
+                margin: (0, 0),
+                pin: (false, false),
+                pitch: usize::MAX,
+                span: 0,
+            })
+        } else {
+            assert!(!tracker.head.is_empty() && !tracker.tail.is_empty());
+            assert!(tracker.tail[0].is_coherent());
+
+            let len = tracker.tail[0].range.len() as isize;
+
+            let head_start = tracker.head[0].range.start;
+            let head_end = tracker.head[0].range.end;
+            let (head_pin, head_clip, head_margin) = if head_start == 0 {
+                if head_end > len {
+                    (true, 0, 0)
+                } else {
+                    let mut margin = len - head_end;
+                    while margin > len {
+                        margin -= tracker.pitch;
+                    }
+                    (false, 0, -margin)
+                }
+            } else {
+                (false, head_start, 0)
+            };
+
+            let tail_end = tracker.tail[0].range.end;
+            let tail_margin = if tail_end < 1 {
+                1 - tail_end
+            } else {
+                std::cmp::max(1 - tail_end, 1 - len)
+            };
+            let tail_pin = tracker.tail.last().map_or_else(|| false, |x| x.range.end == isize::MAX);
+
+            PipelineNode::ConstSlicer(ConstSlicerParams {
+                infinite: false,
+                vanished: false,
+                clip: (head_clip as usize, 0),
+                margin: (head_margin, tail_margin),
+                pin: (head_pin, tail_pin),
+                pitch: tracker.pitch as usize,
+                span: len as usize,
+            })
+        };
 
         Some((0, 1 + len, node))
     }
@@ -382,6 +371,18 @@ pub struct ConstSlicerParams {
 }
 
 impl ConstSlicerParams {
+    pub fn from_pitch(pitch: usize) -> Self {
+        ConstSlicerParams {
+            infinite: false,
+            vanished: false,
+            clip: (0, 0),
+            margin: (0, pitch as isize - 1),
+            pin: (false, false),
+            pitch,
+            span: pitch,
+        }
+    }
+
     fn make_infinite(vanished: bool, has_intersection: bool, has_bridge: bool) -> Self {
         let mut vanished = vanished;
 

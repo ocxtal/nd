@@ -16,9 +16,7 @@ pub enum PipelineNode {
     Zip(usize),
     Inplace,
     // Stream manipulators: ByteStream -> ByteStream
-    Pad((usize, usize)),
-    Seek(usize),
-    Patch(String),
+    Clipper(ClipperParams),         // Pad, Seek, Range
     Bytes(Range<usize>),
     // Slicers: ByteStream -> SegmentStream
     Width(usize),
@@ -26,16 +24,14 @@ pub enum PipelineNode {
     SliceBy(String),
     Walk(Vec<String>),
     // Slice manipulators: SegmentStream -> SegmentStream
-    Filter(SegmentPred, Vec<SegmentMapper>),
-    Regex(SegmentPred, Vec<SegmentMapper>),
-    Pair(SegmentPred, SegmentMapper, bool),
-    Reduce(SegmentPred, SegmentMapper, bool),
+    Mapper(MapperParams),
+    Regex(String),
+    Foreach(String),    // Foreach(Vec<PipelineNode>),
     // Post-processing: SegmentStream -> StreamDrain<Write>
     Scatter(String, (usize, usize)),
     PatchBack(String, (usize, usize)),
     Pager(String, (usize, usize)),
     // fused (optimized) nodes
-    Clipper(ClipperParams),         // Pad, Seek, Range
     ConstSlicer(ConstSlicerParams), // Width, Filter("true", _)+
 }
 

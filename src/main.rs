@@ -50,12 +50,12 @@ OPTIONS:
     -z, --zip W             zip all input streams into one with W-byte words
     -i, --inplace           edit each input file in-place
 
-  Manipulating the stream
+  Manipulating the stream (applied in this order)
 
     -a, --pad N,M           add N and M bytes of zeros at the head and tail [0,0]
-    -s, --seek N            skip first N bytes and clear stream offset (after --pad) [0]
-    -p, --patch FILE        patch the input stream with the patchfile (after --seek)
-    -n, --bytes N..M        drop bytes out of the range (after --seek or --patch) [0:inf]
+    -s, --seek N            skip first N bytes and clear stream offset [0]
+    -n, --bytes N..M        drop bytes out of the range [0:inf]
+    -p, --patch FILE        patch the input stream with the patchfile
 
   Slicing the stream (exclusive)
 
@@ -64,31 +64,23 @@ OPTIONS:
     -G, --slice-by FILE     slice out [pos, pos + len) ranges loaded from the file
     -A, --walk EXPR[,...]   split the stream into eval(EXPR)-byte chunk(s), repeat it until the end
 
-  Manipulating the slices
+  Manipulating the slices (applied in this order)
 
-    -O, --ops OP1[.OP2...]  apply a sequence of slice operations
+        --extend RANGE1     map every slice to RANGE1
+        --invert RANGE2     map every adjoining slice pair to RANGE2
+        --regex PCRE,RANGE1 match PCRE on every slice, and maps the hit location(s) to RANGE1
+        --foreach ARGS      apply another zd stream built from ARGS to every slice
 
-      Supported operations are:
+  Post-processing the slices (applied in this order)
 
-        filter(PRED1,RANGE1[,...])  maps the slice to RANGE1(s) if PRED1 == true, otherwise drops it
-                                    note: map(RANGE1[,...]) is aliased to filter(true,RANGE1[,...])
-        regex(REGEX,RANGE1[,...])   maps the slice to RANGE1(s) if it matches with REGEX
-        pair(PRED2,RANGE2,PIN)      maps adjoining two slices to RANGE2 if PRED2 == true
-        reduce(PRED2,RANGE2,PIN)    incrementally merge slices if PRED2 == true, flush it if false
-
-      See README.md for the definitions and examples of RANGE1, RANGE2, PRED1, PRED2, REGEX, and PIN
-
-  Post-processing the slices
-
-    -j, --offset N,M        add N and M respectively to offset and length when formatting [0,0]
-    -o, --scatter CMD       invoke shell command on each formatted slice []
     -d, --patch-back CMD    pipe formatted slices to command then patch back to the original stream []
+    -o, --output FILE       dump the slices to FILE (leaves nothing in the original stream) []
+        --pager PAGER       use PAGER to view the slices (ignored inside --foreach) [less -S -F]
 
   Miscellaneous
 
     -h, --help              print help (this) message
     -v, --version           print version information
-        --pager PAGER       use PAGER to view the output on the terminal [less -S -F]
 ";
 
 fn parse_args() -> Result<ArgMatches> {
@@ -419,16 +411,16 @@ fn build_pipeline_nodes(m: &ArgMatches) -> Result<Vec<PipelineNode>> {
     };
     nodes.push(node);
 
-    // just append one-by-one
-    if let Some(pad) = m.value_of("pad") {
-        nodes.push(PipelineNode::Pad(parse_usize_pair(pad).unwrap()));
+    // stream clipper -> patcher
+    let clipper = ClipperParams::from_raw(
+        m.value_of("pad").map(|x| parse_usize_pair(x).unwrap()),
+        m.value_of("seek").map(|x| parse_usize(x).unwrap()),
+        m.value_of("bytes").map(|x| parse_range(x).unwrap()),
+    );
+    if !clipper.is_default() {
+        nodes.push(PipelineNode::Clipper(clipper));
     }
-    if let Some(seek) = m.value_of("seek") {
-        nodes.push(PipelineNode::Seek(parse_usize(seek).unwrap()));
-    }
-    if let Some(bytes) = m.value_of("bytes") {
-        nodes.push(PipelineNode::Bytes(parse_range(bytes).unwrap()));
-    }
+
     if let Some(patch) = m.value_of("patch") {
         nodes.push(PipelineNode::Patch(patch.to_string()));
     }
@@ -444,23 +436,27 @@ fn build_pipeline_nodes(m: &ArgMatches) -> Result<Vec<PipelineNode>> {
     };
     nodes.push(node);
 
-    if let Some(ops) = m.value_of("ops") {
-        // split method chain
-        let ops = parse_opcall_chain(ops)?;
-        nodes.extend_from_slice(&ops);
+    // slice manipulators
+    let mapper = MapperParams::from_raw(
+        m.value_of("extend"),
+        m.value_of("invert")
+    );
+    if !mapper.is_default() {
+        nodes.push(PipelineNode::Mapper(mapper));
     }
 
-    let offsets = if let Some(offsets) = m.value_of("offset") {
-        parse_usize_pair(offsets).unwrap()
-    } else {
-        (0, 0)
-    };
+    if let Some(regex) = m.value_of("regex") {
+        nodes.push(PipelineNode::Regex(regex));
+    }
+    if let Some(foreach) = m.value_of("foreach") {
+        nodes.push(PipelineNode::Foreach(regex));
+    }
 
     let node = match (m.value_of("scatter"), m.value_of("patch-back"), m.value_of("pager")) {
-        (Some(command), None, None) => PipelineNode::Scatter(command.to_string(), offsets),
-        (None, Some(command), None) => PipelineNode::PatchBack(command.to_string(), offsets),
-        (None, None, Some(command)) => PipelineNode::Pager(command.to_string(), offsets),
-        (None, None, None) => PipelineNode::Pager("less -S -F".to_string(), offsets),
+        (Some(command), None, None) => PipelineNode::Scatter(command.to_string()),
+        (None, Some(command), None) => PipelineNode::PatchBack(command.to_string()),
+        (None, None, Some(command)) => PipelineNode::Pager(command.to_string()),
+        (None, None, None) => PipelineNode::Pager("less -S -F".to_string()),
         _ => return Err(anyhow!("postprocess parameter conflict detected.")),
     };
     nodes.push(node);
@@ -498,14 +494,6 @@ fn main() -> Result<()> {
     };
 
     // slicer params
-    let raw_slicer_params = RawSlicerParams {
-        width: m.value_of("width").map_or(16, |x| parse_usize(x).unwrap()),
-        extend: m.value_of("extend").map(|x| parse_isize_pair(x).unwrap()),
-        merge: m.value_of("union").map(|x| parse_isize(x).unwrap()),
-        intersection: m.value_of("intersection").map(|x| parse_usize(x).unwrap()),
-        bridge: m.value_of("bridge").map(|x| parse_isize_pair(x).unwrap()),
-    };
-
     let mut stream_params = StreamParams {
         // slicer
         mode: match (m.value_of("match"), m.value_of("regex"), m.value_of("guide"), m.value_of("walk")) {
@@ -513,10 +501,9 @@ fn main() -> Result<()> {
             (None, Some(pattern), None, None) => SlicerMode::Regex(pattern),
             (None, None, Some(file), None) => SlicerMode::Guided(file),
             (None, None, None, Some(expr)) => SlicerMode::Walk(expr),
-            (None, None, None, None) => SlicerMode::Const(ConstSlicerParams::from_raw(&raw_slicer_params)),
+            (None, None, None, None) => SlicerMode::Const(ConstSlicerParams::from_pitch(16)),
             _ => panic!("slicer parameter conflict detected."),
         },
-        raw: raw_slicer_params,
         lines: m.value_of("lines").map_or(0..usize::MAX, |x| parse_range(x).unwrap()),
         // formatter
         format: InoutFormat::from_str(m.value_of("out-format").unwrap()).unwrap(),
@@ -687,7 +674,6 @@ enum SlicerMode<'a> {
 struct StreamParams<'a> {
     // slicer
     mode: SlicerMode<'a>,
-    raw: RawSlicerParams,
     lines: Range<usize>,
     // formatter
     format: InoutFormat,

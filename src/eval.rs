@@ -1164,7 +1164,7 @@ where
     Ok(result)
 }
 
-#[warn(dead_code)]
+#[allow(dead_code)]
 fn to_string(tokens: &[(Token, usize)], vars: &HashMap<usize, &[u8]>, v: &mut String) {
     let root = tokens.len() - 1;
 
