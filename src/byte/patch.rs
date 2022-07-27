@@ -6,7 +6,6 @@ use super::ByteStream;
 use crate::streambuf::StreamBuf;
 use crate::text::parser::TextParser;
 use crate::text::InoutFormat;
-use std::io::Result;
 
 #[cfg(test)]
 use super::tester::*;
@@ -19,19 +18,16 @@ struct PatchFeeder {
 }
 
 impl PatchFeeder {
-    fn new(patch: Box<dyn ByteStream>, format: &InoutFormat) -> Self {
-        assert!(!format.is_binary());
-        assert!(!format.is_gapless());
-
+    fn new(patch: Box<dyn ByteStream>) -> Self {
         PatchFeeder {
-            src: TextParser::new(patch, format),
+            src: TextParser::new(patch, &InoutFormat::from_str("xxx").unwrap()),
             offset: 0,
             span: 0,
             buf: Vec::new(),
         }
     }
 
-    fn fill_buf(&mut self) -> Result<(usize, usize)> {
+    fn fill_buf(&mut self) -> std::io::Result<(usize, usize)> {
         // offset is set usize::MAX once the source reached EOF
         if self.offset == usize::MAX {
             return Ok((usize::MAX, 0));
@@ -52,7 +48,7 @@ impl PatchFeeder {
         Ok((self.offset, self.span))
     }
 
-    fn feed_until(&mut self, offset: usize, rem_len: usize, buf: &mut Vec<u8>) -> Result<usize> {
+    fn feed_until(&mut self, offset: usize, rem_len: usize, buf: &mut Vec<u8>) -> std::io::Result<usize> {
         let mut acc = 0;
         while acc < rem_len {
             buf.extend_from_slice(&self.buf);
@@ -82,8 +78,8 @@ pub struct PatchStream {
 }
 
 impl PatchStream {
-    pub fn new(src: Box<dyn ByteStream>, patch: Box<dyn ByteStream>, format: &InoutFormat) -> Self {
-        let mut patch = PatchFeeder::new(patch, format);
+    pub fn new(src: Box<dyn ByteStream>, patch: Box<dyn ByteStream>) -> Self {
+        let mut patch = PatchFeeder::new(patch);
         patch.fill_buf().unwrap();
 
         PatchStream {
@@ -97,7 +93,7 @@ impl PatchStream {
 }
 
 impl ByteStream for PatchStream {
-    fn fill_buf(&mut self) -> Result<usize> {
+    fn fill_buf(&mut self) -> std::io::Result<usize> {
         self.buf.fill_buf(|buf| {
             while self.skip > 0 {
                 let len = self.src.fill_buf()?;

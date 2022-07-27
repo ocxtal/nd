@@ -44,7 +44,7 @@ impl MockSource {
 }
 
 impl Read for MockSource {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         if self.offset >= self.len {
             return Ok(0);
         }
@@ -64,7 +64,7 @@ impl Read for MockSource {
 }
 
 impl ByteStream for MockSource {
-    fn fill_buf(&mut self) -> Result<usize> {
+    fn fill_buf(&mut self) -> std::io::Result<usize> {
         if self.offset >= self.len {
             return Ok(0);
         }

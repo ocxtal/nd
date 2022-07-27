@@ -3,7 +3,6 @@
 // @date 2022/3/23
 
 use crate::params::{BLOCK_SIZE, MARGIN_SIZE};
-use std::io::Result;
 
 #[cfg(test)]
 use crate::byte::tester::*;
@@ -76,9 +75,9 @@ impl StreamBuf {
         self.is_eof = false;
     }
 
-    pub fn fill_buf<F>(&mut self, f: F) -> Result<usize>
+    pub fn fill_buf<F>(&mut self, f: F) -> std::io::Result<usize>
     where
-        F: FnMut(&mut Vec<u8>) -> Result<bool>,
+        F: FnMut(&mut Vec<u8>) -> std::io::Result<bool>,
     {
         let mut f = f;
 

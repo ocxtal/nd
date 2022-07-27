@@ -1,13 +1,13 @@
 // @file filluninit.rs
 // @author Hajime Suzuki
 
-use std::io::{Error, ErrorKind, Result};
+use std::io::{Error, ErrorKind};
 
 pub trait FillUninit {
-    fn fill_uninit_with_ret<T, F>(&mut self, len: usize, f: F) -> Result<(T, usize)>
+    fn fill_uninit_with_ret<T, F>(&mut self, len: usize, f: F) -> std::io::Result<(T, usize)>
     where
         T: Sized,
-        F: FnMut(&mut [u8]) -> Result<(T, usize)>;
+        F: FnMut(&mut [u8]) -> std::io::Result<(T, usize)>;
 
     fn fill_uninit_on_option_with_ret<T, F>(&mut self, len: usize, f: F) -> Option<(T, usize)>
     where
@@ -19,9 +19,9 @@ pub trait FillUninit {
             .ok()
     }
 
-    fn fill_uninit<F>(&mut self, len: usize, f: F) -> Result<usize>
+    fn fill_uninit<F>(&mut self, len: usize, f: F) -> std::io::Result<usize>
     where
-        F: FnMut(&mut [u8]) -> Result<usize>,
+        F: FnMut(&mut [u8]) -> std::io::Result<usize>,
     {
         let mut f = f;
         self.fill_uninit_with_ret(len, |buf| f(buf).map(|len| ((), len)))
@@ -30,10 +30,10 @@ pub trait FillUninit {
 }
 
 impl FillUninit for Vec<u8> {
-    fn fill_uninit_with_ret<T, F>(&mut self, len: usize, f: F) -> Result<(T, usize)>
+    fn fill_uninit_with_ret<T, F>(&mut self, len: usize, f: F) -> std::io::Result<(T, usize)>
     where
         T: Sized,
-        F: FnMut(&mut [u8]) -> Result<(T, usize)>,
+        F: FnMut(&mut [u8]) -> std::io::Result<(T, usize)>,
     {
         let mut f = f;
 

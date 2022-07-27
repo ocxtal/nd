@@ -2,7 +2,6 @@
 // @author Hajime Suzuki
 
 use super::{Segment, SegmentStream};
-use std::io::Result;
 use std::ops::Range;
 
 pub struct StripStream {
@@ -18,7 +17,7 @@ impl StripStream {
 }
 
 impl SegmentStream for StripStream {
-    fn fill_segment_buf(&mut self) -> Result<(usize, usize)> {
+    fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)> {
         self.src.fill_segment_buf()
     }
 
@@ -31,7 +30,7 @@ impl SegmentStream for StripStream {
         (stream, &segments[start..end])
     }
 
-    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
+    fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)> {
         let (bytes, count) = self.src.consume(bytes)?;
         self.acc += count;
 

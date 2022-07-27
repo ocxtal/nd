@@ -16,7 +16,7 @@ impl BinaryDrain {
         BinaryDrain { src, buf: Vec::new() }
     }
 
-    fn consume_segments_impl(&mut self) -> Result<usize> {
+    fn consume_segments_impl(&mut self) -> std::io::Result<usize> {
         let (_, block, segments) = self.src.fill_segment_buf()?;
         if block.is_empty() {
             std::io::stdout().write_all(&self.buf)?;
@@ -43,7 +43,7 @@ impl BinaryDrain {
 }
 
 impl ConsumeSegments for BinaryDrain {
-    fn consume_segments(&mut self) -> Result<usize> {
+    fn consume_segments(&mut self) -> std::io::Result<usize> {
         while let Ok(x) = self.consume_segments_impl() {
             if x == 0 {
                 return Ok(0);

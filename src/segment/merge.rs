@@ -3,7 +3,32 @@
 
 use super::{Segment, SegmentStream};
 use crate::params::BLOCK_SIZE;
-use std::io::Result;
+use anyhow::Result;
+use std::ops::Range;
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct MergerParams {
+    extend: (isize, isize),
+    merge_threshold: isize,
+}
+
+impl Default for MergerParams {
+    fn default() -> Self {
+        MergerParams {
+            extend: (0, 0),
+            merge_threshold: 0,
+        }
+    }
+}
+
+impl MergerParams {
+    pub fn from_raw(extend: Option<Range<usize>>, invert: Option<Range<usize>>, merge: Option<usize>) -> Result<Self> {
+        Ok(MergerParams {
+            extend: (0, 0),
+            merge_threshold: 0,
+        })
+    }
+}
 
 // We use an array of `SegmentMap` to locate which result segment built from which input
 // segments. The array is build along with the merge operation, and every i-th element
@@ -82,15 +107,15 @@ pub struct MergeStream {
 }
 
 impl MergeStream {
-    pub fn new(src: Box<dyn SegmentStream>, extend: (isize, isize), merge_threshold: isize) -> Self {
-        let max_dist = std::cmp::max(extend.0.abs(), extend.1.abs()) as usize;
+    pub fn new(src: Box<dyn SegmentStream>, params: &MergerParams) -> Self {
+        let max_dist = std::cmp::max(params.extend.0.abs(), params.extend.1.abs()) as usize;
         let min_fill_bytes = std::cmp::max(BLOCK_SIZE, 2 * max_dist);
 
         // minimum input segment length whose length becomes > 0 after extension
-        let min_len = std::cmp::max(0, -(extend.0 + extend.1)) as usize;
+        let min_len = std::cmp::max(0, -(params.extend.0 + params.extend.1)) as usize;
 
         // include extension amounts into the threshold
-        let merge_threshold = merge_threshold - extend.0 - extend.1;
+        let merge_threshold = params.merge_threshold - params.extend.0 - params.extend.1;
 
         MergeStream {
             src,
@@ -100,12 +125,12 @@ impl MergeStream {
             skip: 0,
             min_fill_bytes,
             min_len,
-            extend,
-            merge_threshold,
+            extend: params.extend,
+            merge_threshold: params.merge_threshold,
         }
     }
 
-    fn fill_segment_buf_impl(&mut self) -> Result<(bool, usize, usize)> {
+    fn fill_segment_buf_impl(&mut self) -> std::io::Result<(bool, usize, usize)> {
         let min_fill_bytes = if let Some(acc) = self.acc {
             std::cmp::min(self.min_fill_bytes, acc.scanned() + 1)
         } else {
@@ -220,7 +245,7 @@ impl MergeStream {
 }
 
 impl SegmentStream for MergeStream {
-    fn fill_segment_buf(&mut self) -> Result<(usize, usize)> {
+    fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)> {
         let (is_eof, bytes, count) = self.fill_segment_buf_impl()?;
 
         if bytes > 0 && count > self.skip {
@@ -234,7 +259,7 @@ impl SegmentStream for MergeStream {
         (stream, &self.segments)
     }
 
-    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
+    fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)> {
         let bytes = std::cmp::min(bytes, self.acc.map_or(bytes, |x| x.scanned()));
         let (bytes, src_count) = self.src.consume(bytes)?;
 

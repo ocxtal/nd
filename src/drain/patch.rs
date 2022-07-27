@@ -44,7 +44,7 @@ impl BashPipe {
         }
     }
 
-    fn write_all(&mut self, buf: &[u8]) -> Result<usize> {
+    fn write_all(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.input.as_ref().unwrap().write_all(buf)?;
         Ok(buf.len())
     }
@@ -55,7 +55,7 @@ impl BashPipe {
 }
 
 impl ByteStream for BashPipeReader {
-    fn fill_buf(&mut self) -> Result<usize> {
+    fn fill_buf(&mut self) -> std::io::Result<usize> {
         self.buf.fill_buf(|buf| {
             buf.fill_uninit(BLOCK_SIZE, |buf| self.output.read(buf))?;
             Ok(false)
@@ -91,10 +91,9 @@ impl PatchDrain {
         let mut pipe = BashPipe::new(command);
         let pipe_reader = pipe.spawn_reader();
 
-        let format = formatter.format();
         let drain = std::thread::spawn(move || {
             let mut dst = dst;
-            let mut patch = PatchStream::new(original, Box::new(pipe_reader), &format);
+            let mut patch = PatchStream::new(original, Box::new(pipe_reader));
 
             loop {
                 let len = patch.fill_buf().unwrap();
@@ -118,7 +117,7 @@ impl PatchDrain {
         }
     }
 
-    fn consume_segments_impl(&mut self) -> Result<usize> {
+    fn consume_segments_impl(&mut self) -> std::io::Result<usize> {
         debug_assert!(!self.buf.is_empty());
 
         while self.buf.len() < BLOCK_SIZE {
@@ -143,7 +142,7 @@ impl PatchDrain {
 }
 
 impl StreamDrain for PatchDrain {
-    fn consume_segments(&mut self) -> Result<usize> {
+    fn consume_segments(&mut self) -> std::io::Result<usize> {
         let mut core_impl = || -> Result<usize> {
             loop {
                 let ret = self.consume_segments_impl()?;

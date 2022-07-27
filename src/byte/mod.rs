@@ -16,7 +16,7 @@ mod zip;
 mod mock;
 
 pub use self::cat::CatStream;
-pub use self::clip::ClipStream;
+pub use self::clip::{ClipStream, ClipperParams};
 pub use self::eof::EofStream;
 pub use self::patch::PatchStream;
 pub use self::raw::RawStream;
@@ -25,8 +25,6 @@ pub use self::text::{GaplessTextStream, TextStream};
 pub use self::zero::ZeroStream;
 pub use self::zip::ZipStream;
 
-use std::io::Result;
-
 #[cfg(test)]
 use crate::params::{BLOCK_SIZE, MARGIN_SIZE};
 
@@ -34,13 +32,13 @@ use crate::params::{BLOCK_SIZE, MARGIN_SIZE};
 use rand::Rng;
 
 pub trait ByteStream {
-    fn fill_buf(&mut self) -> Result<usize>;
+    fn fill_buf(&mut self) -> std::io::Result<usize>;
     fn as_slice(&self) -> &[u8];
     fn consume(&mut self, amount: usize);
 }
 
 impl<T: ByteStream + ?Sized> ByteStream for Box<T> {
-    fn fill_buf(&mut self) -> Result<usize> {
+    fn fill_buf(&mut self) -> std::io::Result<usize> {
         (**self).fill_buf()
     }
 

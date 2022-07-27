@@ -4,7 +4,6 @@
 
 use super::{Segment, SegmentStream};
 use crate::byte::{ByteStream, EofStream};
-use std::io::Result;
 
 #[cfg(test)]
 use crate::byte::tester::*;
@@ -154,7 +153,7 @@ impl ConstSegments {
         }
     }
 
-    fn update_lend_state(&mut self, next_tail: usize, len: usize, count: usize) -> Result<(usize, usize)> {
+    fn update_lend_state(&mut self, next_tail: usize, len: usize, count: usize) -> std::io::Result<(usize, usize)> {
         // "maximum forwardable length" won't overlap with the next (truncated) segment
         let max_fwd = next_tail.saturating_sub(self.span);
 
@@ -184,7 +183,7 @@ impl ConstSegments {
         last.len = len - last.pos;
     }
 
-    fn extend_segments_with_clip(&mut self, len: usize) -> Result<(usize, usize)> {
+    fn extend_segments_with_clip(&mut self, len: usize) -> std::io::Result<(usize, usize)> {
         let mut next_tail = self.get_next_tail();
 
         while next_tail + self.tail_offset_margin <= len + self.span {
@@ -202,7 +201,7 @@ impl ConstSegments {
         Ok(self.in_lend)
     }
 
-    fn extend_segments(&mut self, next_tail: usize, len: usize) -> Result<(usize, usize)> {
+    fn extend_segments(&mut self, next_tail: usize, len: usize) -> std::io::Result<(usize, usize)> {
         let mut next_tail = next_tail;
 
         while next_tail + self.tail_reserved_bytes <= len {
@@ -217,7 +216,7 @@ impl ConstSegments {
         self.update_lend_state(next_tail, len, self.segments.len())
     }
 
-    fn fill_segment_buf(&mut self, is_eof: bool, len: usize) -> Result<(usize, usize)> {
+    fn fill_segment_buf(&mut self, is_eof: bool, len: usize) -> std::io::Result<(usize, usize)> {
         if is_eof {
             self.is_eof = true;
             self.init_state.min_bytes_to_escape = std::cmp::min(len, self.init_state.min_bytes_to_escape);
@@ -278,7 +277,7 @@ impl ConstSegments {
         (bytes, count)
     }
 
-    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
+    fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)> {
         if bytes < self.init_state.min_bytes_to_escape {
             // still in the head
             return Ok((0, 0));
@@ -329,7 +328,7 @@ impl ConstSlicer {
 }
 
 impl SegmentStream for ConstSlicer {
-    fn fill_segment_buf(&mut self) -> Result<(usize, usize)> {
+    fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)> {
         loop {
             let (is_eof, len) = self.src.fill_buf()?;
             if !is_eof && len < self.segments.min_fill_len() {
@@ -345,7 +344,7 @@ impl SegmentStream for ConstSlicer {
         (self.src.as_slice(), self.segments.as_slice())
     }
 
-    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
+    fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)> {
         let (bytes, count) = self.segments.consume(bytes)?;
         self.src.consume(bytes);
 

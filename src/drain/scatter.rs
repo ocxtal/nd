@@ -5,7 +5,7 @@ use crate::drain::StreamDrain;
 use crate::params::BLOCK_SIZE;
 use crate::segment::SegmentStream;
 use crate::text::TextFormatter;
-use std::io::{Read, Result, Write};
+use std::io::{Read, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::mpsc::{channel, Sender};
 use std::thread::JoinHandle;
@@ -71,7 +71,7 @@ impl ScatterDrain {
         }
     }
 
-    fn consume_segments_impl(&mut self) -> Result<usize> {
+    fn consume_segments_impl(&mut self) -> std::io::Result<usize> {
         let (bytes, count) = self.src.fill_segment_buf()?;
         if bytes == 0 {
             self.sender.send(None).unwrap();
@@ -105,7 +105,7 @@ impl ScatterDrain {
 }
 
 impl StreamDrain for ScatterDrain {
-    fn consume_segments(&mut self) -> Result<usize> {
+    fn consume_segments(&mut self) -> std::io::Result<usize> {
         loop {
             let len = self.consume_segments_impl()?;
             if len == 0 {

@@ -3,7 +3,6 @@
 
 use super::{Segment, SegmentStream};
 use crate::params::BLOCK_SIZE;
-use std::io::Result;
 
 pub struct BridgeStream {
     src: Box<dyn SegmentStream>,
@@ -24,7 +23,7 @@ impl BridgeStream {
         }
     }
 
-    fn fill_segment_buf_impl(&mut self) -> Result<(bool, usize, usize)> {
+    fn fill_segment_buf_impl(&mut self) -> std::io::Result<(bool, usize, usize)> {
         let mut prev_bytes = 0;
         loop {
             let (bytes, count) = self.src.fill_segment_buf()?;
@@ -125,7 +124,7 @@ impl BridgeStream {
 }
 
 impl SegmentStream for BridgeStream {
-    fn fill_segment_buf(&mut self) -> Result<(usize, usize)> {
+    fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)> {
         let (is_eof, bytes, _) = self.fill_segment_buf_impl()?;
         self.extend_segment_buf(is_eof, bytes);
 
@@ -137,7 +136,7 @@ impl SegmentStream for BridgeStream {
         (stream, &self.segments)
     }
 
-    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
+    fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)> {
         let bytes = std::cmp::min(bytes, self.start);
         let (bytes, src_count) = self.src.consume(bytes)?;
 

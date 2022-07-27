@@ -6,7 +6,7 @@ use super::ByteStream;
 use crate::filluninit::FillUninit;
 use crate::params::BLOCK_SIZE;
 use crate::streambuf::StreamBuf;
-use std::io::{Read, Result};
+use std::io::Read;
 
 #[cfg(test)]
 use super::tester::*;
@@ -27,7 +27,7 @@ impl RawStream {
 }
 
 impl ByteStream for RawStream {
-    fn fill_buf(&mut self) -> Result<usize> {
+    fn fill_buf(&mut self) -> std::io::Result<usize> {
         self.buf.fill_buf(|buf| {
             buf.fill_uninit(BLOCK_SIZE, |arr| self.src.read(arr))?;
             Ok(false)

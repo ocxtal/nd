@@ -5,7 +5,6 @@
 use super::{Segment, SegmentStream};
 use crate::byte::{ByteStream, EofStream};
 use regex::bytes::{Match, Regex};
-use std::io::Result;
 
 pub struct RegexSlicer {
     src: EofStream<Box<dyn ByteStream>>,
@@ -28,7 +27,7 @@ impl RegexSlicer {
 }
 
 impl SegmentStream for RegexSlicer {
-    fn fill_segment_buf(&mut self) -> Result<(usize, usize)> {
+    fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)> {
         let to_segment = |m: Match, pos: usize| -> Segment {
             Segment {
                 pos: pos + m.start(),
@@ -72,7 +71,7 @@ impl SegmentStream for RegexSlicer {
         (&self.src.as_slice()[..self.scanned], &self.matches)
     }
 
-    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
+    fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)> {
         self.src.consume(bytes);
         if bytes == 0 {
             return Ok((0, 0));

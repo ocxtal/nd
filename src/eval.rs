@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::iter::Peekable;
 use std::ops::Range;
 
-use crate::Token::*;
+use crate::eval::Token::*;
 
 #[allow(dead_code)]
 #[derive(Copy, Clone, Debug, PartialEq)]

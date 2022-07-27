@@ -21,17 +21,17 @@ use super::InoutFormat;
 use crate::byte::{ByteStream, EofStream};
 use crate::filluninit::FillUninit;
 use crate::params::MARGIN_SIZE;
-use std::io::{Error, ErrorKind, Result};
+use std::io::{Error, ErrorKind};
 
 #[cfg(test)]
 use crate::byte::tester::*;
 
 pub trait ToResult<T> {
-    fn to_result(self) -> Result<T>;
+    fn to_result(self) -> std::io::Result<T>;
 }
 
 impl<T> ToResult<T> for Option<T> {
-    fn to_result(self) -> Result<T> {
+    fn to_result(self) -> std::io::Result<T> {
         self.ok_or_else(|| Error::from(ErrorKind::Other))
     }
 }
@@ -334,7 +334,7 @@ impl TextParser {
         span: usize,
         is_in_tail: bool,
         buf: &mut Vec<u8>,
-    ) -> Result<(usize, usize, usize)> {
+    ) -> std::io::Result<(usize, usize, usize)> {
         let (_, len) = self.src.fill_buf()?;
         if len == 0 {
             return Ok((consumed, offset, span));
@@ -365,7 +365,7 @@ impl TextParser {
         self.read_line_continued(consumed + len - rem_len, offset, span, is_in_tail, buf)
     }
 
-    pub fn read_line(&mut self, buf: &mut Vec<u8>) -> Result<(usize, usize, usize)> {
+    pub fn read_line(&mut self, buf: &mut Vec<u8>) -> std::io::Result<(usize, usize, usize)> {
         let len = loop {
             let (is_eof, len) = self.src.fill_buf()?;
             if is_eof || len > 2 * 4 * 48 {

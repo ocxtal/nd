@@ -8,6 +8,7 @@ pub mod parser;
 pub use self::formatter::TextFormatter;
 pub use self::parser::TextParser;
 
+use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 
 #[derive(Copy, Clone, Debug)]
@@ -29,7 +30,7 @@ impl InoutFormat {
         InoutFormat { offset, span, body }
     }
 
-    pub fn from_str(config: &str) -> Result<Self, String> {
+    pub fn from_str(config: &str) -> Result<Self> {
         let map = [
             // shorthand form
             ("x", "xxx"),
@@ -57,7 +58,7 @@ impl InoutFormat {
 
         match map.get(config) {
             Some(x) => Ok(InoutFormat::from_signature(x)),
-            _ => Err("possible values are: \"xxx\", \"b\", ...".to_string()),
+            _ => Err(anyhow!("unrecognized input / output format signature: {:?}", config)),
         }
     }
 

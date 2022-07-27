@@ -19,14 +19,13 @@ pub use self::bridge::BridgeStream;
 pub use self::exact::ExactMatchSlicer;
 pub use self::guided::GuidedSlicer;
 pub use self::hamming::HammingSlicer;
-pub use self::merge::MergeStream;
+pub use self::merge::{MergeStream, MergerParams};
 pub use self::ops::{SegmentMapper, SegmentPred};
 pub use self::regex::RegexSlicer;
 pub use self::stride::ConstSlicer;
 pub use self::strip::StripStream;
 pub use self::walk::WalkSlicer;
 
-use std::io::Result;
 use std::ops::Range;
 
 #[cfg(test)]
@@ -100,13 +99,13 @@ impl From<Range<usize>> for Segment {
 
 pub trait SegmentStream {
     // chunked iterator
-    fn fill_segment_buf(&mut self) -> Result<(usize, usize)>; // #bytes, #segments
+    fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)>; // #bytes, #segments
     fn as_slices(&self) -> (&[u8], &[Segment]);
-    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)>; // #bytes, #segments
+    fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)>; // #bytes, #segments
 }
 
 impl<T: SegmentStream + ?Sized> SegmentStream for Box<T> {
-    fn fill_segment_buf(&mut self) -> Result<(usize, usize)> {
+    fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)> {
         (**self).fill_segment_buf()
     }
 
@@ -114,7 +113,7 @@ impl<T: SegmentStream + ?Sized> SegmentStream for Box<T> {
         (**self).as_slices()
     }
 
-    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
+    fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)> {
         (**self).consume(bytes)
     }
 }

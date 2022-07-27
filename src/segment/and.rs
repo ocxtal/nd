@@ -3,7 +3,6 @@
 
 use super::{Segment, SegmentStream};
 use crate::params::BLOCK_SIZE;
-use std::io::Result;
 
 pub struct AndStream {
     src: Box<dyn SegmentStream>,
@@ -34,7 +33,7 @@ impl AndStream {
         }
     }
 
-    fn fill_segment_buf_impl(&mut self) -> Result<(bool, usize, usize)> {
+    fn fill_segment_buf_impl(&mut self) -> std::io::Result<(bool, usize, usize)> {
         let min_fill_bytes = if let Some(last_end) = self.last_end {
             std::cmp::max(self.min_fill_bytes, last_end as usize)
         } else {
@@ -138,7 +137,7 @@ impl AndStream {
 }
 
 impl SegmentStream for AndStream {
-    fn fill_segment_buf(&mut self) -> Result<(usize, usize)> {
+    fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)> {
         let (is_eof, bytes, count) = self.fill_segment_buf_impl()?;
 
         if bytes > 0 && count > self.map.len() {
@@ -152,7 +151,7 @@ impl SegmentStream for AndStream {
         (stream, &self.segments)
     }
 
-    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
+    fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)> {
         let last_end = self.last_end.unwrap_or(isize::MAX);
         let max_bytes = std::cmp::max(0, last_end - self.join_threshold) as usize;
 

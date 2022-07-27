@@ -4,7 +4,6 @@
 
 use super::{Segment, SegmentStream};
 use crate::byte::ByteStream;
-use std::io::Result;
 
 #[allow(dead_code)]
 pub struct HammingSlicer {
@@ -25,7 +24,7 @@ impl HammingSlicer {
 }
 
 impl SegmentStream for HammingSlicer {
-    fn fill_segment_buf(&mut self) -> Result<(usize, usize)> {
+    fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)> {
         let len = self.src.fill_buf()?;
         Ok((len, 0))
     }
@@ -34,7 +33,7 @@ impl SegmentStream for HammingSlicer {
         (self.src.as_slice(), &self.segments)
     }
 
-    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
+    fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)> {
         self.src.consume(bytes);
         Ok((bytes, 0))
     }

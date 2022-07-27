@@ -6,7 +6,6 @@ use crate::byte::{ByteStream, EofStream};
 use crate::eval::{Rpn, VarAttr};
 use crate::params::BLOCK_SIZE;
 use std::collections::HashMap;
-use std::io::Result;
 
 struct StreamFeeder {
     src: EofStream<Box<dyn ByteStream>>,
@@ -21,7 +20,7 @@ impl StreamFeeder {
         }
     }
 
-    fn fill_buf(&mut self, request: usize) -> Result<(bool, usize)> {
+    fn fill_buf(&mut self, request: usize) -> std::io::Result<(bool, usize)> {
         if self.last.1 >= request {
             return Ok(self.last);
         }
@@ -149,7 +148,7 @@ impl WalkSlicer {
         chunk_len
     }
 
-    fn extend_segment_buf(&mut self, chunk_len: usize) -> Result<(bool, usize, usize)> {
+    fn extend_segment_buf(&mut self, chunk_len: usize) -> std::io::Result<(bool, usize, usize)> {
         let (is_eof, bytes) = self.feeder.fill_buf(chunk_len)?;
         if bytes < chunk_len {
             eprintln!("chunk clipped (request = {}, remaining bytes = {})", chunk_len, bytes);
@@ -176,7 +175,7 @@ impl WalkSlicer {
 }
 
 impl SegmentStream for WalkSlicer {
-    fn fill_segment_buf(&mut self) -> Result<(usize, usize)> {
+    fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)> {
         loop {
             let chunk_len = self.calc_next_chunk_len();
             let (is_eof, bytes, count) = self.extend_segment_buf(chunk_len)?;
@@ -193,7 +192,7 @@ impl SegmentStream for WalkSlicer {
         (stream, &self.segments)
     }
 
-    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
+    fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)> {
         let bytes = std::cmp::min(bytes, self.next_pos);
         self.feeder.consume(bytes);
 

@@ -5,7 +5,6 @@ use super::{Segment, SegmentStream};
 use crate::byte::{ByteStream, EofStream};
 use crate::text::parser::TextParser;
 use crate::text::InoutFormat;
-use std::io::Result;
 
 pub struct GuidedSlicer {
     src: EofStream<Box<dyn ByteStream>>,
@@ -18,10 +17,10 @@ pub struct GuidedSlicer {
 }
 
 impl GuidedSlicer {
-    pub fn new(src: Box<dyn ByteStream>, guide: Box<dyn ByteStream>, format: &InoutFormat) -> Self {
+    pub fn new(src: Box<dyn ByteStream>, guide: Box<dyn ByteStream>) -> Self {
         GuidedSlicer {
             src: EofStream::new(src),
-            guide: TextParser::new(guide, format),
+            guide: TextParser::new(guide, &InoutFormat::from_str("xxx").unwrap()),
             buf: Vec::new(),
             segments: Vec::new(),
             rem: usize::MAX,
@@ -30,7 +29,7 @@ impl GuidedSlicer {
         }
     }
 
-    fn extend_segment_buf(&mut self, is_eof: bool, bytes: usize) -> Result<(usize, usize)> {
+    fn extend_segment_buf(&mut self, is_eof: bool, bytes: usize) -> std::io::Result<(usize, usize)> {
         if is_eof {
             self.rem = std::cmp::min(self.rem, bytes);
         }
@@ -61,7 +60,7 @@ impl GuidedSlicer {
 }
 
 impl SegmentStream for GuidedSlicer {
-    fn fill_segment_buf(&mut self) -> Result<(usize, usize)> {
+    fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)> {
         if self.rem == 0 {
             return Ok((0, 0));
         }
@@ -75,7 +74,7 @@ impl SegmentStream for GuidedSlicer {
         (stream, &self.segments[..self.in_lend])
     }
 
-    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
+    fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)> {
         let bytes = std::cmp::min(bytes, self.max_fwd);
         self.src.consume(bytes);
 

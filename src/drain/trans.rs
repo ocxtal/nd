@@ -4,7 +4,7 @@
 use crate::drain::StreamDrain;
 use crate::segment::SegmentStream;
 use crate::text::TextFormatter;
-use std::io::{Result, Write};
+use std::io::Write;
 
 pub struct TransparentDrain {
     src: Box<dyn SegmentStream>,
@@ -25,7 +25,7 @@ impl TransparentDrain {
         }
     }
 
-    fn consume_segments_impl(&mut self) -> Result<usize> {
+    fn consume_segments_impl(&mut self) -> std::io::Result<usize> {
         let (bytes, _) = self.src.fill_segment_buf()?;
         // eprintln!("{:?}, {:?}", bytes, count);
         if bytes == 0 {
@@ -45,7 +45,7 @@ impl TransparentDrain {
 }
 
 impl StreamDrain for TransparentDrain {
-    fn consume_segments(&mut self) -> Result<usize> {
+    fn consume_segments(&mut self) -> std::io::Result<usize> {
         loop {
             let len = self.consume_segments_impl()?;
             if len == 0 {

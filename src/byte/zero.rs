@@ -4,7 +4,6 @@
 
 use super::ByteStream;
 use crate::params::{BLOCK_SIZE, MARGIN_SIZE};
-use std::io::Result;
 
 #[cfg(test)]
 use super::tester::*;
@@ -31,7 +30,7 @@ impl ZeroStream {
 }
 
 impl ByteStream for ZeroStream {
-    fn fill_buf(&mut self) -> Result<usize> {
+    fn fill_buf(&mut self) -> std::io::Result<usize> {
         if self.offset >= self.len {
             self.next_len = 0;
             return Ok(0);
