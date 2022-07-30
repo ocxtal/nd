@@ -105,12 +105,12 @@ fn main() -> Result<()> {
     // process the stream
     if pipeline.is_inplace() {
         for input in args.inputs.windows(1) {
-            let source = build_sources(input)?;
+            let sources = build_sources(input)?;
 
             let tmpfile = format!("{:?}.tmp", &input[0]);
             let drain = Box::new(File::create(&tmpfile)?);
 
-            let stream = pipeline.spawn_stream(&source[..1], drain)?;
+            let stream = pipeline.spawn_stream(sources, drain)?;
             // stream.consume_segments()?;
 
             std::fs::rename(&tmpfile, &input[0])?;
@@ -119,7 +119,7 @@ fn main() -> Result<()> {
         let sources = build_sources(&args.inputs)?;
         let (child, drain) = build_drain(&args.pager)?;
 
-        let stream = pipeline.spawn_stream(&sources, drain)?;
+        let stream = pipeline.spawn_stream(sources, drain)?;
         // stream.consume_segments()?;
 
         if let Some(mut child) = child {

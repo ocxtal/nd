@@ -1258,7 +1258,7 @@ fn test_parse_vals() {
         ( $input: expr, $vars: expr ) => {{
             let vars: HashMap<&[u8], VarAttr> = $vars.iter().map(|(x, y)| (x.as_slice(), *y)).collect();
             let rpn = Rpn::new(&$input, Some(&vars));
-            assert!(rpn.is_some());
+            assert!(rpn.is_ok());
         }};
     }
 
@@ -1283,48 +1283,48 @@ pub fn parse_int(input: &str) -> Result<i64> {
 fn test_parse_int() {
     // TODO: check what kind of error being reported
     assert!(parse_int("").is_err());
-    assert_eq!(parse_int("0"), Ok(0));
-    assert_eq!(parse_int("+0"), Ok(0));
-    assert_eq!(parse_int("-0"), Ok(0));
-    assert_eq!(parse_int("!2"), Ok(-3));
-    assert_eq!(parse_int("~3"), Ok(-4));
+    assert_eq!(parse_int("0").unwrap(), 0);
+    assert_eq!(parse_int("+0").unwrap(), 0);
+    assert_eq!(parse_int("-0").unwrap(), 0);
+    assert_eq!(parse_int("!2").unwrap(), -3);
+    assert_eq!(parse_int("~3").unwrap(), -4);
 
     assert!(parse_int("0b").is_err());
     assert!(parse_int("0B").is_err());
     assert!(parse_int("0x").is_err());
-    assert_eq!(parse_int("0b0"), Ok(0));
-    assert_eq!(parse_int("0b10"), Ok(2));
+    assert_eq!(parse_int("0b0").unwrap(), 0);
+    assert_eq!(parse_int("0b10").unwrap(), 2);
     assert!(parse_int("0b12").is_err());
-    assert_eq!(parse_int("0d123"), Ok(123));
+    assert_eq!(parse_int("0d123").unwrap(), 123);
     assert!(parse_int("0d123a").is_err());
-    assert_eq!(parse_int("0xabcdef"), Ok(0xabcdef));
-    assert_eq!(parse_int("0xFEDCBA"), Ok(0xFEDCBA));
+    assert_eq!(parse_int("0xabcdef").unwrap(), 0xabcdef);
+    assert_eq!(parse_int("0xFEDCBA").unwrap(), 0xFEDCBA);
 
-    assert_eq!(parse_int("1k"), Ok(1000));
-    assert_eq!(parse_int("1K"), Ok(1000));
-    assert_eq!(parse_int("1ki"), Ok(1024));
-    assert_eq!(parse_int("1Ki"), Ok(1024));
+    assert_eq!(parse_int("1k").unwrap(), 1000);
+    assert_eq!(parse_int("1K").unwrap(), 1000);
+    assert_eq!(parse_int("1ki").unwrap(), 1024);
+    assert_eq!(parse_int("1Ki").unwrap(), 1024);
 
-    assert_eq!(parse_int("1Mi"), Ok(1024 * 1024));
-    assert_eq!(parse_int("1g"), Ok(1000 * 1000 * 1000));
-    assert_eq!(parse_int("4ki"), Ok(4096));
-    assert_eq!(parse_int("-3k"), Ok(-3000));
+    assert_eq!(parse_int("1Mi").unwrap(), 1024 * 1024);
+    assert_eq!(parse_int("1g").unwrap(), 1000 * 1000 * 1000);
+    assert_eq!(parse_int("4ki").unwrap(), 4096);
+    assert_eq!(parse_int("-3k").unwrap(), -3000);
 
-    assert_eq!(parse_int("0+1"), Ok(1));
-    assert_eq!(parse_int("4 - 3"), Ok(1));
-    assert_eq!(parse_int("2 * 5"), Ok(10));
-    assert_eq!(parse_int("4-1+2"), Ok(5));
-    assert_eq!(parse_int("4- 1 +2"), Ok(5));
-    assert_eq!(parse_int("4 -1+ 2"), Ok(5));
-    assert_eq!(parse_int("4 -1+2"), Ok(5));
-    assert_eq!(parse_int("4-1+   2"), Ok(5));
+    assert_eq!(parse_int("0+1").unwrap(), 1);
+    assert_eq!(parse_int("4 - 3").unwrap(), 1);
+    assert_eq!(parse_int("2 * 5").unwrap(), 10);
+    assert_eq!(parse_int("4-1+2").unwrap(), 5);
+    assert_eq!(parse_int("4- 1 +2").unwrap(), 5);
+    assert_eq!(parse_int("4 -1+ 2").unwrap(), 5);
+    assert_eq!(parse_int("4 -1+2").unwrap(), 5);
+    assert_eq!(parse_int("4-1+   2").unwrap(), 5);
 
-    assert_eq!(parse_int("(4 - 1)"), Ok(3));
-    assert_eq!(parse_int("2 * (4 - 1)"), Ok(6));
-    assert_eq!(parse_int("(4 - 1) * 2"), Ok(6));
-    assert_eq!(parse_int("-(4 - 1) * 2"), Ok(-6));
-    assert_eq!(parse_int("-(4 - (1 + 2)) * 2"), Ok(-2));
-    assert_eq!(parse_int("-(4 - ((1 + 2))) * 2"), Ok(-2));
+    assert_eq!(parse_int("(4 - 1)").unwrap(), 3);
+    assert_eq!(parse_int("2 * (4 - 1)").unwrap(), 6);
+    assert_eq!(parse_int("(4 - 1) * 2").unwrap(), 6);
+    assert_eq!(parse_int("-(4 - 1) * 2").unwrap(), -6);
+    assert_eq!(parse_int("-(4 - (1 + 2)) * 2").unwrap(), -2);
+    assert_eq!(parse_int("-(4 - ((1 + 2))) * 2").unwrap(), -2);
 
     assert!(parse_int("(*4 - 1) * 2").is_err());
     assert!(parse_int("(4 - 1+) * 2").is_err());
@@ -1333,36 +1333,36 @@ fn test_parse_int() {
     assert!(parse_int("4 - 1) * 2").is_err());
     assert!(parse_int("(4 - 1)) * 2").is_err());
 
-    assert_eq!(parse_int("4+-2"), Ok(2));
-    assert_eq!(parse_int("4+ -2"), Ok(2));
-    assert_eq!(parse_int("4 +-2"), Ok(2));
-    assert_eq!(parse_int("4+- 2"), Ok(2));
-    assert_eq!(parse_int("4 + -2"), Ok(2));
-    assert_eq!(parse_int("15 & !2"), Ok(13));
+    assert_eq!(parse_int("4+-2").unwrap(), 2);
+    assert_eq!(parse_int("4+ -2").unwrap(), 2);
+    assert_eq!(parse_int("4 +-2").unwrap(), 2);
+    assert_eq!(parse_int("4+- 2").unwrap(), 2);
+    assert_eq!(parse_int("4 + -2").unwrap(), 2);
+    assert_eq!(parse_int("15 & !2").unwrap(), 13);
 
-    assert_eq!(parse_int("15 << 0"), Ok(15));
-    assert_eq!(parse_int("15 >> 0"), Ok(15));
-    assert_eq!(parse_int("15 << 2"), Ok(60));
-    assert_eq!(parse_int("15 >> 2"), Ok(3));
-    assert_eq!(parse_int("15 << -2"), Ok(3));
-    assert_eq!(parse_int("15 >> -2"), Ok(60));
-    assert_eq!(parse_int("15 <<-2"), Ok(3));
-    assert_eq!(parse_int("15 >>-2"), Ok(60));
+    assert_eq!(parse_int("15 << 0").unwrap(), 15);
+    assert_eq!(parse_int("15 >> 0").unwrap(), 15);
+    assert_eq!(parse_int("15 << 2").unwrap(), 60);
+    assert_eq!(parse_int("15 >> 2").unwrap(), 3);
+    assert_eq!(parse_int("15 << -2").unwrap(), 3);
+    assert_eq!(parse_int("15 >> -2").unwrap(), 60);
+    assert_eq!(parse_int("15 <<-2").unwrap(), 3);
+    assert_eq!(parse_int("15 >>-2").unwrap(), 60);
 
-    assert_eq!(parse_int("3 * 4 - 1"), Ok(11));
-    assert_eq!(parse_int("4 - 1 * 5"), Ok(-1));
+    assert_eq!(parse_int("3 * 4 - 1").unwrap(), 11);
+    assert_eq!(parse_int("4 - 1 * 5").unwrap(), -1);
 
-    assert_eq!(parse_int("3 << 2 - 1"), Ok(6));
-    assert_eq!(parse_int("3 - 2 << 1"), Ok(2));
+    assert_eq!(parse_int("3 << 2 - 1").unwrap(), 6);
+    assert_eq!(parse_int("3 - 2 << 1").unwrap(), 2);
 
-    assert_eq!(parse_int("4 - 2 ** 3"), Ok(8));
-    assert_eq!(parse_int("3 ** 2 - 1"), Ok(3));
-    assert_eq!(parse_int("2 ** 3 ** 2"), Ok(512));
+    assert_eq!(parse_int("4 - 2 ** 3").unwrap(), 8);
+    assert_eq!(parse_int("3 ** 2 - 1").unwrap(), 3);
+    assert_eq!(parse_int("2 ** 3 ** 2").unwrap(), 512);
 
-    assert_eq!(parse_int("3 ** (0 - 2)"), Ok(0));
-    assert_eq!(parse_int("3**-2"), Ok(0));
-    assert_eq!(parse_int("-12**2"), Ok(-144));
-    assert_eq!(parse_int("(-12)**2"), Ok(144));
+    assert_eq!(parse_int("3 ** (0 - 2)").unwrap(), 0);
+    assert_eq!(parse_int("3**-2").unwrap(), 0);
+    assert_eq!(parse_int("-12**2").unwrap(), -144);
+    assert_eq!(parse_int("(-12)**2").unwrap(), 144);
 
     assert!(parse_int("4 : 3").is_err());
     assert!(parse_int("4 + 3;").is_err());
@@ -1370,16 +1370,16 @@ fn test_parse_int() {
     assert!(parse_int("4,3").is_err());
 }
 
-pub fn parse_usize(s: &str) -> Result<usize, String> {
+pub fn parse_usize(s: &str) -> Result<usize> {
     let val = parse_int(s);
     if let Err(e) = val {
-        return Err(format!("failed to evaluate {:?} as an integer: {:?}.", s, e));
+        return Err(anyhow!("failed to evaluate {:?} as an integer: {:?}.", s, e));
     }
 
     let val = val.unwrap();
     let converted = val.try_into();
     if converted.is_err() {
-        return Err(format!("negative value is not allowed for this option ({:?} gave {:?}).", s, val));
+        return Err(anyhow!("negative value is not allowed for this option ({:?} gave {:?}).", s, val));
     }
     Ok(converted.unwrap())
 }
@@ -1387,22 +1387,22 @@ pub fn parse_usize(s: &str) -> Result<usize, String> {
 #[test]
 fn test_parse_usize() {
     assert!(parse_usize("").is_err());
-    assert_eq!(parse_usize("0"), Ok(0));
-    assert_eq!(parse_usize("100000"), Ok(100000));
-    assert_eq!(parse_usize("4Gi"), Ok(1usize << 32));
-    assert_eq!(parse_usize("-0"), Ok(0));
+    assert_eq!(parse_usize("0").unwrap(), 0);
+    assert_eq!(parse_usize("100000").unwrap(), 100000);
+    assert_eq!(parse_usize("4Gi").unwrap(), 1usize << 32);
+    assert_eq!(parse_usize("-0").unwrap(), 0);
     assert!(parse_usize("-1").is_err());
 }
 
-pub fn parse_isize(s: &str) -> Result<isize, String> {
+pub fn parse_isize(s: &str) -> Result<isize> {
     let val = parse_int(s);
     if let Err(e) = val {
-        return Err(format!("failed to evaluate {:?} as an integer: {:?}", s, e));
+        return Err(anyhow!("failed to evaluate {:?} as an integer: {:?}", s, e));
     }
 
     let val = val.unwrap().try_into();
     if val.is_err() {
-        return Err(format!("failed to interpret {:?} as a signed integer.", s));
+        return Err(anyhow!("failed to interpret {:?} as a signed integer.", s));
     }
     Ok(val.unwrap())
 }
@@ -1410,18 +1410,18 @@ pub fn parse_isize(s: &str) -> Result<isize, String> {
 #[test]
 fn test_parse_isize() {
     assert!(parse_isize("").is_err());
-    assert_eq!(parse_isize("0"), Ok(0));
-    assert_eq!(parse_isize("100000"), Ok(100000));
-    assert_eq!(parse_isize("4Gi"), Ok(1isize << 32));
+    assert_eq!(parse_isize("0").unwrap(), 0);
+    assert_eq!(parse_isize("100000").unwrap(), 100000);
+    assert_eq!(parse_isize("4Gi").unwrap(), 1isize << 32);
 
-    assert_eq!(parse_isize("-0"), Ok(0));
-    assert_eq!(parse_isize("-1"), Ok(-1));
-    assert_eq!(parse_isize("-4Gi"), Ok(-1isize << 32));
+    assert_eq!(parse_isize("-0").unwrap(), 0);
+    assert_eq!(parse_isize("-1").unwrap(), -1);
+    assert_eq!(parse_isize("-4Gi").unwrap(), -1isize << 32);
 }
 
-pub fn parse_delimited(s: &str) -> Result<Vec<Option<i64>>, String> {
+pub fn parse_delimited(s: &str, delim: &str) -> Result<Vec<Option<i64>>> {
     let mut v = Vec::new();
-    for x in s.split(':') {
+    for x in s.split(delim) {
         if x.is_empty() {
             v.push(None);
             continue;
@@ -1429,7 +1429,7 @@ pub fn parse_delimited(s: &str) -> Result<Vec<Option<i64>>, String> {
 
         let val = parse_int(x);
         if let Err(e) = val {
-            return Err(format!("failed to parse {:?} at {:?}: {:?}", s, x, e));
+            return Err(anyhow!("failed to parse {:?} at {:?}: {:?}", s, x, e));
         }
         v.push(val.ok());
     }
@@ -1438,24 +1438,27 @@ pub fn parse_delimited(s: &str) -> Result<Vec<Option<i64>>, String> {
 
 #[test]
 fn test_parse_delimited() {
-    assert_eq!(parse_delimited(""), Ok(vec![None]));
-    assert_eq!(parse_delimited(":"), Ok(vec![None, None]));
-    assert_eq!(parse_delimited("::"), Ok(vec![None, None, None]));
+    assert_eq!(parse_delimited("", ",").unwrap(), vec![None]);
+    assert_eq!(parse_delimited(",", ",").unwrap(), vec![None, None]);
+    assert_eq!(parse_delimited(",,", ",").unwrap(), vec![None, None, None]);
 
-    assert_eq!(parse_delimited("0"), Ok(vec![Some(0)]));
-    assert_eq!(parse_delimited(":1"), Ok(vec![None, Some(1)]));
-    assert_eq!(parse_delimited("2:"), Ok(vec![Some(2), None]));
-    assert_eq!(parse_delimited("4::5:2:"), Ok(vec![Some(4), None, Some(5), Some(2), None]));
+    assert_eq!(parse_delimited("0", ",").unwrap(), vec![Some(0)]);
+    assert_eq!(parse_delimited(",1", ",").unwrap(), vec![None, Some(1)]);
+    assert_eq!(parse_delimited("2,", ",").unwrap(), vec![Some(2), None]);
+    assert_eq!(
+        parse_delimited("4,,5,2,", ",").unwrap(),
+        vec![Some(4), None, Some(5), Some(2), None]
+    );
 
-    assert!(parse_delimited("a").is_err());
-    assert!(parse_delimited(":-").is_err());
-    assert!(parse_delimited("+:").is_err());
+    assert!(parse_delimited("a", ",").is_err());
+    assert!(parse_delimited(",-", ",").is_err());
+    assert!(parse_delimited("+,", ",").is_err());
 }
 
-pub fn parse_usize_pair(s: &str) -> Result<(usize, usize), String> {
-    let vals = parse_delimited(s)?;
+pub fn parse_usize_pair(s: &str) -> Result<(usize, usize)> {
+    let vals = parse_delimited(s, ",")?;
     if vals.len() != 2 {
-        return Err("\"head:tail\" format expected for this option.".to_string());
+        return Err(anyhow!("\"N,M\" format expected for this option."));
     }
 
     let head_raw = vals[0].unwrap_or(0);
@@ -1465,9 +1468,11 @@ pub fn parse_usize_pair(s: &str) -> Result<(usize, usize), String> {
     let tail = tail_raw.try_into();
 
     if head.is_err() || tail.is_err() {
-        return Err(format!(
+        return Err(anyhow!(
             "negative values are not allowed for this option ({:?} gave {:?} and {:?}).",
-            s, head_raw, tail_raw
+            s,
+            head_raw,
+            tail_raw
         ));
     }
 
@@ -1477,19 +1482,19 @@ pub fn parse_usize_pair(s: &str) -> Result<(usize, usize), String> {
 #[test]
 fn test_parse_usize_pair() {
     assert!(parse_usize_pair("").is_err());
-    assert_eq!(parse_usize_pair(":"), Ok((0, 0)));
-    assert_eq!(parse_usize_pair("1:"), Ok((1, 0)));
-    assert_eq!(parse_usize_pair(":3"), Ok((0, 3)));
-    assert_eq!(parse_usize_pair("4:5"), Ok((4, 5)));
+    assert_eq!(parse_usize_pair(",").unwrap(), (0, 0));
+    assert_eq!(parse_usize_pair("1,").unwrap(), (1, 0));
+    assert_eq!(parse_usize_pair(",3").unwrap(), (0, 3));
+    assert_eq!(parse_usize_pair("4,5").unwrap(), (4, 5));
 
-    assert!(parse_usize_pair("-1:").is_err());
-    assert!(parse_usize_pair("1:-1").is_err());
+    assert!(parse_usize_pair("-1,").is_err());
+    assert!(parse_usize_pair("1,-1").is_err());
 }
 
-pub fn parse_isize_pair(s: &str) -> Result<(isize, isize), String> {
-    let vals = parse_delimited(s)?;
+pub fn parse_isize_pair(s: &str) -> Result<(isize, isize)> {
+    let vals = parse_delimited(s, ",")?;
     if vals.len() != 2 {
-        return Err("\"head:tail\" format expected for this option.".to_string());
+        return Err(anyhow!("\"N:M\" format expected for this option."));
     }
 
     let head_raw = vals[0].unwrap_or(0);
@@ -1499,9 +1504,11 @@ pub fn parse_isize_pair(s: &str) -> Result<(isize, isize), String> {
     let tail = tail_raw.try_into();
 
     if head.is_err() || tail.is_err() {
-        return Err(format!(
+        return Err(anyhow!(
             "failed to interpret {:?}, which gave {:?} and {:?}, as an isize pair.",
-            s, head_raw, tail_raw
+            s,
+            head_raw,
+            tail_raw
         ));
     }
 
@@ -1511,26 +1518,26 @@ pub fn parse_isize_pair(s: &str) -> Result<(isize, isize), String> {
 #[test]
 fn test_parse_isize_pair() {
     assert!(parse_isize_pair("").is_err());
-    assert_eq!(parse_isize_pair(":"), Ok((0, 0)));
-    assert_eq!(parse_isize_pair("1:"), Ok((1, 0)));
-    assert_eq!(parse_isize_pair(":3"), Ok((0, 3)));
-    assert_eq!(parse_isize_pair("4:5"), Ok((4, 5)));
+    assert_eq!(parse_isize_pair(",").unwrap(), (0, 0));
+    assert_eq!(parse_isize_pair("1,").unwrap(), (1, 0));
+    assert_eq!(parse_isize_pair(",3").unwrap(), (0, 3));
+    assert_eq!(parse_isize_pair("4,5").unwrap(), (4, 5));
 
-    assert_eq!(parse_isize_pair("-1:"), Ok((-1, 0)));
-    assert_eq!(parse_isize_pair("1:-1"), Ok((1, -1)));
+    assert_eq!(parse_isize_pair("-1,").unwrap(), (-1, 0));
+    assert_eq!(parse_isize_pair("1,-1").unwrap(), (1, -1));
 
-    assert!(parse_isize_pair("-:").is_err());
-    assert!(parse_isize_pair("1:-").is_err());
+    assert!(parse_isize_pair("-,").is_err());
+    assert!(parse_isize_pair("1,-").is_err());
 }
 
-pub fn parse_range(s: &str) -> Result<Range<usize>, String> {
-    let vals = parse_delimited(s)?;
+pub fn parse_range(s: &str) -> Result<Range<usize>> {
+    let vals = parse_delimited(s, "..")?;
     if vals.len() != 2 {
-        return Err(format!("\"start:end\" format expected for this option (got: {:?}).", s));
+        return Err(anyhow!("\"S..E\" format expected for this option (got: {:?}).", s));
     }
 
     if vals.iter().map(|x| x.unwrap_or(0)).any(|x| x < 0) {
-        return Err(format!(
+        return Err(anyhow!(
             "negative values are not allowed for this option ({:?} gave {:?} and {:?}).",
             s,
             vals[0].unwrap_or(0),
@@ -1541,9 +1548,11 @@ pub fn parse_range(s: &str) -> Result<Range<usize>, String> {
     let start = vals[0].map_or(Ok(0), |x| x.try_into()).unwrap();
     let end = vals[1].map_or(Ok(usize::MAX), |x| x.try_into()).unwrap();
     if start > end {
-        return Err(format!(
+        return Err(anyhow!(
             "start pos must not be greater than end pos ({:?} gave {:?} and {:?}).",
-            s, start, end
+            s,
+            start,
+            end
         ));
     }
     Ok(start..end)
@@ -1552,14 +1561,14 @@ pub fn parse_range(s: &str) -> Result<Range<usize>, String> {
 #[test]
 fn test_parse_range() {
     assert!(parse_range("").is_err());
-    assert_eq!(parse_range(":"), Ok(0..usize::MAX));
-    assert_eq!(parse_range("1:"), Ok(1..usize::MAX));
-    assert_eq!(parse_range(":3"), Ok(0..3));
-    assert_eq!(parse_range("4:5"), Ok(4..5));
+    assert_eq!(parse_range("..").unwrap(), 0..usize::MAX);
+    assert_eq!(parse_range("1..").unwrap(), 1..usize::MAX);
+    assert_eq!(parse_range("..3").unwrap(), 0..3);
+    assert_eq!(parse_range("4..5").unwrap(), 4..5);
 
-    assert!(parse_range("-1:0").is_err());
-    assert!(parse_range(":-1").is_err());
-    assert!(parse_range("3:0").is_err());
+    assert!(parse_range("-1..0").is_err());
+    assert!(parse_range("..-1").is_err());
+    assert!(parse_range("3..0").is_err());
 }
 
 // end of eval.rs

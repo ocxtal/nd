@@ -4,6 +4,7 @@
 
 use crate::byte::*;
 use crate::drain::*;
+use crate::eval::*;
 use crate::segment::*;
 use crate::text::*;
 use anyhow::{anyhow, Result};
@@ -15,19 +16,17 @@ use std::ops::Range;
 use self::Node::*;
 use self::NodeClass::*;
 
-fn parse_wordsize(x: &str) -> Result<usize> {
-    let parsed = x.parse::<usize>();
-    let is_allowed = matches!(x, "1" | "2" | "4" | "8" | "16");
+fn parse_wordsize(s: &str) -> Result<usize> {
+    let parsed = parse_usize(s)?;
 
-    if !parsed.is_ok() || !is_allowed {
+    if !matches!(parsed, 1 | 2 | 4 | 8 | 16) {
         return Err(anyhow!(
-            "\'{:}\' is not {:} as a word size. possible values are 1, 2, 4, 8, and 16.",
-            x,
-            if parsed.is_ok() { "allowed" } else { "recognized" }
+            "{:?}, parsed from {:?}, is not allowed as a word size. possible values are 1, 2, 4, 8, and 16.",
+            parsed,
+            s
         ));
     }
-
-    Ok(parsed.unwrap())
+    Ok(parsed)
 }
 
 #[derive(Debug, Parser)]
@@ -38,28 +37,28 @@ pub struct PipelineArgs {
     #[clap(short = 'f', long = "out-format", value_name = "FORMAT")]
     out_format: Option<String>,
 
-    #[clap(short = 'c', long = "cat", value_name = "W")]
+    #[clap(short = 'c', long = "cat", value_name = "W", value_parser = parse_wordsize)]
     cat: Option<usize>,
 
-    #[clap(short = 'z', long = "zip", value_name = "W")]
+    #[clap(short = 'z', long = "zip", value_name = "W", value_parser = parse_wordsize)]
     zip: Option<usize>,
 
     #[clap(short = 'i', long = "inplace")]
     inplace: bool,
 
-    #[clap(short = 'a', long = "pad", value_name = "N,M")]
+    #[clap(short = 'a', long = "pad", value_name = "N,M", value_parser = parse_usize_pair)]
     pad: Option<(usize, usize)>,
 
-    #[clap(short = 's', long = "seek", value_name = "N")]
+    #[clap(short = 's', long = "seek", value_name = "N", value_parser = parse_usize)]
     seek: Option<usize>,
 
-    #[clap(short = 'n', long = "bytes", value_name = "N..M")]
+    #[clap(short = 'n', long = "bytes", value_name = "N..M", value_parser = parse_range)]
     bytes: Option<Range<usize>>,
 
     #[clap(short = 'p', long = "patch", value_name = "FILE")]
     patch: Option<String>,
 
-    #[clap(short = 'w', long = "width", value_name = "N")]
+    #[clap(short = 'w', long = "width", value_name = "N", value_parser = parse_usize)]
     width: Option<usize>,
 
     #[clap(short = 'd', long = "find", value_name = "PAT")]
@@ -74,13 +73,13 @@ pub struct PipelineArgs {
     #[clap(short = 'e', long = "regex", value_name = "PCRE[,S..E]")]
     regex: Option<String>,
 
-    #[clap(short = 'x', long = "extend", value_name = "S..E")]
+    #[clap(short = 'x', long = "extend", value_name = "S..E", value_parser = parse_range)]
     extend: Option<Range<usize>>,
 
-    #[clap(short = 'v', long = "invert", value_name = "S..E")]
+    #[clap(short = 'v', long = "invert", value_name = "S..E", value_parser = parse_range)]
     invert: Option<Range<usize>>,
 
-    #[clap(short = 'm', long = "merge", value_name = "N")]
+    #[clap(short = 'm', long = "merge", value_name = "N", value_parser = parse_usize)]
     merge: Option<usize>,
 
     #[clap(short = 'r', long = "foreach", value_name = "ARGS")]
@@ -197,17 +196,17 @@ impl Pipeline {
         nodes.push(node);
 
         // stream clipper -> patcher
-        let clipper = ClipperParams::from_raw(m.pad, m.seek, m.bytes)?;
+        let clipper = ClipperParams::from_raw(m.pad, m.seek, m.bytes.clone())?;
         if clipper != ClipperParams::default() {
             nodes.push(Clipper(clipper));
         }
 
-        if let Some(file) = m.patch {
+        if let Some(file) = &m.patch {
             nodes.push(Patch(file.to_string()));
         }
 
         // slicers are exclusive as well
-        let node = match (m.width, m.find, m.slice_by, m.walk) {
+        let node = match (m.width, &m.find, &m.slice_by, &m.walk) {
             (Some(width), None, None, None) => Width(width),
             (None, Some(pattern), None, None) => Find(pattern.to_string()),
             (None, None, Some(file), None) => SliceBy(file.to_string()),
@@ -218,20 +217,20 @@ impl Pipeline {
         nodes.push(node);
 
         // slice manipulators
-        if let Some(pattern) = m.regex {
-            nodes.push(Regex(pattern));
+        if let Some(pattern) = &m.regex {
+            nodes.push(Regex(pattern.to_string()));
         }
 
-        let merger = MergerParams::from_raw(m.extend, m.invert, m.merge)?;
+        let merger = MergerParams::from_raw(m.extend.clone(), m.invert.clone(), m.merge)?;
         if merger != MergerParams::default() {
             nodes.push(Merger(merger));
         }
 
-        if let Some(args) = m.foreach {
-            nodes.push(Foreach(args));
+        if let Some(args) = &m.foreach {
+            nodes.push(Foreach(args.to_string()));
         }
 
-        let node = match (m.output, m.patch_back) {
+        let node = match (&m.output, &m.patch_back) {
             (Some(file), None) => Scatter(file.to_string()),
             (None, Some(command)) => PatchBack(command.to_string()),
             (None, None) => Scatter("-".to_string()),
@@ -280,16 +279,16 @@ impl Pipeline {
         }
     }
 
-    pub fn spawn_stream(&self, sources: &[Box<dyn Read>], drain: Box<dyn Write + Send>) -> Result<Box<dyn ByteStream>> {
+    pub fn spawn_stream(&self, sources: Vec<Box<dyn Read>>, drain: Box<dyn Write + Send>) -> Result<Box<dyn ByteStream>> {
         let n = self.nodes.len();
         assert!(n >= 2);
 
         // placeholder
-        let sources: Vec<_> = sources.iter().map(|&x| self.build_parser(x)).collect();
-        let mut node = match self.nodes[0] {
+        let mut sources: Vec<_> = sources.into_iter().map(|x| self.build_parser(x)).collect();
+        let mut node = match &self.nodes[0] {
             Cat => NodeInstance::Byte(Box::new(CatStream::new(sources))),
             Zip => NodeInstance::Byte(Box::new(ZipStream::new(sources, self.word_size))),
-            Inplace => NodeInstance::Byte(sources[0]),
+            Inplace => NodeInstance::Byte(sources.pop().unwrap()),
             next => return Err(anyhow!("unallowed node {:?} found (internal error)", next)),
         };
 

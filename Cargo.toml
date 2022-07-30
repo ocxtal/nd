@@ -5,8 +5,8 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-clap = { version = "3.0.9", features = ["derive"] }
+clap = { version = "3.2", features = ["derive"] }
 memchr = "2.5"
 rand = "0.8"
-regex = "1.5"
+regex = "1.6"
 tempfile = "3.3"
