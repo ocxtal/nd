@@ -18,9 +18,9 @@ struct PatchFeeder {
 }
 
 impl PatchFeeder {
-    fn new(patch: Box<dyn ByteStream>) -> Self {
+    fn new(patch: Box<dyn ByteStream>, format: &InoutFormat) -> Self {
         PatchFeeder {
-            src: TextParser::new(patch, &InoutFormat::from_str("xxx").unwrap()),
+            src: TextParser::new(patch, format),
             offset: 0,
             span: 0,
             buf: Vec::new(),
@@ -78,8 +78,8 @@ pub struct PatchStream {
 }
 
 impl PatchStream {
-    pub fn new(src: Box<dyn ByteStream>, patch: Box<dyn ByteStream>) -> Self {
-        let mut patch = PatchFeeder::new(patch);
+    pub fn new(src: Box<dyn ByteStream>, patch: Box<dyn ByteStream>, format: &InoutFormat) -> Self {
+        let mut patch = PatchFeeder::new(patch, format);
         patch.fill_buf().unwrap();
 
         PatchStream {

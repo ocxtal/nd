@@ -9,4 +9,5 @@ clap = { version = "3.2", features = ["derive"] }
 memchr = "2.5"
 rand = "0.8"
 regex = "1.6"
+num-runtime-fmt = "0.1"
 tempfile = "3.3"

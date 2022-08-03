@@ -311,7 +311,7 @@ impl Pipeline {
                 }
                 (Patch(file), NodeInstance::Byte(prev)) => {
                     eprintln!("Patch");
-                    let next = Box::new(PatchStream::new(prev, self.open_file(file)?));
+                    let next = Box::new(PatchStream::new(prev, self.open_file(file)?, &self.out_format));
                     (cache, NodeInstance::Byte(next))
                 }
                 (Tee, NodeInstance::Byte(prev)) => {
@@ -355,11 +355,11 @@ impl Pipeline {
                     let next = Box::new(ForeachStream::new(prev, &args));
                     (cache, NodeInstance::Segment(next))
                 }
-                // (Scatter(file), NodeInstance::Segment(prev)) => {
-                //     eprintln!("Scatter");
-                //     let next = Box::new(ScatterDrain::new(prev, file, &self.out_format));
-                //     NodeInstance::Byte(next)
-                // }
+                (Scatter(file), NodeInstance::Segment(prev)) => {
+                    eprintln!("Scatter");
+                    let next = Box::new(ScatterDrain::new(prev, file, &self.out_format));
+                    (cache, NodeInstance::Byte(next))
+                }
                 (PatchBack(command), NodeInstance::Segment(prev)) => {
                     eprintln!("PatchBack");
                     let next = Box::new(PatchDrain::new(prev, cache.unwrap(), &command, &self.out_format));

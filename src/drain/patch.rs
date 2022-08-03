@@ -91,7 +91,7 @@ impl PatchDrain {
         });
 
         let reader = pipe.spawn_reader();
-        let patch = PatchStream::new(original, Box::new(reader));
+        let patch = PatchStream::new(original, Box::new(reader), format);
 
         PatchDrain {
             patch,
