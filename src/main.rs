@@ -17,6 +17,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::process::{Child, Stdio};
 
+use byte::ByteStream;
 use pipeline::*;
 
 static USAGE: &str = "zd [options] FILE ...";
@@ -100,6 +101,8 @@ fn main() -> Result<()> {
         .infer_long_args(true);
 
     let args = Args::from_arg_matches(&command.get_matches_mut())?;
+    eprintln!("{:?}", args);
+
     let pipeline = Pipeline::from_args(&args.pipeline)?;
 
     // process the stream
@@ -110,8 +113,8 @@ fn main() -> Result<()> {
             let tmpfile = format!("{:?}.tmp", &input[0]);
             let drain = Box::new(File::create(&tmpfile)?);
 
-            let stream = pipeline.spawn_stream(sources, drain)?;
-            // stream.consume_segments()?;
+            let stream = pipeline.spawn_stream(sources)?;
+            consume_stream(stream, drain)?;
 
             std::fs::rename(&tmpfile, &input[0])?;
         }
@@ -119,8 +122,8 @@ fn main() -> Result<()> {
         let sources = build_sources(&args.inputs)?;
         let (child, drain) = build_drain(&args.pager)?;
 
-        let stream = pipeline.spawn_stream(sources, drain)?;
-        // stream.consume_segments()?;
+        let stream = pipeline.spawn_stream(sources)?;
+        consume_stream(stream, drain)?;
 
         if let Some(mut child) = child {
             let _ = child.wait();
@@ -130,12 +133,12 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn build_sources(files: &[String]) -> Result<Vec<Box<dyn Read>>> {
+fn build_sources(files: &[String]) -> Result<Vec<Box<dyn Read + Send>>> {
     if files.iter().filter(|&x| x == "-").count() > 1 {
         return Err(anyhow!("\"-\" (stdin) must not appear more than once in the input files."));
     }
 
-    let mut v: Vec<Box<dyn Read>> = Vec::new();
+    let mut v: Vec<Box<dyn Read + Send>> = Vec::new();
     for file in files.iter() {
         if file == "-" {
             v.push(Box::new(std::io::stdin()));
@@ -148,7 +151,7 @@ fn build_sources(files: &[String]) -> Result<Vec<Box<dyn Read>>> {
     Ok(v)
 }
 
-fn build_drain(pager: &Option<String>) -> Result<(Option<Child>, Box<dyn Write + Send>)> {
+fn build_drain(pager: &Option<String>) -> Result<(Option<Child>, Box<dyn Write>)> {
     let pager = pager.clone().or_else(|| std::env::var("PAGER").ok());
     if pager.is_none() {
         return Ok((None, Box::new(std::io::stdout())));
@@ -160,4 +163,23 @@ fn build_drain(pager: &Option<String>) -> Result<(Option<Child>, Box<dyn Write +
 
     let input = child.stdin.take().context("failed to take stdin of the PAGER process")?;
     Ok((Some(child), Box::new(input)))
+}
+
+fn consume_stream(stream: Box<dyn ByteStream>, drain: Box<dyn Write>) -> Result<()> {
+    let mut stream = stream;
+    let mut drain = drain;
+
+    loop {
+        let bytes = stream.fill_buf()?;
+        if bytes == 0 {
+            break;
+        }
+
+        let slice = stream.as_slice();
+        drain.write_all(&slice[..bytes])?;
+
+        stream.consume(bytes);
+    }
+
+    Ok(())
 }

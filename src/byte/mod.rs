@@ -31,7 +31,7 @@ use crate::params::{BLOCK_SIZE, MARGIN_SIZE};
 #[cfg(test)]
 use rand::Rng;
 
-pub trait ByteStream {
+pub trait ByteStream: Send {
     fn fill_buf(&mut self) -> std::io::Result<usize>;
     fn as_slice(&self) -> &[u8];
     fn consume(&mut self, amount: usize);

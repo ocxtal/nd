@@ -16,6 +16,8 @@ struct Zipper {
     gather_impl: fn(&mut Self, usize, &mut [u8]) -> std::io::Result<usize>,
 }
 
+unsafe impl Send for Zipper {}
+
 macro_rules! gather_impl {
     ( $name: ident, $w: expr ) => {
         fn $name(&mut self, bytes_per_src: usize, buf: &mut [u8]) -> std::io::Result<usize> {

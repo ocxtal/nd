@@ -1,25 +1,22 @@
 // @file patch.rs
 // @author Hajime Suzuki
 
-use crate::byte::{ByteStream, PatchStream};
-use crate::drain::StreamDrain;
+use crate::byte::{ByteStream, PatchStream, RawStream, TextStream};
 use crate::filluninit::FillUninit;
 use crate::params::BLOCK_SIZE;
 use crate::segment::SegmentStream;
 use crate::streambuf::StreamBuf;
-use crate::text::TextFormatter;
-use std::io::{Read, Result, Write};
+use crate::text::{InoutFormat, TextFormatter};
+use std::io::{Read, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::thread::JoinHandle;
 
 struct BashPipe {
     child: Child,
-    input: Option<ChildStdin>,
 }
 
-struct BashPipeReader {
-    output: ChildStdout,
-    buf: StreamBuf,
+struct BashPipeWriter {
+    input: Option<ChildStdin>,
 }
 
 impl BashPipe {
@@ -30,20 +27,21 @@ impl BashPipe {
             .stdout(Stdio::piped())
             .spawn()
             .unwrap();
-
-        let input = child.stdin.take().unwrap();
-        let input = Some(input);
-        BashPipe { child, input }
+        BashPipe { child }
     }
 
-    fn spawn_reader(&mut self) -> BashPipeReader {
+    fn spawn_reader(&mut self) -> RawStream {
         let output = self.child.stdout.take().unwrap();
-        BashPipeReader {
-            output,
-            buf: StreamBuf::new(),
-        }
+        RawStream::new(Box::new(output), 1)
     }
 
+    fn spawn_writer(&mut self) -> BashPipeWriter {
+        let input = self.child.stdin.take().unwrap();
+        BashPipeWriter { input: Some(input) }
+    }
+}
+
+impl BashPipeWriter {
     fn write_all(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.input.as_ref().unwrap().write_all(buf)?;
         Ok(buf.len())
@@ -54,108 +52,78 @@ impl BashPipe {
     }
 }
 
-impl ByteStream for BashPipeReader {
-    fn fill_buf(&mut self) -> std::io::Result<usize> {
-        self.buf.fill_buf(|buf| {
-            buf.fill_uninit(BLOCK_SIZE, |buf| self.output.read(buf))?;
-            Ok(false)
-        })
-    }
-
-    fn as_slice(&self) -> &[u8] {
-        self.buf.as_slice()
-    }
-
-    fn consume(&mut self, amount: usize) {
-        self.buf.consume(amount);
-    }
-}
-
 pub struct PatchDrain {
-    patch: Box<dyn SegmentStream>,
-    offset: usize,
-    formatter: TextFormatter,
-    buf: Vec<u8>,
+    patch: PatchStream,
+    prev_bytes: usize,
     pipe: BashPipe,
-    drain: Option<JoinHandle<()>>,
+    thread: Option<JoinHandle<()>>,
 }
 
 impl PatchDrain {
-    pub fn new(
-        patch: Box<dyn SegmentStream>,
-        original: Box<dyn ByteStream + Send>,
-        command: &str,
-        formatter: TextFormatter,
-        dst: Box<dyn Write + Send>,
-    ) -> Self {
+    pub fn new(patch: Box<dyn SegmentStream>, original: Box<dyn ByteStream>, command: &str, format: &InoutFormat) -> Self {
         let mut pipe = BashPipe::new(command);
-        let pipe_reader = pipe.spawn_reader();
+        let mut writer = pipe.spawn_writer();
+        let formatter = TextFormatter::new(format, (0, 0), 0);
 
-        let drain = std::thread::spawn(move || {
-            let mut dst = dst;
-            let mut patch = PatchStream::new(original, Box::new(pipe_reader));
+        let thread = std::thread::spawn(move || {
+            let mut patch = patch;
+            let mut buf = Vec::new();
+            let mut offset = 0;
 
             loop {
-                let len = patch.fill_buf().unwrap();
-                if len == 0 {
+                let (bytes, _) = patch.fill_segment_buf().unwrap();
+                if bytes == 0 {
                     break;
                 }
 
-                let stream = patch.as_slice();
-                dst.write_all(&stream[..len]).unwrap();
-                patch.consume(len);
+                let (stream, segments) = patch.as_slices();
+                formatter.format_segments(offset, stream, segments, &mut buf);
+                offset += patch.consume(bytes).unwrap().0;
+
+                if buf.len() >= BLOCK_SIZE {
+                    writer.write_all(&buf).unwrap();
+                    buf.clear();
+                }
             }
+
+            writer.write_all(&buf).unwrap();
+            writer.close();
         });
+
+        let reader = pipe.spawn_reader();
+        let patch = PatchStream::new(original, Box::new(reader));
 
         PatchDrain {
             patch,
-            offset: 0,
-            formatter,
-            buf: Vec::new(),
+            prev_bytes: 0,
             pipe,
-            drain: Some(drain),
+            thread: Some(thread),
         }
-    }
-
-    fn consume_segments_impl(&mut self) -> std::io::Result<usize> {
-        debug_assert!(!self.buf.is_empty());
-
-        while self.buf.len() < BLOCK_SIZE {
-            let (bytes, _) = self.patch.fill_segment_buf()?;
-            if bytes == 0 {
-                self.pipe.write_all(&self.buf).unwrap();
-                self.pipe.close();
-
-                self.buf.clear();
-                return Ok(0);
-            }
-
-            let (stream, segments) = self.patch.as_slices();
-            self.formatter.format_segments(self.offset, stream, segments, &mut self.buf);
-            self.offset += self.patch.consume(bytes)?.0;
-        }
-
-        self.pipe.write_all(&self.buf).unwrap();
-        self.buf.clear();
-        Ok(1)
     }
 }
 
-impl StreamDrain for PatchDrain {
-    fn consume_segments(&mut self) -> std::io::Result<usize> {
-        let mut core_impl = || -> Result<usize> {
-            loop {
-                let ret = self.consume_segments_impl()?;
-                if ret == 0 {
-                    return Ok(ret);
-                }
-            }
-        };
+impl ByteStream for PatchDrain {
+    fn fill_buf(&mut self) -> std::io::Result<usize> {
+        let bytes = self.patch.fill_buf()?;
 
-        let ret = core_impl();
-        let drain = self.drain.take().unwrap();
-        drain.join().unwrap();
-        ret
+        if bytes == self.prev_bytes {
+            eprintln!("wait");
+            if let Some(thread) = self.thread.take() {
+                thread.join().unwrap();
+            }
+            eprintln!("joined");
+        }
+
+        self.prev_bytes = bytes;
+        Ok(bytes)
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        self.patch.as_slice()
+    }
+
+    fn consume(&mut self, amount: usize) {
+        self.patch.consume(amount)
     }
 }
 

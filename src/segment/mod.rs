@@ -97,7 +97,7 @@ impl From<Range<usize>> for Segment {
     }
 }
 
-pub trait SegmentStream {
+pub trait SegmentStream: Send {
     // chunked iterator
     fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)>; // #bytes, #segments
     fn as_slices(&self) -> (&[u8], &[Segment]);

@@ -12,12 +12,12 @@ use std::io::Read;
 use super::tester::*;
 
 pub struct RawStream {
-    src: Box<dyn Read>,
+    src: Box<dyn Read + Send>,
     buf: StreamBuf,
 }
 
 impl RawStream {
-    pub fn new(src: Box<dyn Read>, align: usize) -> Self {
+    pub fn new(src: Box<dyn Read + Send>, align: usize) -> Self {
         assert!(align > 0);
         RawStream {
             src,

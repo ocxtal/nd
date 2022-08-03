@@ -31,11 +31,11 @@ fn parse_wordsize(s: &str) -> Result<usize> {
 
 #[derive(Debug, Parser)]
 pub struct PipelineArgs {
-    #[clap(short = 'F', long = "in-format", value_name = "FORMAT")]
-    in_format: Option<String>,
+    #[clap(short = 'F', long = "in-format", value_name = "FORMAT", value_parser = InoutFormat::from_str, default_value = "b")]
+    in_format: InoutFormat,
 
-    #[clap(short = 'f', long = "out-format", value_name = "FORMAT")]
-    out_format: Option<String>,
+    #[clap(short = 'f', long = "out-format", value_name = "FORMAT", value_parser = InoutFormat::from_str, default_value = "xxx")]
+    out_format: InoutFormat,
 
     #[clap(short = 'c', long = "cat", value_name = "W", value_parser = parse_wordsize)]
     cat: Option<usize>,
@@ -112,6 +112,7 @@ pub enum Node {
     // ByteFilters: ByteStream -> ByteStream
     Clipper(ClipperParams), // Pad, Seek, Range
     Patch(String),
+    Tee,
     // Slicers: ByteStream -> SegmentStream
     Width(usize),
     Find(String),
@@ -142,6 +143,7 @@ impl Node {
             Inplace => Placeholder,
             Clipper(_) => ByteFilter,
             Patch(_) => ByteFilter,
+            Tee => ByteFilter,
             Width(_) => Slicer,
             Find(_) => Slicer,
             SliceBy(_) => Slicer,
@@ -204,6 +206,9 @@ impl Pipeline {
         if let Some(file) = &m.patch {
             nodes.push(Patch(file.to_string()));
         }
+        if let Some(command) = &m.patch_back {
+            nodes.push(Tee);
+        }
 
         // slicers are exclusive as well
         let node = match (m.width, &m.find, &m.slice_by, &m.walk) {
@@ -238,10 +243,12 @@ impl Pipeline {
         };
         nodes.push(node);
 
+        eprintln!("{:?}", nodes);
+
         let pipeline = Pipeline {
             word_size,
-            in_format: InoutFormat::from_str(m.in_format.as_ref().map(|x| x.as_str()).unwrap_or("b"))?,
-            out_format: InoutFormat::from_str(m.out_format.as_ref().map(|x| x.as_str()).unwrap_or("xxx"))?,
+            in_format: m.in_format,
+            out_format: m.out_format,
             nodes,
         };
         pipeline.validate()?;
@@ -268,7 +275,7 @@ impl Pipeline {
         Ok(Box::new(RawStream::new(Box::new(file), 1)))
     }
 
-    fn build_parser(&self, source: Box<dyn Read>) -> Box<dyn ByteStream> {
+    fn build_parser(&self, source: Box<dyn Read + Send>) -> Box<dyn ByteStream> {
         let source = Box::new(RawStream::new(source, self.word_size));
         if self.in_format.is_binary() {
             source
@@ -279,12 +286,14 @@ impl Pipeline {
         }
     }
 
-    pub fn spawn_stream(&self, sources: Vec<Box<dyn Read>>, drain: Box<dyn Write + Send>) -> Result<Box<dyn ByteStream>> {
+    pub fn spawn_stream(&self, sources: Vec<Box<dyn Read + Send>>) -> Result<Box<dyn ByteStream>> {
         let n = self.nodes.len();
         assert!(n >= 2);
 
         // placeholder
         let mut sources: Vec<_> = sources.into_iter().map(|x| self.build_parser(x)).collect();
+
+        let mut cache = None;
         let mut node = match &self.nodes[0] {
             Cat => NodeInstance::Byte(Box::new(CatStream::new(sources))),
             Zip => NodeInstance::Byte(Box::new(ZipStream::new(sources, self.word_size))),
@@ -293,23 +302,69 @@ impl Pipeline {
         };
 
         // internal nodes
-        for next in &self.nodes[1..n - 1] {
-            node = match (next, node) {
-                (Clipper(clipper), NodeInstance::Byte(prev)) => NodeInstance::Byte(Box::new(ClipStream::new(prev, &clipper))),
-                (Patch(file), NodeInstance::Byte(prev)) => NodeInstance::Byte(Box::new(PatchStream::new(prev, self.open_file(file)?))),
+        for next in &self.nodes[1..] {
+            (cache, node) = match (next, node) {
+                (Clipper(clipper), NodeInstance::Byte(prev)) => {
+                    eprintln!("Clipper");
+                    let next = Box::new(ClipStream::new(prev, &clipper));
+                    (cache, NodeInstance::Byte(next))
+                }
+                (Patch(file), NodeInstance::Byte(prev)) => {
+                    eprintln!("Patch");
+                    let next = Box::new(PatchStream::new(prev, self.open_file(file)?));
+                    (cache, NodeInstance::Byte(next))
+                }
+                (Tee, NodeInstance::Byte(prev)) => {
+                    eprintln!("Tee");
+                    let next = Box::new(TeeStream::new(prev));
+                    cache = Some(Box::new(next.spawn_reader()));
+                    (cache, NodeInstance::Byte(next))
+                }
                 (Width(width), NodeInstance::Byte(prev)) => {
-                    NodeInstance::Segment(Box::new(ConstSlicer::new(prev, (0, 0), (false, false), *width, *width)))
+                    eprintln!("Width");
+                    let next = Box::new(ConstSlicer::new(prev, (0, 0), (false, false), *width, *width - 1));
+                    (cache, NodeInstance::Segment(next))
                 }
-                (Find(pattern), NodeInstance::Byte(prev)) => NodeInstance::Segment(Box::new(ExactMatchSlicer::new(prev, &pattern))),
+                (Find(pattern), NodeInstance::Byte(prev)) => {
+                    eprintln!("Find");
+                    let next = Box::new(ExactMatchSlicer::new(prev, &pattern));
+                    (cache, NodeInstance::Segment(next))
+                }
                 (SliceBy(file), NodeInstance::Byte(prev)) => {
-                    NodeInstance::Segment(Box::new(GuidedSlicer::new(prev, self.open_file(file)?)))
+                    eprintln!("SliceBy");
+                    let next = Box::new(GuidedSlicer::new(prev, self.open_file(file)?));
+                    (cache, NodeInstance::Segment(next))
                 }
-                (Walk(expr), NodeInstance::Byte(prev)) => NodeInstance::Segment(Box::new(WalkSlicer::new(prev, &expr[0]))),
-                // (Regex(pattern), NodeInstance::Segment(prev)) => NodeInstance::Segment(Box::new(RegexSlicer::new(prev, &pattern))),
-                (Merger(merger), NodeInstance::Segment(prev)) => NodeInstance::Segment(Box::new(MergeStream::new(prev, &merger))),
-                (Foreach(args), NodeInstance::Segment(prev)) => NodeInstance::Segment(Box::new(ForeachStream::new(prev, &args))),
-                // (Scatter(file), NodeInstance::Segment(prev)) => NodeInstance::Byte(Box::new(ScatterDrain::new(prev, file, &self.out_format))),
-                // (PatchBack(command), NodeInstance::Segment(prev)) => NodeInstance::Byte(Box::new(PatchDrain::new(prev, &command, &self.out_format))),
+                (Walk(expr), NodeInstance::Byte(prev)) => {
+                    eprintln!("Walk");
+                    let next = Box::new(WalkSlicer::new(prev, &expr[0]));
+                    (cache, NodeInstance::Segment(next))
+                }
+                // (Regex(pattern), NodeInstance::Segment(prev)) => {
+                //     eprintln!("Regex");
+                //     let next = Box::new(RegexSlicer::new(prev, &pattern));
+                //     NodeInstance::Segment(next)
+                // }
+                (Merger(merger), NodeInstance::Segment(prev)) => {
+                    eprintln!("Merger");
+                    let next = Box::new(MergeStream::new(prev, &merger));
+                    (cache, NodeInstance::Segment(next))
+                }
+                (Foreach(args), NodeInstance::Segment(prev)) => {
+                    eprintln!("Foreach");
+                    let next = Box::new(ForeachStream::new(prev, &args));
+                    (cache, NodeInstance::Segment(next))
+                }
+                // (Scatter(file), NodeInstance::Segment(prev)) => {
+                //     eprintln!("Scatter");
+                //     let next = Box::new(ScatterDrain::new(prev, file, &self.out_format));
+                //     NodeInstance::Byte(next)
+                // }
+                (PatchBack(command), NodeInstance::Segment(prev)) => {
+                    eprintln!("PatchBack");
+                    let next = Box::new(PatchDrain::new(prev, cache.unwrap(), &command, &self.out_format));
+                    (None, NodeInstance::Byte(next))
+                }
                 (next, _) => return Err(anyhow!("unallowed node {:?} found after (internal error)", next)),
             };
         }

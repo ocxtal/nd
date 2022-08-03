@@ -4,7 +4,7 @@
 use crate::drain::StreamDrain;
 use crate::params::BLOCK_SIZE;
 use crate::segment::SegmentStream;
-use crate::text::TextFormatter;
+use crate::text::{InoutFormat, TextFormatter};
 use std::io::{Read, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::mpsc::{channel, Sender};
@@ -38,12 +38,18 @@ pub struct ScatterDrain {
 }
 
 impl ScatterDrain {
-    pub fn new(src: Box<dyn SegmentStream>, command: &str, formatter: TextFormatter, dst: Box<dyn Write + Send>) -> Self {
+    pub fn new(
+        src: Box<dyn SegmentStream>,
+        command: &str,
+        format: &InoutFormat,
+        // formatter: TextFormatter,
+        // dst: Box<dyn Write + Send>,
+    ) -> Self {
         let command = command.to_string();
         let (sender, reciever) = channel::<Option<(Child, ChildStdout)>>();
 
         let drain = std::thread::spawn(move || {
-            let mut dst = dst;
+            // let mut dst = dst;
             let mut buf = Vec::new();
             buf.resize(2 * BLOCK_SIZE, 0);
 
@@ -53,12 +59,13 @@ impl ScatterDrain {
                     if len == 0 {
                         break;
                     }
-                    dst.write_all(&buf[..len]).unwrap();
+                    // dst.write_all(&buf[..len]).unwrap();
                 }
             }
         });
         let drain = Some(drain);
 
+        let formatter = TextFormatter::new(format, (0, 0), 0);
         ScatterDrain {
             src,
             offset: 0, // TODO: parameterize?
