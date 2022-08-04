@@ -127,8 +127,8 @@ fn gen_guide(max_len: usize, max_count: usize) -> (Vec<u8>, Vec<Segment>) {
     let mut v = Vec::new();
 
     while v.len() < max_count {
-        let fwd = rng.gen_range(1..1024);
-        let len = rng.gen_range(1..1024);
+        let fwd = rng.gen_range(0..1024);
+        let len = rng.gen_range(0..1024);
 
         offset += fwd;
         if offset >= max_len {
