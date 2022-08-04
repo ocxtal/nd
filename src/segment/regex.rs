@@ -49,11 +49,8 @@ impl SegmentStream for RegexSlicer {
                 continue;
             }
 
-            self.matches.extend(
-                self.re
-                    .find_iter(&stream[s.as_range()])
-                    .map(|x| to_segment(x, s.pos)),
-            );
+            self.matches
+                .extend(self.re.find_iter(&stream[s.as_range()]).map(|x| to_segment(x, s.pos)));
         }
 
         self.scanned += bytes;
@@ -114,7 +111,7 @@ macro_rules! test {
 
             // TODO: we need a lot more...
         }
-    }
+    };
 }
 
 test!(test_stride_closed_all_at_once, test_segment_all_at_once);
