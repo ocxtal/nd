@@ -41,6 +41,7 @@ impl ByteStream for ScatterDrain {
             }
 
             let (stream, segments) = self.src.as_slices();
+
             self.formatter.format_segments(self.offset, stream, segments, buf);
 
             self.offset += self.src.consume(bytes)?.0;

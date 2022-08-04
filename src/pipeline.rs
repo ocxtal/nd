@@ -322,7 +322,7 @@ impl Pipeline {
                 }
                 (Width(width), NodeInstance::Byte(prev)) => {
                     eprintln!("Width");
-                    let next = Box::new(ConstSlicer::new(prev, (0, *width as isize - 1), (false, false), *width, *width));
+                    let next = Box::new(ConstSlicer::new(prev, (0, 1 - (*width as isize)), (false, false), *width, *width));
                     (cache, NodeInstance::Segment(next))
                 }
                 (Find(pattern), NodeInstance::Byte(prev)) => {
