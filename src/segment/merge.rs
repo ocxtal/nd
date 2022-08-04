@@ -9,6 +9,7 @@ use std::ops::Range;
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct MergerParams {
     extend: (isize, isize),
+    invert: (isize, isize),
     merge_threshold: isize,
 }
 
@@ -16,6 +17,7 @@ impl Default for MergerParams {
     fn default() -> Self {
         MergerParams {
             extend: (0, 0),
+            invert: (0, 0),
             merge_threshold: 0,
         }
     }
@@ -25,6 +27,7 @@ impl MergerParams {
     pub fn from_raw(extend: Option<Range<usize>>, invert: Option<Range<usize>>, merge: Option<usize>) -> Result<Self> {
         Ok(MergerParams {
             extend: (0, 0),
+            invert: (0, 0),
             merge_threshold: 0,
         })
     }
