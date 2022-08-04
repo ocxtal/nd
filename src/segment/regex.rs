@@ -3,24 +3,30 @@
 // @brief regex slicer
 
 use super::{Segment, SegmentStream};
-use crate::byte::{ByteStream, EofStream};
 use regex::bytes::{Match, Regex};
 
+#[cfg(test)]
+use crate::byte::tester::*;
+
+#[cfg(test)]
+use super::tester::*;
+
+#[cfg(test)]
+use super::ConstSlicer;
+
 pub struct RegexSlicer {
-    src: EofStream<Box<dyn ByteStream>>,
+    src: Box<dyn SegmentStream>,
     matches: Vec<Segment>,
     scanned: usize,
-    width: usize,
     re: Regex,
 }
 
 impl RegexSlicer {
-    pub fn new(src: Box<dyn ByteStream>, width: usize, pattern: &str) -> Self {
+    pub fn new(src: Box<dyn SegmentStream>, pattern: &str) -> Self {
         RegexSlicer {
-            src: EofStream::new(src),
+            src,
             matches: Vec::new(),
             scanned: 0,
-            width,
             re: Regex::new(pattern).unwrap(),
         }
     }
@@ -35,54 +41,35 @@ impl SegmentStream for RegexSlicer {
             }
         };
 
-        let (is_eof, len) = self.src.fill_buf()?;
-        let stream = self.src.as_slice();
+        let (bytes, count) = self.src.fill_segment_buf()?;
 
-        debug_assert!(len >= self.scanned);
-        let count = (len - self.scanned) / self.width;
-        let n_bulk = if count == 0 { 0 } else { count - 1 };
+        let (stream, segments) = self.src.as_slices();
+        for s in &segments[..count] {
+            if s.pos < self.scanned {
+                continue;
+            }
 
-        for i in 0..n_bulk {
-            let pos = self.scanned + i * self.width;
             self.matches.extend(
                 self.re
-                    .find_iter(&stream[pos..pos + 2 * self.width])
-                    .filter(|x| x.start() < self.width && x.range().len() <= self.width)
-                    .map(|x| to_segment(x, pos)),
+                    .find_iter(&stream[s.as_range()])
+                    .map(|x| to_segment(x, s.pos)),
             );
         }
 
-        if is_eof {
-            // scan the last chunk
-            let pos = self.scanned + n_bulk * self.width;
-            let chunk = &stream[pos..];
-            self.matches.extend(self.re.find_iter(chunk).map(|x| to_segment(x, pos)));
+        self.scanned += bytes;
 
-            self.scanned = len;
-            return Ok((self.scanned, self.matches.len()));
-        }
-
-        self.scanned += (count - 1) * self.width;
-
-        Ok((self.scanned, self.matches.len()))
+        Ok((bytes, self.matches.len()))
     }
 
     fn as_slices(&self) -> (&[u8], &[Segment]) {
-        (&self.src.as_slice()[..self.scanned], &self.matches)
+        let (stream, _) = self.src.as_slices();
+        (stream, &self.matches)
     }
 
     fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)> {
-        self.src.consume(bytes);
+        let (bytes, _) = self.src.consume(bytes)?;
         if bytes == 0 {
             return Ok((0, 0));
-        }
-
-        // if entire length, just clear the buffer
-        if bytes == self.scanned {
-            let count = self.matches.len();
-            self.matches.clear();
-            self.scanned = 0;
-            return Ok((bytes, count));
         }
 
         // determine how many bytes to consume...
@@ -95,10 +82,43 @@ impl SegmentStream for RegexSlicer {
         for m in &mut self.matches {
             *m = m.unwind(bytes);
         }
+
         self.scanned -= bytes;
 
         Ok((bytes, from))
     }
 }
+
+#[cfg(test)]
+macro_rules! bind {
+    ( $pattern: expr ) => {
+        |input: &[u8]| -> Box<dyn SegmentStream> {
+            let src = Box::new(MockSource::new(input));
+            let src = Box::new(ConstSlicer::new(src, (0, 0), (false, false), 4, 6));
+            Box::new(RegexSlicer::new(src, $pattern))
+        }
+    };
+}
+
+macro_rules! test {
+    ( $name: ident, $inner: ident ) => {
+        #[test]
+        fn $name() {
+            $inner(b"aaaaaaaaaa", &bind!("a+"), &[(0..6).into(), (4..10).into()]);
+            $inner(b"abcabcabca", &bind!("a.+c"), &[(0..6).into(), (6..9).into()]);
+            $inner(b"abcabcabca", &bind!("abc"), &[(0..3).into(), (3..6).into(), (6..9).into()]);
+            $inner(b"abcabcabca", &bind!("abcabc"), &[(0..6).into()]);
+            $inner(b"abcdefabcd", &bind!("abc"), &[(0..3).into(), (6..9).into()]);
+            $inner(b"abcdefabcd", &bind!("abcd"), &[(0..4).into(), (6..10).into()]);
+            $inner(b"abcdefabcd", &bind!("abcde"), &[(0..5).into()]);
+
+            // TODO: we need a lot more...
+        }
+    }
+}
+
+test!(test_stride_closed_all_at_once, test_segment_all_at_once);
+test!(test_stride_closed_random_len, test_segment_random_len);
+test!(test_stride_closed_occasional_consume, test_segment_occasional_consume);
 
 // end of regex.rs

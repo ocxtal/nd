@@ -80,7 +80,7 @@ impl Segment {
     // }
 
     pub fn unwind(&self, adj: usize) -> Self {
-        debug_assert!(adj >= self.pos);
+        debug_assert!(adj <= self.pos);
         Segment {
             pos: self.pos - adj,
             len: self.len,

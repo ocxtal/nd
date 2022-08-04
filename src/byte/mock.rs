@@ -4,19 +4,19 @@
 
 use super::ByteStream;
 use crate::params::{BLOCK_SIZE, MARGIN_SIZE};
-use std::io::{Read, Result};
+use std::io::Read;
 
 #[cfg(test)]
 use super::tester::*;
 
-use rand::{rngs::ThreadRng, Rng};
+use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 pub struct MockSource {
     v: Vec<u8>,
     len: usize,
     offset: usize,
     prev_len: usize,
-    rng: ThreadRng,
+    rng: SmallRng,
 }
 
 impl MockSource {
@@ -29,7 +29,7 @@ impl MockSource {
             len: pattern.len(),
             offset: 0,
             prev_len: 0,
-            rng: rand::thread_rng(),
+            rng: SmallRng::from_entropy(),
         }
     }
 

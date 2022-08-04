@@ -5,12 +5,12 @@ use crate::byte::ByteStream;
 use crate::segment::SegmentStream;
 use crate::streambuf::StreamBuf;
 use crate::text::{InoutFormat, TextFormatter};
-use std::io::{Read, Write};
+// use std::io::{Read, Write};
 
 pub struct ScatterDrain {
     src: Box<dyn SegmentStream>,
     offset: usize,
-    lines: usize,
+    // lines: usize,
     formatter: TextFormatter,
     filename: String,
     buf: StreamBuf,
@@ -24,7 +24,7 @@ impl ScatterDrain {
         ScatterDrain {
             src,
             offset: 0, // TODO: parameterize?
-            lines: 0,  // TODO: parameterize?
+            // lines: 0,  // TODO: parameterize?
             formatter,
             filename,
             buf: StreamBuf::new(),

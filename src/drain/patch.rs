@@ -1,14 +1,12 @@
 // @file patch.rs
 // @author Hajime Suzuki
 
-use crate::byte::{ByteStream, PatchStream, RawStream, TextStream};
-use crate::filluninit::FillUninit;
+use crate::byte::{ByteStream, PatchStream, RawStream};
 use crate::params::BLOCK_SIZE;
 use crate::segment::SegmentStream;
-use crate::streambuf::StreamBuf;
 use crate::text::{InoutFormat, TextFormatter};
-use std::io::{Read, Write};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::io::Write;
+use std::process::{Child, ChildStdin, Command, Stdio};
 use std::thread::JoinHandle;
 
 struct BashPipe {
@@ -21,7 +19,7 @@ struct BashPipeWriter {
 
 impl BashPipe {
     fn new(command: &str) -> Self {
-        let mut child = Command::new("bash")
+        let child = Command::new("bash")
             .args(&["-c", command])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -112,6 +110,8 @@ impl ByteStream for PatchDrain {
                 thread.join().unwrap();
             }
             eprintln!("joined");
+
+            self.pipe.child.wait().unwrap();
         }
 
         self.prev_bytes = bytes;

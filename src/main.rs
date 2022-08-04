@@ -52,13 +52,13 @@ OPTIONS:
   Slicing the stream (exclusive)
 
     -w, --width N[,S..E]    slice into N bytes and map them to S..E (default) [16]
-    -d, --find PAT[,S..E]   slice out every PAT location and map them to S..E
+    -d, --find PAT          slice out every PAT location
     -g, --slice-by FILE     slice out [pos, pos + len) ranges loaded from the file
     -k, --walk EXPR[,...]   split the stream into eval(EXPR)-byte chunk(s), repeat it until the end
 
   Manipulating the slices (applied in this order)
 
-    -e, --regex PCRE[,S..E] match PCRE on every slice, and maps the hit location(s) to S..E
+    -e, --regex PCRE        match PCRE on every slice
     -x, --extend S..E       map every slice to S..E
     -v, --invert S..E       map every adjoining slice pair to S..E
     -m, --merge N           merge slices where overlap >= N

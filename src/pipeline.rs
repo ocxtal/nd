@@ -10,7 +10,7 @@ use crate::text::*;
 use anyhow::{anyhow, Result};
 use clap::Parser;
 
-use std::io::{Read, Write};
+use std::io::Read;
 use std::ops::Range;
 
 use self::Node::*;
@@ -206,7 +206,7 @@ impl Pipeline {
         if let Some(file) = &m.patch {
             nodes.push(Patch(file.to_string()));
         }
-        if let Some(command) = &m.patch_back {
+        if let Some(_) = &m.patch_back {
             nodes.push(Tee);
         }
 
@@ -322,7 +322,7 @@ impl Pipeline {
                 }
                 (Width(width), NodeInstance::Byte(prev)) => {
                     eprintln!("Width");
-                    let next = Box::new(ConstSlicer::new(prev, (0, 0), (false, false), *width, *width - 1));
+                    let next = Box::new(ConstSlicer::new(prev, (0, *width as isize - 1), (false, false), *width, *width));
                     (cache, NodeInstance::Segment(next))
                 }
                 (Find(pattern), NodeInstance::Byte(prev)) => {
@@ -340,11 +340,11 @@ impl Pipeline {
                     let next = Box::new(WalkSlicer::new(prev, &expr[0]));
                     (cache, NodeInstance::Segment(next))
                 }
-                // (Regex(pattern), NodeInstance::Segment(prev)) => {
-                //     eprintln!("Regex");
-                //     let next = Box::new(RegexSlicer::new(prev, &pattern));
-                //     NodeInstance::Segment(next)
-                // }
+                (Regex(pattern), NodeInstance::Segment(prev)) => {
+                    eprintln!("Regex");
+                    let next = Box::new(RegexSlicer::new(prev, &pattern));
+                    (cache, NodeInstance::Segment(next))
+                }
                 (Merger(merger), NodeInstance::Segment(prev)) => {
                     eprintln!("Merger");
                     let next = Box::new(MergeStream::new(prev, &merger));
