@@ -1133,6 +1133,9 @@ fn test_simplify_rpn() {
     test!("b[15] * 2 & 0xff", "(2 * b[15] & 255)");
     test!("(b[15] * 2) & 0xff", "(2 * b[15] & 255)");
     test!("b[15] * (2 & 0xff)", "2 * b[15]");
+
+    test!("a[1] * b[2]", "(a[1] * b[2])");
+    // test!("a[1] * b[2] * c[3]", "a[1] * b[2] * c[3]");
 }
 
 fn eval_rpn<F>(tokens: &[(Token, usize)], get: F) -> Result<i64>
