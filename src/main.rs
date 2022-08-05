@@ -5,6 +5,7 @@ mod byte;
 mod drain;
 mod eval;
 mod filluninit;
+mod fmt;
 mod params;
 mod pipeline;
 mod segment;

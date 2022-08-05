@@ -1256,6 +1256,10 @@ pub struct Rpn {
 
 impl Rpn {
     pub fn new(input: &str, vars: Option<&HashMap<&[u8], VarAttr>>) -> Result<Self> {
+        if input.len() == 0 {
+            return Err(anyhow!("empty input expression"));
+        }
+
         let mut tokens = tokenize(input, vars)?;
         mark_prefices(&mut tokens).with_context(|| format!("invalid token order found in {:?}", input))?;
 
