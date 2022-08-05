@@ -1,4 +1,3 @@
-
 // @file template.rs
 // @brief run-time template formatter (for filename formatting)
 
@@ -31,8 +30,10 @@ impl Template {
         let mut i = 0;
 
         for b in brace_matcher.captures_iter(input) {
-            let b = b.get(0).unwrap();   // never fail
-            let args = arg_matcher.captures(b.as_str()).with_context(|| anyhow!("unparsable format string: {:?}", b.as_str()))?;
+            let b = b.get(0).unwrap(); // never fail
+            let args = arg_matcher
+                .captures(b.as_str())
+                .with_context(|| anyhow!("unparsable format string: {:?}", b.as_str()))?;
 
             // args looks sane at the top level. then break {name:spec} into name and spec
             let name = args.get(1).unwrap();
