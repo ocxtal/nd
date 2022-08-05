@@ -109,6 +109,10 @@ macro_rules! test {
             $inner(b"abcdefabcd", &bind!("abcd"), &[(0..4).into(), (6..10).into()]);
             $inner(b"abcdefabcd", &bind!("abcde"), &[(0..5).into()]);
 
+            $inner(b"abcdefabcd", &bind!("^abc"), &[(0..3).into()]);
+            $inner(b"abcdabcdab", &bind!("^abc"), &[(0..3).into(), (4..7).into()]);
+            $inner(b"cabcabcabc", &bind!("^abc"), &[(4..7).into()]);
+
             // TODO: we need a lot more...
         }
     };
