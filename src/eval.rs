@@ -330,7 +330,7 @@ fn sort_into_rpn(tokens: &[Token]) -> Option<Vec<(Token, usize)>> {
     let calc_lhs = |op: &Token, i: usize, len: usize| -> usize {
         match op {
             Prefix(_) => 1,
-            Op(_) => len - i + 1,
+            Op(_) | VarArr(_) => len - i + 1,
             _ => 0,
         }
     };
@@ -355,12 +355,16 @@ fn sort_into_rpn(tokens: &[Token]) -> Option<Vec<(Token, usize)>> {
                 op_stack.push((Op(op), rpn.len()));
             }
             Paren(x @ (')' | ']')) => {
-                let other = if x == ')' { '(' } else { '[' };
+                let other = if x == ']' { '[' } else { '(' };
                 loop {
                     let (op, i) = op_stack.pop()?;
                     if op == Paren(other) {
                         break;
                     }
+                    expand_and_push_op(&op, calc_lhs(&op, i, rpn.len()), &mut rpn);
+                }
+                if x == ']' {
+                    let (op, i) = op_stack.pop()?;
                     expand_and_push_op(&op, calc_lhs(&op, i, rpn.len()), &mut rpn);
                 }
             }
@@ -583,15 +587,15 @@ fn save_and_flip(tokens: &mut [(Token, usize)], slot: usize, token: Token, lhs: 
     // this function stores token (binary op) at tokens[slot]. before storing the token,
     // it checks the rhs of the op, and flip the sign of the rhs if possible to keep
     // the root op commutative.
-    match (tokens[slot - 1].0, token) {
-        (Val(x), Op(op)) if is_addsub(op) => {
+    match (tokens[slot - 1], token) {
+        ((Val(x), _), Op(op)) if is_addsub(op) => {
             let (s, op) = peel_rhs_sign_from_op(op);
             tokens[slot - 1] = (Val(apply_prefix(s, x)), 0);
             tokens[slot] = (Op(op), lhs);
         }
-        (Var(id, c), Op(op)) if is_addsub(op) => {
+        ((Var(id, c), rlhs), Op(op)) if is_addsub(op) => {
             let (s, op) = peel_rhs_sign_from_op(op);
-            tokens[slot - 1] = (Var(id, apply_prefix(s, c)), 0);
+            tokens[slot - 1] = (Var(id, apply_prefix(s, c)), rlhs);
             tokens[slot] = (Op(op), lhs);
         }
         _ => {
@@ -671,7 +675,7 @@ fn sort_tokens(tokens: &mut [(Token, usize)]) -> Option<(bool, usize)> {
             if let (Var(x, xc), Var(y, yc)) = (tokens[lhs - 1].0, y) {
                 if x == y {
                     // squash the two nodes if they have the same variable id
-                    tokens[lhs - 1] = (Var(x, apply_op(op2, xc, yc)), 0);
+                    tokens[lhs - 1].0 = Var(x, apply_op(op2, xc, yc));
                     save_and_flip(tokens, lhs, Op(op1), 2);
                     return Some((false, lhs));
                 }
@@ -690,7 +694,7 @@ fn sort_tokens(tokens: &mut [(Token, usize)]) -> Option<(bool, usize)> {
             if let (Var(x, xc), Var(y, yc)) = (x, y) {
                 if x == y {
                     // squash the two nodes if they have the same variable id
-                    tokens[lhs] = (Var(x, apply_op(op, xc, yc)), 0);
+                    tokens[lhs].0 = Var(x, apply_op(op, xc, yc));
                     return Some((false, lhs));
                 }
             }
@@ -711,25 +715,25 @@ fn fold_constants(tokens: &mut [(Token, usize)]) -> Option<usize> {
     }
 
     let lhs = root - tokens[root].1;
-    match (tokens[lhs], tokens[root - 1].0, tokens[root].0) {
+    match (tokens[lhs].0, tokens[root - 1].0, tokens[root].0) {
         // 2 + 3 => 5 (leaf)
-        ((Val(x), _), Val(y), Op(op)) => {
-            tokens[lhs] = (Val(apply_op(op, x, y)), 0);
+        (Val(x), Val(y), Op(op)) => {
+            tokens[lhs].0 = Val(apply_op(op, x, y));
             Some(lhs)
         }
         // x 2 * => x(2)
-        ((Var(id, c), llhs), Val(x), Op('*')) => {
-            tokens[lhs] = (Var(id, c * x), llhs);
+        (Var(id, c), Val(x), Op('*')) => {
+            tokens[lhs].0 = Var(id, c * x);
             Some(lhs)
         }
         // (x + 2) + 3 => x + 5
-        ((Op(op1), _), Val(y), Op(op2)) if is_comm_2(op1, op2) => {
+        (Op(op1), Val(y), Op(op2)) if is_comm_2(op1, op2) => {
             if let Val(x) = tokens[lhs - 1].0 {
                 let (s1, op1) = peel_sign_from_op(op1);
                 let (s2, op2) = peel_sign_from_op(op2);
                 let (op1, op2) = (fuse_sign_op(fuse_sign2(s1, s2), op1), fuse_sign3(s1, op1, op2));
 
-                tokens[lhs - 1] = (Val(apply_op(op2, x, y)), 0);
+                tokens[lhs - 1].0 = Val(apply_op(op2, x, y));
                 save_and_flip(tokens, lhs, Op(op1), 2);
                 Some(lhs)
             } else {
@@ -766,8 +770,8 @@ fn remove_identity(tokens: &mut [(Token, usize)]) -> Option<usize> {
             save_and_flip(tokens, lhs, Op(fuse_sign_op('-', op1)), llhs);
             Some(lhs)
         }
-        ((Var(id, c), llhs), Val(0), Op('#' | '~')) => {
-            tokens[lhs] = (Var(id, apply_prefix('-', c)), llhs);
+        ((Var(id, c), _), Val(0), Op('#' | '~')) => {
+            tokens[lhs].0 = Var(id, apply_prefix('-', c));
             Some(lhs)
         }
         ((Var(_, 0), _), x, Op(op)) if is_addsub(op) => {
@@ -776,11 +780,11 @@ fn remove_identity(tokens: &mut [(Token, usize)]) -> Option<usize> {
             let op = fuse_sign2(s, op);
             match x {
                 Val(x) => {
-                    tokens[lhs] = (Val(apply_prefix(op, x)), 0);
+                    tokens[lhs].0 = Val(apply_prefix(op, x));
                     Some(lhs)
                 }
                 Var(id, c) => {
-                    tokens[lhs] = (Var(id, apply_prefix(op, c)), 0);
+                    tokens[lhs].0 = Var(id, apply_prefix(op, c));
                     Some(lhs)
                 }
                 _ => Some(root),
@@ -849,11 +853,11 @@ fn remove_prefix_unary(tokens: &mut [(Token, usize)]) -> Option<usize> {
             }
         }
         ((Val(x), _), Prefix(s)) => {
-            tokens[lhs] = (Val(apply_prefix(s, x)), 0);
+            tokens[lhs].0 = Val(apply_prefix(s, x));
             Some(lhs)
         }
         ((Var(id, c), _), Prefix(s)) if is_addsub(s) => {
-            tokens[lhs] = (Var(id, apply_prefix(s, c)), 0);
+            tokens[lhs].0 = Var(id, apply_prefix(s, c));
             Some(lhs)
         }
         ((Op(op), llhs), Prefix(s)) if is_comm_2(op, s) => {
@@ -1008,9 +1012,7 @@ fn canonize_signs(tokens: &mut [(Token, usize)]) {
 
 fn canonize_rpn(tokens: &mut [(Token, usize)]) -> Option<usize> {
     let len = simplify_rpn(tokens)? + 1;
-    // eprintln!("{:?}", &tokens[..len]);
     canonize_signs(&mut tokens[..len]);
-    // eprintln!("{:?}", &tokens[..len]);
     Some(len)
 }
 
@@ -1107,6 +1109,7 @@ fn test_simplify_rpn() {
     test!("((2 + x) - 4) - (x + 3)", "-5");
     test!("3 + (x - ((2 + x) + 4))", "-3");
     test!("x + (y + 2) - 4 * x + -3 * y", "((-3 * x + -2 * y) + 2)");
+
     test!("4 >= 0", "1");
     test!("-4 >= 0", "0");
     test!("4 < 0", "0");
@@ -1117,6 +1120,19 @@ fn test_simplify_rpn() {
     test!("x + 4 < 0", "G((-1 * x + -5))");
     test!("-(y - x) < -4", "G(((-1 * x + y) + -5))");
     test!("x <= -x + (x + x) - (-x)", "G(x)");
+
+    test!("a[0]", "a[0]");
+    test!("a[1]", "a[1]");
+    test!("2 * a[1]", "2 * a[1]");
+    test!("a[1] * 2", "2 * a[1]");
+    test!("2 + a[1]", "(a[1] + 2)");
+    test!("2 + a[1] * 3", "(3 * a[1] + 2)");
+    test!("0xff & b[15]", "(b[15] & 255)");
+    test!("0xff & b[15] * 2", "(2 * b[15] & 255)");
+    test!("b[15] & 0xff", "(b[15] & 255)");
+    test!("b[15] * 2 & 0xff", "(2 * b[15] & 255)");
+    test!("(b[15] * 2) & 0xff", "(2 * b[15] & 255)");
+    test!("b[15] * (2 & 0xff)", "2 * b[15]");
 }
 
 fn eval_rpn<F>(tokens: &[(Token, usize)], get: F) -> Result<i64>
@@ -1175,6 +1191,13 @@ fn to_string(tokens: &[(Token, usize)], vars: &HashMap<usize, &[u8]>, v: &mut St
             v.push(')');
         };
     }
+    macro_rules! bracket {
+        ( $inner: stmt ) => {
+            v.push('[');
+            $inner
+            v.push(']');
+        };
+    }
     macro_rules! op {
         ( $x: expr ) => {
             v.push(' ');
@@ -1209,12 +1232,16 @@ fn to_string(tokens: &[(Token, usize)], vars: &HashMap<usize, &[u8]>, v: &mut St
                 v.push_str(&c.to_string());
                 op!('*');
             }
-            if lhs != 0 {
-                to_string(&tokens[..root - lhs + 1], vars, v);
-                op!('*');
-            }
+
+            // FIXME: this never be None
             if let Some(var) = vars.get(&id) {
                 v.push_str(std::str::from_utf8(var).unwrap());
+            }
+
+            if lhs != 0 {
+                bracket!({
+                    to_string(&tokens[..root - lhs + 1], vars, v);
+                });
             }
         }
         _ => {}

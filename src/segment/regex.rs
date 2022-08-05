@@ -114,8 +114,8 @@ macro_rules! test {
     };
 }
 
-test!(test_stride_closed_all_at_once, test_segment_all_at_once);
-test!(test_stride_closed_random_len, test_segment_random_len);
-test!(test_stride_closed_occasional_consume, test_segment_occasional_consume);
+test!(test_regex_all_at_once, test_segment_all_at_once);
+test!(test_regex_random_len, test_segment_random_len);
+test!(test_regex_occasional_consume, test_segment_occasional_consume);
 
 // end of regex.rs

@@ -184,8 +184,8 @@ macro_rules! test {
     };
 }
 
-test!(test_stride_closed_all_at_once, test_segment_all_at_once);
-test!(test_stride_closed_random_len, test_segment_random_len);
-test!(test_stride_closed_occasional_consume, test_segment_occasional_consume);
+test!(test_guided_all_at_once, test_segment_all_at_once);
+test!(test_guided_random_len, test_segment_random_len);
+test!(test_guided_occasional_consume, test_segment_occasional_consume);
 
 // enf of file.rs

@@ -52,7 +52,7 @@ OPTIONS:
   Slicing the stream (exclusive)
 
     -w, --width N[,S..E]    slice into N bytes and map them to S..E (default) [16]
-    -d, --find PAT          slice out every PAT location
+    -d, --find PATTERN      slice out every PATTERN location
     -g, --slice-by FILE     slice out [pos, pos + len) ranges loaded from the file
     -k, --walk EXPR[,...]   split the stream into eval(EXPR)-byte chunk(s), repeat it until the end
 

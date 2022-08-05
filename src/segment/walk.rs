@@ -7,6 +7,12 @@ use crate::eval::{Rpn, VarAttr};
 use crate::params::BLOCK_SIZE;
 use std::collections::HashMap;
 
+#[cfg(test)]
+use crate::byte::tester::*;
+
+#[cfg(test)]
+use super::tester::*;
+
 struct StreamFeeder {
     src: EofStream<Box<dyn ByteStream>>,
     last: (bool, usize),
@@ -65,6 +71,7 @@ impl StreamFeeder {
         let stream = self.src.as_slice();
         let stream = &stream[offset..offset + 8];
 
+        // leave the lower typesize bits (8 bits for "b", 16 bits for "h", ...)
         let val = i64::from_le_bytes(stream.try_into().unwrap());
         let shift = 64 - 8 * elem_size;
         (val << shift) >> shift
@@ -104,9 +111,9 @@ impl SpanFetcher {
         }
 
         let val = val.unwrap();
-        if val < 0 {
+        if val <= 0 {
             panic!(
-                "slice span being negative on evaluating expression: {:?} (got: {}).",
+                "slice span being non-positive on evaluating expression: {:?} (got: {}).",
                 &self.expr, val
             );
         }
@@ -124,7 +131,7 @@ pub struct WalkSlicer {
 
 impl WalkSlicer {
     pub fn new(src: Box<dyn ByteStream>, expr: &str) -> Self {
-        let fetchers: Vec<_> = expr.split(&[',', ' ']).map(SpanFetcher::new).collect();
+        let fetchers: Vec<_> = expr.split(',').map(SpanFetcher::new).collect();
         let spans: Vec<_> = (0..fetchers.len()).map(|_| 0).collect();
 
         WalkSlicer {
@@ -176,6 +183,11 @@ impl WalkSlicer {
 
 impl SegmentStream for WalkSlicer {
     fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)> {
+        let (is_eof, bytes) = self.feeder.fill_buf(BLOCK_SIZE)?;
+        if (is_eof, bytes) == (true, 0) {
+            return Ok((0, 0));
+        }
+
         loop {
             let chunk_len = self.calc_next_chunk_len();
             let (is_eof, bytes, count) = self.extend_segment_buf(chunk_len)?;
@@ -205,9 +217,63 @@ impl SegmentStream for WalkSlicer {
         for s in &mut self.segments {
             *s = s.unwind(bytes);
         }
+        self.next_pos -= bytes;
 
         Ok((bytes, from))
     }
 }
+
+// TODO: we need to test the remainder handling
+
+#[cfg(test)]
+macro_rules! bind {
+    ( $expr: expr ) => {
+        |input: &[u8]| -> Box<dyn SegmentStream> {
+            let src = Box::new(MockSource::new(input));
+            Box::new(WalkSlicer::new(src, $expr))
+        }
+    };
+}
+
+macro_rules! test {
+    ( $name: ident, $inner: ident ) => {
+        #[test]
+        fn $name() {
+            // positive integers
+            $inner(b"", &bind!("b[0]"), &[]);
+            $inner(&[1u8], &bind!("b[0]"), &[(0..1).into()]);
+            $inner(&[0u8], &bind!("b[0] + 1"), &[(0..1).into()]);
+
+            // multiple chunks
+            $inner(
+                &[1u8, 2, 10, 1, 1],
+                &bind!("b[0]"),
+                &[(0..1).into(), (1..3).into(), (3..4).into(), (4..5).into()],
+            );
+
+            // 16, 32, and 64-bit integers
+            $inner(&[2u8, 0, 4, 0, 0, 0], &bind!("h[0]"), &[(0..2).into(), (2..6).into()]);
+            $inner(&[4u8, 0, 0, 0, 4, 0, 0, 0], &bind!("w[0]"), &[(0..4).into(), (4..8).into()]);
+            $inner(&[8u8, 0, 0, 0, 0, 0, 0, 0], &bind!("d[0]"), &[(0..8).into()]);
+
+            // more complicated expressions
+            $inner(&[8u8, 0, 1, 2, 3, 4, 5, 6], &bind!("d[0] & 0xff"), &[(0..8).into()]);
+            $inner(&[0u8, 3, 0, 0, 0], &bind!("b[0] + 1"), &[(0..1).into(), (1..5).into()]);
+            $inner(&[2u8, 0, 0, 0, 1, 1], &bind!("2 * b[0]"), &[(0..4).into(), (4..6).into()]);
+
+            // multiple expressions
+            $inner(&[1u8, 1], &bind!("b[0], b[1]"), &[(0..1).into(), (1..2).into()]);
+            $inner(
+                &[1u8, 3, 0, 0, 2, 1, 0],
+                &bind!("b[0], b[1]"),
+                &[(0..1).into(), (1..4).into(), (4..6).into(), (6..7).into()],
+            );
+        }
+    };
+}
+
+test!(test_stride_closed_all_at_once, test_segment_all_at_once);
+test!(test_stride_closed_random_len, test_segment_random_len);
+test!(test_stride_closed_occasional_consume, test_segment_occasional_consume);
 
 // end of walk.rs
