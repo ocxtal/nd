@@ -37,8 +37,6 @@ impl Template {
 
             // args looks sane at the top level. then break {name:spec} into name and spec
             let name = args.get(1).unwrap();
-            eprintln!("name: {:?}", name);
-
             let name = Rpn::new(name.as_str(), vars)?;
 
             let spec = args.get(2).unwrap();
@@ -143,7 +141,7 @@ fn test_template_render() {
     test!("{a}", "0");
     test!("{a:08x}", "00000000");
     test!("{a:02x}-{b:02x}-{c:02x}", "00-01-02");
-    test!("prefix:{a:05d}:suffix", "prefix~00000~suffix");
+    test!("prefix:{a:05d}:suffix", "prefix:00000:suffix");
 
     // expressions
     test!("{(2 * a + 1):}", "1");
