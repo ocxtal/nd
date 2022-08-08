@@ -35,8 +35,6 @@ impl ScatterDrain {
             Some(std::fs::OpenOptions::new().read(false).write(true).open(file)?)
         };
 
-        eprintln!("{:?}", file);
-
         Ok(ScatterDrain {
             src,
             offset: 0, // TODO: parameterize?
@@ -55,8 +53,6 @@ impl ScatterDrain {
             }
 
             let (stream, segments) = self.src.as_slices();
-            eprintln!("{:?}, {:?}", stream, segments);
-
             self.formatter.format_segments(self.offset, stream, segments, buf);
 
             self.offset += self.src.consume(bytes)?.0;
