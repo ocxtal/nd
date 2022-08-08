@@ -5,6 +5,15 @@ use super::{Segment, SegmentStream};
 use crate::params::BLOCK_SIZE;
 use anyhow::Result;
 
+#[cfg(test)]
+use crate::byte::tester::*;
+
+#[cfg(test)]
+use super::tester::*;
+
+#[cfg(test)]
+use super::ConstSlicer;
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct MergerParams {
     extend: (isize, isize),
@@ -17,7 +26,7 @@ impl Default for MergerParams {
         MergerParams {
             extend: (0, 0),
             invert: (0, 0),
-            merge_threshold: 0,
+            merge_threshold: isize::MAX,
         }
     }
 }
@@ -27,7 +36,7 @@ impl MergerParams {
         Ok(MergerParams {
             extend: extend.unwrap_or((0, 0)),
             invert: invert.unwrap_or((0, 0)),
-            merge_threshold: merge.unwrap_or(0),
+            merge_threshold: merge.unwrap_or(isize::MAX),
         })
     }
 }
@@ -128,7 +137,7 @@ impl MergeStream {
             min_fill_bytes,
             min_len,
             extend: params.extend,
-            merge_threshold: params.merge_threshold,
+            merge_threshold,
         }
     }
 
@@ -283,5 +292,31 @@ impl SegmentStream for MergeStream {
         Ok((bytes, target_count))
     }
 }
+
+#[cfg(test)]
+macro_rules! bind {
+    ( $extend: expr, $invert: expr, $merge: expr ) => {
+        |pattern: &[u8]| -> Box<dyn SegmentStream> {
+            let src = Box::new(MockSource::new(pattern));
+            let src = Box::new(ConstSlicer::new(src, (3, 3), (true, true), 4, 6));
+
+            let params = MergerParams::from_raw($extend, $invert, $merge).unwrap();
+            Box::new(MergeStream::new(src, &params))
+        }
+    };
+}
+
+macro_rules! test {
+    ( $name: ident, $inner: ident ) => {
+        #[test]
+        fn $name() {
+            $inner(b"", &bind!(None, None, None), &[]);
+        }
+    };
+}
+
+test!(test_merge_all_at_once, test_segment_all_at_once);
+test!(test_merge_random_len, test_segment_random_len);
+test!(test_merge_occasional_consume, test_segment_occasional_consume);
 
 // end of merger.rs
