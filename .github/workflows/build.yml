@@ -1,0 +1,37 @@
+on:
+  pull_request:
+    types: [opened, synchronize]
+jobs:
+  amd64-linux-nightly:
+    name: amd64-linux-nightly
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+      - run: rustup component add rustfmt clippy
+      - uses: actions-rs/cargo@v1
+        name: Run cargo check
+        with:
+          command: check
+      - uses: actions-rs/cargo@v1
+        name: Run cargo fmt --all -- --check
+        with:
+          command: fmt
+          args: --all -- --check
+      - uses: actions-rs/cargo@v1
+        name: Run cargo clippy
+        with:
+          command: clippy
+          args: -- -D warnings
+        env:
+          RUSTFLAGS: "-C target-cpu=native"
+      - uses: actions-rs/cargo@v1
+        name: Run cargo test
+        with:
+          command: test
+        env:
+          RUSTFLAGS: "-C target-cpu=native"
