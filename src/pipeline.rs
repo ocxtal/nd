@@ -357,7 +357,7 @@ impl Pipeline {
                 }
                 (Scatter(file), NodeInstance::Segment(prev)) => {
                     eprintln!("Scatter");
-                    let next = Box::new(ScatterDrain::new(prev, file, &self.out_format));
+                    let next = Box::new(ScatterDrain::new(prev, file, &self.out_format)?);
                     (cache, NodeInstance::Byte(next))
                 }
                 (PatchBack(command), NodeInstance::Segment(prev)) => {

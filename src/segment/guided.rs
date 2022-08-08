@@ -167,7 +167,6 @@ macro_rules! test_impl {
     };
 }
 
-#[cfg(test)]
 macro_rules! test {
     ( $name: ident, $inner: ident ) => {
         #[test]

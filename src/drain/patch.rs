@@ -105,11 +105,9 @@ impl ByteStream for PatchDrain {
         let bytes = self.patch.fill_buf()?;
 
         if bytes == self.prev_bytes {
-            eprintln!("wait");
             if let Some(thread) = self.thread.take() {
                 thread.join().unwrap();
             }
-            eprintln!("joined");
 
             self.pipe.child.wait().unwrap();
         }

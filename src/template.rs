@@ -15,7 +15,7 @@ struct TemplateElement {
 }
 
 #[derive(Debug)]
-struct Template {
+pub struct Template {
     elems: Vec<TemplateElement>,
 }
 
@@ -60,6 +60,10 @@ impl Template {
         Ok(Template { elems })
     }
 
+    pub fn has_variable(&self) -> bool {
+        self.elems.iter().any(|x| x.var.is_some())
+    }
+
     pub fn render<F>(&self, get: F) -> Result<String>
     where
         F: FnMut(usize, i64) -> i64,
@@ -89,6 +93,7 @@ fn test_template_new() {
     ];
     let vars: HashMap<&[u8], VarAttr> = vars.iter().map(|(x, y)| (x.as_slice(), *y)).collect();
 
+    assert!(Template::from_str("", Some(&vars)).is_ok());
     assert!(Template::from_str("name", Some(&vars)).is_ok());
     assert!(Template::from_str("prefix{a}", Some(&vars)).is_ok());
     assert!(Template::from_str("{a}suffix", Some(&vars)).is_ok());
@@ -107,12 +112,54 @@ fn test_template_new() {
     assert!(Template::from_str("{:?", Some(&vars)).is_ok());
 
     // expressions
+    assert!(Template::from_str("{(a + 1)}", Some(&vars)).is_ok());
+    assert!(Template::from_str("{(2 * a + 1)}", Some(&vars)).is_ok());
+    assert!(Template::from_str("{(a + a - 1)}", Some(&vars)).is_ok());
+    assert!(Template::from_str("{(a & 0x01)}", Some(&vars)).is_ok());
+
     assert!(Template::from_str("{(a + 1):}", Some(&vars)).is_ok());
     assert!(Template::from_str("{(2 * a + 1):}", Some(&vars)).is_ok());
     assert!(Template::from_str("{(a + a - 1):}", Some(&vars)).is_ok());
     assert!(Template::from_str("{(a & 0x01):}", Some(&vars)).is_ok());
 
+    assert!(Template::from_str("{(a + 1):02x}", Some(&vars)).is_ok());
+    assert!(Template::from_str("{(2 * a + 1):02x}", Some(&vars)).is_ok());
+    assert!(Template::from_str("{(a + a - 1):02x}", Some(&vars)).is_ok());
+    assert!(Template::from_str("{(a & 0x01):02x}", Some(&vars)).is_ok());
+
     assert!(Template::from_str("{a + 1:}", Some(&vars)).is_err());
+}
+
+#[test]
+fn test_template_has_variable() {
+    let vars = [
+        (b"a", VarAttr { is_array: false, id: 0 }),
+        (b"b", VarAttr { is_array: false, id: 1 }),
+        (b"c", VarAttr { is_array: false, id: 2 }),
+    ];
+    let vars: HashMap<&[u8], VarAttr> = vars.iter().map(|(x, y)| (x.as_slice(), *y)).collect();
+
+    macro_rules! has_variable {
+        ( $pattern: expr ) => {
+            Template::from_str($pattern, Some(&vars)).unwrap().has_variable()
+        };
+    }
+
+    assert_eq!(has_variable!(""), false);
+    assert_eq!(has_variable!("name"), false);
+
+    assert_eq!(has_variable!("{a}"), true);
+    assert_eq!(has_variable!("prefix{a}"), true);
+    assert_eq!(has_variable!("{a}suffix"), true);
+    assert_eq!(has_variable!("prefix{a}suffix"), true);
+
+    assert_eq!(has_variable!("{a}"), true);
+    assert_eq!(has_variable!("{a:}"), true);
+    assert_eq!(has_variable!("{a:x}"), true);
+
+    assert_eq!(has_variable!("{(a + 1)}"), true);
+    assert_eq!(has_variable!("{(a + 1):}"), true);
+    assert_eq!(has_variable!("{(a + 1):x}"), true);
 }
 
 #[test]
