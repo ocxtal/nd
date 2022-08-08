@@ -38,7 +38,6 @@ fn format_hex(offset: usize, min_width: usize, stream: &[u8], segments: &[Segmen
 type FormatLines = fn(usize, usize, &[u8], &[Segment], &mut Vec<u8>);
 
 pub struct TextFormatter {
-    format: InoutFormat,
     format_lines: FormatLines,
     offset: (usize, usize),
     min_width: usize,
@@ -47,15 +46,10 @@ pub struct TextFormatter {
 impl TextFormatter {
     pub fn new(format: &InoutFormat, offset: (usize, usize), min_width: usize) -> Self {
         TextFormatter {
-            format: *format,
             format_lines: if format.is_binary() { format_binary } else { format_hex },
             offset,
             min_width,
         }
-    }
-
-    pub fn format(&self) -> InoutFormat {
-        self.format
     }
 
     pub fn format_segments(&self, offset: usize, stream: &[u8], segments: &[Segment], buf: &mut Vec<u8>) {

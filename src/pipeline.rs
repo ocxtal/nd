@@ -92,15 +92,15 @@ pub struct PipelineArgs {
     patch_back: Option<String>,
 }
 
-struct MapAnchor {
-    anchor: usize,
-    offset: isize,
-}
+// struct MapAnchor {
+//     anchor: usize,
+//     offset: isize,
+// }
 
-pub struct MapRange {
-    start: MapAnchor,
-    end: MapAnchor,
-}
+// pub struct MapRange {
+//     start: MapAnchor,
+//     end: MapAnchor,
+// }
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq)]

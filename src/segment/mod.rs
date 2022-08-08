@@ -2,8 +2,8 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
-mod and;
-mod bridge;
+// mod and;
+// mod bridge;
 mod exact;
 mod guided;
 mod hamming;
@@ -11,11 +11,11 @@ mod merge;
 mod ops;
 mod regex;
 mod stride;
-mod strip;
+// mod strip;
 mod walk;
 
-pub use self::and::AndStream;
-pub use self::bridge::BridgeStream;
+// pub use self::and::AndStream;
+// pub use self::bridge::BridgeStream;
 pub use self::exact::ExactMatchSlicer;
 pub use self::guided::GuidedSlicer;
 pub use self::hamming::HammingSlicer;
@@ -23,7 +23,7 @@ pub use self::merge::{MergeStream, MergerParams};
 pub use self::ops::{SegmentMapper, SegmentPred};
 pub use self::regex::RegexSlicer;
 pub use self::stride::ConstSlicer;
-pub use self::strip::StripStream;
+// pub use self::strip::StripStream;
 pub use self::walk::WalkSlicer;
 
 use std::ops::Range;
