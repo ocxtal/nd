@@ -4,7 +4,6 @@
 use super::{Segment, SegmentStream};
 use crate::params::BLOCK_SIZE;
 use anyhow::Result;
-use std::ops::Range;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct MergerParams {
@@ -24,11 +23,11 @@ impl Default for MergerParams {
 }
 
 impl MergerParams {
-    pub fn from_raw(extend: Option<Range<usize>>, invert: Option<Range<usize>>, merge: Option<usize>) -> Result<Self> {
+    pub fn from_raw(extend: Option<(isize, isize)>, invert: Option<(isize, isize)>, merge: Option<isize>) -> Result<Self> {
         Ok(MergerParams {
-            extend: (0, 0),
-            invert: (0, 0),
-            merge_threshold: 0,
+            extend: extend.unwrap_or((0, 0)),
+            invert: invert.unwrap_or((0, 0)),
+            merge_threshold: merge.unwrap_or(0),
         })
     }
 }

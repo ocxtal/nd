@@ -73,14 +73,14 @@ pub struct PipelineArgs {
     #[clap(short = 'e', long = "regex", value_name = "PCRE[,S..E]")]
     regex: Option<String>,
 
-    #[clap(short = 'x', long = "extend", value_name = "S..E", value_parser = parse_range)]
-    extend: Option<Range<usize>>,
+    #[clap(short = 'x', long = "extend", value_name = "S,E", value_parser = parse_range)]
+    extend: Option<(isize, isize)>,
 
-    #[clap(short = 'v', long = "invert", value_name = "S..E", value_parser = parse_range)]
-    invert: Option<Range<usize>>,
+    #[clap(short = 'v', long = "invert", value_name = "S,E", value_parser = parse_range)]
+    invert: Option<(isize, isize)>,
 
     #[clap(short = 'm', long = "merge", value_name = "N", value_parser = parse_usize)]
-    merge: Option<usize>,
+    merge: Option<isize>,
 
     #[clap(short = 'r', long = "foreach", value_name = "ARGS")]
     foreach: Option<String>,
