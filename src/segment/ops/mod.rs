@@ -7,7 +7,7 @@ use crate::eval::{Rpn, VarAttr};
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SegmentPred {
     positive: usize,
     negative: usize,
@@ -21,17 +21,17 @@ impl SegmentPred {
         let tokens = rpn.tokens();
 
         match tokens.as_slice() {
-            &[Val(c)] => {
-                let offset = if c == 0 { 0 } else { 1 };
+            [Val(c)] => {
+                let offset = if *c == 0 { 0 } else { 1 };
                 Ok((0, 0, offset))
             }
-            &[Var(x, xc), Var(y, yc), Op('+'), Prefix('G')] if xc * yc == -1 => {
-                let (p, n) = if xc == 1 { (x, y) } else { (y, x) };
+            [Var(x, xc), Var(y, yc), Op('+'), Prefix('G')] if *xc * *yc == -1 => {
+                let (p, n) = if *xc == 1 { (*x, *y) } else { (*y, *x) };
                 Ok((p, n, 0))
             }
-            &[Var(x, xc), Var(y, yc), Op('+'), Val(c), Op('+'), Prefix('G')] if xc * yc == -1 => {
-                let (p, n) = if xc == 1 { (x, y) } else { (y, x) };
-                Ok((p, n, c as isize))
+            [Var(x, xc), Var(y, yc), Op('+'), Val(c), Op('+'), Prefix('G')] if *xc * *yc == -1 => {
+                let (p, n) = if *xc == 1 { (*x, *y) } else { (*y, *x) };
+                Ok((p, n, *c as isize))
             }
             _ => Err(anyhow!("failed to evaluate PRED")),
         }
@@ -93,7 +93,7 @@ impl SegmentPred {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SegmentMapper {
     start: (usize, isize),
     end: (usize, isize),
@@ -106,9 +106,9 @@ impl SegmentMapper {
         let tokens = rpn.tokens();
 
         match tokens.as_slice() {
-            &[Val(c)] => Ok((0, c as isize)),
-            &[Var(id, 1)] => Ok((id, 0)),
-            &[Var(id, 1), Val(c), Op('+')] => Ok((id, c as isize)),
+            [Val(c)] => Ok((0, *c as isize)),
+            [Var(id, 1)] => Ok((*id, 0)),
+            [Var(id, 1), Val(c), Op('+')] => Ok((*id, *c as isize)),
             _ => Err(anyhow!("RANGE1 / RANGE2 expression must be relative to input segment boundaries.")),
         }
     }
@@ -178,14 +178,14 @@ impl SegmentMapper {
         debug_assert!(input.len() == self.expected_input_len);
 
         let eval = |coef: &(usize, isize), input: &[isize]| -> isize { input[coef.0].saturating_add(coef.1) };
-        (eval(&self.start, input), eval(&self.end, &input))
+        (eval(&self.start, input), eval(&self.end, input))
     }
 
     pub fn map_dep(&self, input: &[bool]) -> (bool, bool) {
         debug_assert!(input.len() == self.expected_input_len);
 
         let eval = |coef: &(usize, isize), input: &[bool]| -> bool { input[coef.0] };
-        (eval(&self.start, input), eval(&self.end, &input))
+        (eval(&self.start, input), eval(&self.end, input))
     }
 
     pub fn is_single(&self) -> bool {

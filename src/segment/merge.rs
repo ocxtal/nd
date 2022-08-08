@@ -14,7 +14,7 @@ use super::tester::*;
 #[cfg(test)]
 use super::ConstSlicer;
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct MergerParams {
     extend: (isize, isize),
     invert: (isize, isize),

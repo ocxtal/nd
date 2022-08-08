@@ -10,7 +10,7 @@ use std::ops::Range;
 use crate::eval::Token::*;
 
 #[allow(dead_code)]
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Token {
     Nop,
     Val(i64),
@@ -234,16 +234,7 @@ where
         it.next()?;
     }
 
-    if vars.is_none() {
-        return None;
-    }
-
-    let var = vars.unwrap().get(v.as_slice());
-    if var.is_none() {
-        return None;
-    }
-
-    let var = var.unwrap();
+    let var = vars?.get(v.as_slice())?;
     if var.is_array {
         Some(VarArr(var.id))
     } else {
@@ -620,7 +611,7 @@ fn rotate_left(tokens: &mut [(Token, usize)]) -> Option<(bool, usize)> {
             // x + (y - z) => (x + y) - z
             ((Op(op2), rlhs), (Op(op1), lhs)) if is_comm_2(op1, op2) => {
                 let zpos = (root - 1) - rlhs + 1;
-                (&mut tokens[zpos..]).rotate_right(1);
+                tokens[zpos..].rotate_right(1);
 
                 let (s1, op1) = peel_sign_from_op(op1);
                 let (s2, op2) = peel_sign_from_op(op2);
@@ -666,7 +657,7 @@ fn sort_tokens(tokens: &mut [(Token, usize)]) -> Option<(bool, usize)> {
 
             if needs_swap(&tokens[lhs - 1].0, &y) {
                 // (x (s1,op1) y) (s2,op2) z = s2(s1(x op1 y) op2 z) = pf1pf2((x op1 y) (s1,op2) z)
-                (&mut tokens[lhs - llhs + 1..]).rotate_left(llhs);
+                tokens[lhs - llhs + 1..].rotate_left(llhs);
 
                 save_and_flip(tokens, root - llhs, Op(op2), root - lhs);
                 save_and_flip(tokens, root, Op(op1), llhs);
@@ -686,7 +677,7 @@ fn sort_tokens(tokens: &mut [(Token, usize)]) -> Option<(bool, usize)> {
                 // y + x => x + y
                 let (xlen, ylen) = (root - (lhs + 1), lhs + 1);
                 tokens.rotate_left(ylen);
-                (&mut tokens[xlen..]).rotate_left(1);
+                tokens[xlen..].rotate_left(1);
 
                 save_and_flip(tokens, root, Op(swap_op_hands(op)), ylen + 1);
                 return Some((false, root));
@@ -897,7 +888,7 @@ fn remove_prefix_binary(tokens: &mut [(Token, usize)]) -> Option<usize> {
         (x, y, Op(op)) if is_addsub(op) => {
             let (s1, lhs, root) = match x {
                 (Prefix(s1), llhs) => {
-                    (&mut tokens[lhs - llhs + 1..]).rotate_left(llhs);
+                    tokens[lhs - llhs + 1..].rotate_left(llhs);
                     (s1, lhs - llhs, root - llhs)
                 }
                 _ => ('+', lhs, root),
@@ -1252,14 +1243,14 @@ fn to_string(tokens: &[(Token, usize)], vars: &HashMap<usize, &[u8]>, v: &mut St
 }
 
 // public API
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Rpn {
     rpn: Vec<(Token, usize)>,
 }
 
 impl Rpn {
     pub fn new(input: &str, vars: Option<&HashMap<&[u8], VarAttr>>) -> Result<Self> {
-        if input.len() == 0 {
+        if input.is_empty() {
             return Err(anyhow!("empty input expression"));
         }
 
@@ -1428,6 +1419,7 @@ fn test_parse_usize() {
     assert!(parse_usize("-1").is_err());
 }
 
+#[allow(dead_code)]
 pub fn parse_isize(s: &str) -> Result<isize> {
     let val = parse_int(s);
     if let Err(e) = val {
@@ -1525,6 +1517,7 @@ fn test_parse_usize_pair() {
     assert!(parse_usize_pair("1,-1").is_err());
 }
 
+#[allow(dead_code)]
 pub fn parse_isize_pair(s: &str) -> Result<(isize, isize)> {
     let vals = parse_delimited(s, ",")?;
     if vals.len() != 2 {

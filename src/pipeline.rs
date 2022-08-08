@@ -103,7 +103,7 @@ pub struct PipelineArgs {
 // }
 
 #[allow(dead_code)]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Node {
     // input placeholders: Read -> ByteStream
     Cat,
@@ -206,7 +206,7 @@ impl Pipeline {
         if let Some(file) = &m.patch {
             nodes.push(Patch(file.to_string()));
         }
-        if let Some(_) = &m.patch_back {
+        if m.patch_back.is_some() {
             nodes.push(Tee);
         }
 
@@ -226,7 +226,7 @@ impl Pipeline {
             nodes.push(Regex(pattern.to_string()));
         }
 
-        let merger = MergerParams::from_raw(m.extend.clone(), m.invert.clone(), m.merge)?;
+        let merger = MergerParams::from_raw(m.extend, m.invert, m.merge)?;
         if merger != MergerParams::default() {
             nodes.push(Merger(merger));
         }
@@ -306,7 +306,7 @@ impl Pipeline {
             (cache, node) = match (next, node) {
                 (Clipper(clipper), NodeInstance::Byte(prev)) => {
                     eprintln!("Clipper");
-                    let next = Box::new(ClipStream::new(prev, &clipper));
+                    let next = Box::new(ClipStream::new(prev, clipper));
                     (cache, NodeInstance::Byte(next))
                 }
                 (Patch(file), NodeInstance::Byte(prev)) => {
@@ -327,7 +327,7 @@ impl Pipeline {
                 }
                 (Find(pattern), NodeInstance::Byte(prev)) => {
                     eprintln!("Find");
-                    let next = Box::new(ExactMatchSlicer::new(prev, &pattern));
+                    let next = Box::new(ExactMatchSlicer::new(prev, pattern));
                     (cache, NodeInstance::Segment(next))
                 }
                 (SliceBy(file), NodeInstance::Byte(prev)) => {
@@ -342,17 +342,17 @@ impl Pipeline {
                 }
                 (Regex(pattern), NodeInstance::Segment(prev)) => {
                     eprintln!("Regex");
-                    let next = Box::new(RegexSlicer::new(prev, &pattern));
+                    let next = Box::new(RegexSlicer::new(prev, pattern));
                     (cache, NodeInstance::Segment(next))
                 }
                 (Merger(merger), NodeInstance::Segment(prev)) => {
                     eprintln!("Merger");
-                    let next = Box::new(MergeStream::new(prev, &merger));
+                    let next = Box::new(MergeStream::new(prev, merger));
                     (cache, NodeInstance::Segment(next))
                 }
                 (Foreach(args), NodeInstance::Segment(prev)) => {
                     eprintln!("Foreach");
-                    let next = Box::new(ForeachStream::new(prev, &args));
+                    let next = Box::new(ForeachStream::new(prev, args));
                     (cache, NodeInstance::Segment(next))
                 }
                 (Scatter(file), NodeInstance::Segment(prev)) => {
@@ -362,7 +362,7 @@ impl Pipeline {
                 }
                 (PatchBack(command), NodeInstance::Segment(prev)) => {
                     eprintln!("PatchBack");
-                    let next = Box::new(PatchDrain::new(prev, cache.unwrap(), &command, &self.out_format));
+                    let next = Box::new(PatchDrain::new(prev, cache.unwrap(), command, &self.out_format));
                     (None, NodeInstance::Byte(next))
                 }
                 (next, _) => return Err(anyhow!("unallowed node {:?} found after (internal error)", next)),

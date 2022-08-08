@@ -12,7 +12,7 @@ use super::tester::*;
 #[cfg(test)]
 use rand::Rng;
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ClipperParams {
     pub pad: (usize, usize),
     pub clip: (usize, usize),

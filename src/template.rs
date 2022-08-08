@@ -8,17 +8,20 @@ use std::collections::HashMap;
 
 use crate::eval::{Rpn, VarAttr};
 
+#[allow(dead_code)]
 #[derive(Debug)]
 struct TemplateElement {
     fixed: String,
     var: Option<(Rpn, NumFmt)>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct Template {
     elems: Vec<TemplateElement>,
 }
 
+#[allow(dead_code)]
 impl Template {
     pub fn from_str(input: &str, vars: Option<&HashMap<&[u8], VarAttr>>) -> Result<Self> {
         // parsing std::fmt-style formatter string
@@ -40,7 +43,7 @@ impl Template {
             let name = Rpn::new(name.as_str(), vars)?;
 
             let spec = args.get(2).unwrap();
-            let spec = if spec.as_str().len() == 0 { "" } else { &spec.as_str()[1..] };
+            let spec = if spec.as_str().is_empty() { "" } else { &spec.as_str()[1..] };
             let spec = NumFmt::from_str(spec)?;
 
             // expression (variable) and formatter specifier are both sane; move onto composing TemplateElement

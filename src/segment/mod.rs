@@ -34,7 +34,7 @@ use crate::params::MARGIN_SIZE;
 #[cfg(test)]
 use rand::Rng;
 
-#[derive(Copy, Clone, Debug, Default, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Segment {
     pub pos: usize,
     pub len: usize,

@@ -29,7 +29,7 @@ impl ScatterDrain {
         let formatter = TextFormatter::new(format, (0, 0), 0);
 
         // when "-" or nothing specified, we treat it as stdout
-        let file = if file == "" || file == "-" {
+        let file = if file.is_empty() || file == "-" {
             None
         } else {
             Some(std::fs::OpenOptions::new().read(false).write(true).open(file)?)
