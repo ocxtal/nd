@@ -43,29 +43,51 @@ impl MergerParams {
 
 // We use an array of `SegmentMap` to locate which result segment built from which input
 // segments. The array is build along with the merge operation, and every i-th element
-// corresponds to the i-th input. The `target` field tells the index of the result (merged)
-// segment that  corresponds to the i-th input segment. Also, `head` tells the relative
-// index of the first input segment from which the result segment is built.
+// corresponds to the i-th input. The `to_target` field tells the relative index of the
+// merged segment that corresponds to the i-th input segment. Also, `to_first` tells the
+// relative index of the first input segment from which the result segment is built.
 #[derive(Copy, Clone, Debug)]
 struct SegmentMap {
-    target: usize,
-    head: usize,
+    to_target: usize,
+    to_first: usize,
 }
 
 // working variable; segments are accumulated onto this
 #[derive(Copy, Clone, Debug)]
-struct SegmentAccumulator {
+struct Accumulator {
+    // states for the current segment pile
     count: usize,
     start: isize,
     end: isize,
+
+    // states for the current segment slice
+    is_eof: bool,
+    bytes: usize,
+    tail_limit: usize,
+
+    min_len: usize,
+    extend: (isize, isize),
+    merge_threshold: isize,
 }
 
-impl SegmentAccumulator {
-    fn from_raw(segment: &Segment, extend: (isize, isize)) -> Self {
-        SegmentAccumulator {
-            count: 1,
-            start: segment.pos as isize - extend.0,
-            end: segment.tail() as isize,
+impl Accumulator {
+    fn new(params: &MergerParams) -> Self {
+        // minimum input segment length whose length becomes > 0 after extension
+        let min_len = std::cmp::max(0, -(params.extend.0 + params.extend.1)) as usize;
+
+        // include extension amounts into the threshold
+        let merge_threshold = params.merge_threshold - params.extend.0 - params.extend.1;
+
+        Accumulator {
+            count: 0,
+            start: isize::MAX,
+            end: isize::MAX,
+            is_eof: false,
+            bytes: 0,
+            tail_limit: 0,
+            min_len,
+            extend: params.extend,
+            merge_threshold,
         }
     }
 
@@ -78,20 +100,80 @@ impl SegmentAccumulator {
         std::cmp::min(self.end, end) - start
     }
 
-    fn append(&mut self, segment: &Segment) {
-        self.count += 1;
-        self.end = std::cmp::max(self.end, segment.tail() as isize);
+    fn init(&mut self, segment: &Segment) {
+        self.count = 1;
+        self.start = segment.pos as isize - self.extend.0;
+        self.end = segment.tail() as isize;
     }
 
-    fn to_segment(self, extend: (isize, isize), tail_limit: usize) -> Segment {
+    fn pop(&mut self) -> Segment {
         let pos = std::cmp::max(0, self.start) as usize;
-        let tail = std::cmp::max(0, self.end + extend.1) as usize;
-        let tail = std::cmp::min(tail, tail_limit);
+        let tail = std::cmp::max(0, self.end + self.extend.1) as usize;
+        let tail = std::cmp::min(tail, self.tail_limit);
+
+        // clear the current state
+        self.count = 0;
+        self.start = isize::MAX;
+        self.end = isize::MAX;
 
         Segment { pos, len: tail - pos }
     }
 
-    fn scanned(&self) -> usize {
+    fn resume(&mut self, is_eof: bool, bytes: usize, segment: &Segment) -> bool {
+        // update state for the current slice
+        self.is_eof = is_eof;
+        self.bytes = bytes;
+        self.tail_limit = if is_eof { bytes } else { usize::MAX };
+
+        // if the accumulator has a liftover, the first segment is not consumed
+        // in `resume`, and forwarded to the first `append` calls
+        if self.count > 0 {
+            return false;
+        }
+
+        // the accumulator is empty, and it's initialized with the first segment
+        self.init(segment);
+        true
+    }
+
+    fn append(&mut self, segment: &Segment) -> Option<Segment> {
+        if self.count == 0 {
+            self.init(segment);
+            return None;
+        }
+
+        // extend; src_scanned if it diminishes after extension
+        if segment.len < self.min_len {
+            return None;
+        }
+
+        // merge if overlap is large enough, and go segment
+        if self.overlap(segment) >= self.merge_threshold {
+            self.count += 1;
+            self.end = std::cmp::max(self.end, segment.tail() as isize);
+            return None;
+        }
+
+        let popped = self.pop();
+        self.init(segment);
+
+        Some(popped)
+    }
+
+    fn suspend(&mut self) -> Option<Segment> {
+        debug_assert!(self.end <= self.bytes as isize);
+        if !self.is_eof && self.end - self.merge_threshold <= self.bytes as isize {
+            return None;
+        }
+
+        Some(self.pop())
+    }
+
+    fn count(&self) -> usize {
+        self.count
+    }
+
+    fn curr_tail(&self) -> usize {
         std::cmp::max(0, self.start) as usize
     }
 
@@ -108,45 +190,41 @@ pub struct MergeStream {
     map: Vec<SegmentMap>,
 
     // the last unclosed segment in the previous `extend_segment_buf`
-    acc: Option<SegmentAccumulator>,
-    skip: usize,
+    acc: Accumulator,
 
+    // #segments that are not consumed in the source but already accumulated to `acc`
+    // note: not the count from the beginning of the source stream
+    src_scanned: usize,
+
+    // #segments that are already consumed in the `segments` array
+    target_consumed: usize,
+
+    // minimum input stream length in bytes to forward the state
     min_fill_bytes: usize,
-    min_len: usize,
-    extend: (isize, isize),
-    merge_threshold: isize,
 }
 
 impl MergeStream {
     pub fn new(src: Box<dyn SegmentStream>, params: &MergerParams) -> Self {
+        // FIXME: max_dist must take invert into account
+
+        // let max_dist = calc_max_dist(params);
         let max_dist = std::cmp::max(params.extend.0.abs(), params.extend.1.abs()) as usize;
         let min_fill_bytes = std::cmp::max(BLOCK_SIZE, 2 * max_dist);
-
-        // minimum input segment length whose length becomes > 0 after extension
-        let min_len = std::cmp::max(0, -(params.extend.0 + params.extend.1)) as usize;
-
-        // include extension amounts into the threshold
-        let merge_threshold = params.merge_threshold - params.extend.0 - params.extend.1;
 
         MergeStream {
             src,
             segments: Vec::new(),
             map: Vec::new(),
-            acc: None,
-            skip: 0,
+            acc: Accumulator::new(params),
+            src_scanned: 0,
+            target_consumed: 0,
             min_fill_bytes,
-            min_len,
-            extend: params.extend,
-            merge_threshold,
         }
     }
 
     fn fill_segment_buf_impl(&mut self) -> std::io::Result<(bool, usize, usize)> {
-        let min_fill_bytes = if let Some(acc) = self.acc {
-            std::cmp::min(self.min_fill_bytes, acc.scanned() + 1)
-        } else {
-            self.min_fill_bytes
-        };
+        // TODO: implement SegmentStream variant for the EofStream and use it
+        let min_fill_bytes = std::cmp::min(self.min_fill_bytes, self.acc.curr_tail() + 1);
 
         let mut prev_bytes = 0;
         loop {
@@ -166,83 +244,80 @@ impl MergeStream {
     }
 
     fn extend_segment_buf(&mut self, is_eof: bool, bytes: usize) {
-        let tail_limit = if is_eof { bytes } else { usize::MAX };
-
         let (_, segments) = self.src.as_slices();
-        debug_assert!(segments.len() > self.skip);
+        debug_assert!(segments.len() > self.src_scanned);
 
         // extend the current segment array, with the new segments extended and merged
-        let (mut acc, skip) = if let Some(acc) = self.acc {
-            (acc, self.skip)
-        } else {
-            (SegmentAccumulator::from_raw(&segments[0], self.extend), 1)
-        };
-
-        let mut head = 0; // first input segment that corresponds to the accumulator
-        for (i, next) in segments[skip..].iter().enumerate() {
-            self.map.push(SegmentMap {
-                target: self.segments.len(),
-                head: i - head, // convert to relative index
-            });
-
-            // extend; skip if it diminishes after extension
-            if next.len < self.min_len {
-                continue;
-            }
-
-            // merge if overlap is large enough, and go next
-            if acc.overlap(next) >= self.merge_threshold {
-                acc.append(next);
-                continue;
-            }
-
-            // the merge chain breaks at the current segment; flush the content of the accumulator
-            self.segments.push(acc.to_segment(self.extend, tail_limit));
-            acc = SegmentAccumulator::from_raw(next, self.extend);
-            head = i + 1;
+        let consumed = self.acc.resume(is_eof, bytes, &segments[self.src_scanned]);
+        if consumed {
+            let to_target = self.target_consumed + self.segments.len();
+            self.map.push(SegmentMap { to_target, to_first: 0 });
         }
 
-        debug_assert!(acc.end <= bytes as isize);
-        if is_eof || acc.end - self.merge_threshold > bytes as isize {
-            self.segments.push(acc.to_segment(self.extend, tail_limit));
-            self.acc = None;
-        } else {
-            self.acc = Some(acc);
+        let src_scanned = self.src_scanned + consumed as usize;
+        for next in &segments[src_scanned..] {
+            let to_target = self.target_consumed + self.segments.len();
+            let to_first = self.acc.count();
+
+            if let Some(s) = self.acc.append(next) {
+                self.segments.push(s);
+                self.map.push(SegmentMap { to_target, to_first: 0 });
+            } else {
+                self.map.push(SegmentMap { to_target, to_first });
+            }
         }
+
+        if let Some(s) = self.acc.suspend() {
+            // the accumulator is popped as the last segment
+            self.segments.push(s);
+        }
+
+        // update src_scanned (this gives the exactly the same result as
+        // `self.src_scanned += segments[self.src_scanned..].iter().count();`)
+        self.src_scanned = segments.len() + self.acc.count();
     }
 
-    fn consume_map_array(&mut self, count: usize) -> usize {
-        // takes #segments that are consumed in the source,
-        // and computes #segments to be consumed in this merger.
-
-        // if no segment was consumed in the source, so as this
-        if count == 0 {
-            return 0;
-        }
+    fn consume_map_array(&mut self, bytes: usize, count: usize) -> usize {
+        // this method takes #segments that are consumed in the source,
+        // and computes #segments to be consumed in this merger (consumed in `self.segments`).
+        self.src_scanned -= count;
         if count >= self.map.len() {
-            debug_assert!(count <= self.map.len() + 1);
-
             self.map.clear();
             return self.segments.len();
         }
 
-        // input segments -> output (merged) segment mapping
+        // first determine the number of segments that overlap with the consumed range
+        // (this is caused by extending segments headward)
+        let skip = self.map[count..].partition_point(|m| {
+            let target_index = m.to_target - self.target_consumed;
+            self.segments[target_index].pos < bytes
+        });
+        let count = count + skip;
+
+        // all segments are consumed
+        if count >= self.map.len() {
+            self.map.clear();
+            return self.segments.len();
+        }
+
+        // mapping from input segment -> target segment that the input segment contributed
         debug_assert!(count < self.map.len());
         let map = self.map[count];
 
-        let from = count - map.head;
+        let from = count - map.to_first;
         let to = self.map.len();
 
         self.map.copy_within(from..to, 0);
         self.map.truncate(to - from);
 
-        map.target
+        // calculate the number of segments to be consumed in the `self.segments` array
+        map.to_target - self.target_consumed
     }
 
     fn consume_segment_array(&mut self, bytes: usize, count: usize) {
-        // first remove elements from the segment array
         debug_assert!(count <= self.segments.len());
 
+        // remove elements from the segment array
         let from = count;
         let to = self.segments.len();
 
@@ -252,6 +327,7 @@ impl MergeStream {
         for s in &mut self.segments {
             s.pos -= bytes;
         }
+        self.target_consumed += from;
     }
 }
 
@@ -259,7 +335,7 @@ impl SegmentStream for MergeStream {
     fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)> {
         let (is_eof, bytes, count) = self.fill_segment_buf_impl()?;
 
-        if bytes > 0 && count > self.skip {
+        if bytes > 0 && count > self.src_scanned {
             self.extend_segment_buf(is_eof, bytes);
         }
         Ok((bytes, self.segments.len()))
@@ -271,24 +347,17 @@ impl SegmentStream for MergeStream {
     }
 
     fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)> {
-        let bytes = std::cmp::min(bytes, self.acc.map_or(bytes, |x| x.scanned()));
+        let bytes = std::cmp::min(bytes, self.acc.curr_tail());
         let (bytes, src_count) = self.src.consume(bytes)?;
 
         // update the segment array using the input-result segment map table
         // this returns #segments to be consumed in this merger
-        let target_count = self.consume_map_array(src_count);
+        let target_count = self.consume_map_array(bytes, src_count);
         self.consume_segment_array(bytes, target_count);
 
         // update states
-        if let Some(ref mut acc) = self.acc {
-            acc.unwind(bytes);
-        }
+        self.acc.unwind(bytes);
 
-        self.skip = if let Some(acc) = self.acc {
-            self.segments.len() + acc.count
-        } else {
-            self.segments.len()
-        };
         Ok((bytes, target_count))
     }
 }
@@ -310,7 +379,58 @@ macro_rules! test {
     ( $name: ident, $inner: ident ) => {
         #[test]
         fn $name() {
-            $inner(b"", &bind!(None, None, None), &[]);
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind!(None, None, None),
+                &[(0..9).into(), (7..13).into(), (11..21).into()],
+            );
+
+            // extend
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind!(Some((0, 2)), None, None),
+                &[(0..11).into(), (7..15).into(), (11..21).into()],
+            );
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind!(Some((2, 0)), None, None),
+                &[(0..9).into(), (5..13).into(), (9..21).into()],
+            );
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind!(Some((2, 3)), None, None),
+                &[(0..12).into(), (5..16).into(), (9..21).into()],
+            );
+
+            // merge
+            $inner(b"abcdefghijklmnopqrstu", &bind!(None, None, Some(2)), &[(0..21).into()]);
+            $inner(b"abcdefghijklmnopqrstu", &bind!(None, None, Some(-2)), &[(0..21).into()]);
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind!(None, None, Some(3)),
+                &[(0..9).into(), (7..13).into(), (11..21).into()],
+            );
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind!(None, None, Some(5)),
+                &[(0..9).into(), (7..13).into(), (11..21).into()],
+            );
+
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind!(Some((2, 3)), None, Some(2)),
+                &[(0..21).into()],
+            );
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind!(Some((2, 3)), None, Some(7)),
+                &[(0..21).into()],
+            );
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind!(Some((2, 3)), None, Some(8)),
+                &[(0..12).into(), (5..16).into(), (9..21).into()],
+            );
         }
     };
 }
