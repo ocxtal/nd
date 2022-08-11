@@ -631,7 +631,7 @@ fn gen_guide(pattern: &[Segment], pitch: usize, repeat: usize) -> Vec<u8> {
 macro_rules! test_long_impl {
     ( $inner: ident, $pattern: expr, $merged: expr, $extend: expr, $merge: expr ) => {
         let pitch = 1000;
-        let repeat = 1;
+        let repeat = 10;
 
         let mut rng = rand::thread_rng();
         let v = (0..pitch * repeat).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();

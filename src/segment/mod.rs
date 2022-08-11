@@ -3,7 +3,7 @@
 // @date 2022/2/4
 
 // mod and;
-// mod bridge;
+mod bridge;
 mod exact;
 mod guided;
 mod hamming;
@@ -15,7 +15,7 @@ mod stride;
 mod walk;
 
 // pub use self::and::AndStream;
-// pub use self::bridge::BridgeStream;
+pub use self::bridge::BridgeStream;
 pub use self::exact::ExactMatchSlicer;
 pub use self::guided::GuidedSlicer;
 pub use self::hamming::HammingSlicer;
