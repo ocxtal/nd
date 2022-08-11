@@ -1521,7 +1521,7 @@ fn test_parse_usize_pair() {
 pub fn parse_isize_pair(s: &str) -> Result<(isize, isize)> {
     let vals = parse_delimited(s, ",")?;
     if vals.len() != 2 {
-        return Err(anyhow!("\"N:M\" format expected for this option."));
+        return Err(anyhow!("\"N,M\" format expected for this option."));
     }
 
     let head_raw = vals[0].unwrap_or(0);
@@ -1560,7 +1560,7 @@ fn test_parse_isize_pair() {
 pub fn parse_range(s: &str) -> Result<Range<usize>> {
     let vals = parse_delimited(s, "..")?;
     if vals.len() != 2 {
-        return Err(anyhow!("\"S..E\" format expected for this option (got: {:?}).", s));
+        return Err(anyhow!("\"N..M\" format expected for this option (got: {:?}).", s));
     }
 
     if vals.iter().map(|x| x.unwrap_or(0)).any(|x| x < 0) {
