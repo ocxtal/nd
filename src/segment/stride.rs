@@ -165,6 +165,10 @@ impl ConstSegments {
     }
 
     fn patch_head(&mut self) {
+        // if the `self.segment` has the first segment at [0] and `open_ended == true`,
+        // we extend the first segment to the start of the stream
+        //
+        // note: `self.init_state.min_bytes_to_escape` is non-zero until the first non-zero-byte consume
         if self.init_state.min_bytes_to_escape == 0 || !self.open_ended.0 || self.segments.is_empty() {
             return;
         }
@@ -175,6 +179,11 @@ impl ConstSegments {
     }
 
     fn patch_tail(&mut self, len: usize) {
+        // if the `self.segment` has the last segment and `open_ended == true`,
+        // we extend the last segment to the end of the stream
+        //
+        // note: this method is called only from extend_segments_with_clip, which is called
+        // only when the EOF found in the source stream
         if !self.open_ended.1 || self.segments.is_empty() {
             return;
         }
