@@ -2,6 +2,8 @@
 // @author Hajime Suzuki
 
 use super::{Segment, SegmentStream};
+use crate::mapper::SegmentMapper;
+use anyhow::Result;
 
 #[cfg(test)]
 use crate::byte::tester::*;
@@ -26,32 +28,33 @@ pub struct BridgeStream {
     // note: not the count from the beginning of the source stream
     src_scanned: usize,
 
-    offsets: (isize, isize),
+    mapper: SegmentMapper,
 }
 
 impl BridgeStream {
-    pub fn new(src: Box<dyn SegmentStream>, offsets: (isize, isize)) -> Self {
-        BridgeStream {
+    pub fn new(src: Box<dyn SegmentStream>, expr: &str) -> Result<Self> {
+        Ok(BridgeStream {
             src,
             segments: Vec::new(),
             next_start: 0,
             src_scanned: 0,
-            offsets,
-        }
+            mapper: SegmentMapper::from_str(expr, Some(["e", "s"]))?,
+        })
     }
 
     fn extend_segment_buf(&mut self, is_eof: bool, count: usize, bytes: usize) {
+        let tail = if is_eof { bytes } else { usize::MAX };
+
         let (_, segments) = self.src.as_slices();
 
         let mut start = self.next_start;
         if count > self.src_scanned {
             for &next in &segments[self.src_scanned..count] {
-                let len = (next.len + 1) as isize;
-                let end_offset = self.offsets.1.rem_euclid(len) as usize;
-                let next_start_offset = self.offsets.0.rem_euclid(len) as usize;
+                let next = [next.pos as isize, next.tail() as isize];
+                let (next_start, end) = self.mapper.evaluate(&next, &next);
 
-                let end = next.pos + end_offset;
-                let next_start = next.pos + next_start_offset;
+                let end = (end.max(0) as usize).min(tail);
+                let next_start = (next_start.max(0) as usize).min(tail);
 
                 if start < end {
                     self.segments.push(Segment {
@@ -117,7 +120,7 @@ macro_rules! bind_closed {
             let src = Box::new(MockSource::new(pattern));
             let src = Box::new(ConstSlicer::new(src, (3, 3), (false, false), $pitch, $span));
 
-            Box::new(BridgeStream::new(src, $offsets))
+            Box::new(BridgeStream::new(src, $offsets).unwrap())
         }
     };
 }
@@ -129,7 +132,7 @@ macro_rules! bind_open {
             let src = Box::new(MockSource::new(pattern));
             let src = Box::new(ConstSlicer::new(src, (3, 3), (true, true), $pitch, $span));
 
-            Box::new(BridgeStream::new(src, $offsets))
+            Box::new(BridgeStream::new(src, $offsets).unwrap())
         }
     };
 }
@@ -138,68 +141,121 @@ macro_rules! test {
     ( $name: ident, $inner: ident ) => {
         #[test]
         fn $name() {
-            // invert without margin
+            // invert without margin w/ default anchors
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_closed!(4, 2, (-1, 0)),
+                &bind_closed!(4, 2, "0..0"),
+                &[(0..3).into(), (5..7).into(), (9..11).into(), (13..15).into(), (17..21).into()],
+            );
+
+            // invert without margin w/ explicit anchors
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_closed!(4, 2, "e..s"),
                 &[(0..3).into(), (5..7).into(), (9..11).into(), (13..15).into(), (17..21).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_open!(4, 2, (-1, 0)),
+                &bind_open!(4, 2, "e..s"),
                 &[(5..7).into(), (9..11).into(), (13..15).into()],
             );
 
             // invert with leftward margin
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_closed!(4, 2, (-2, 0)),
+                &bind_closed!(4, 2, "e - 1..s"),
                 &[(0..3).into(), (4..7).into(), (8..11).into(), (12..15).into(), (16..21).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_open!(4, 2, (-2, 0)),
+                &bind_open!(4, 2, "e - 1..s"),
                 &[(4..7).into(), (8..11).into(), (12..15).into(), (20..21).into()],
             );
 
             // invert with rightward margin
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_closed!(4, 2, (-1, 1)),
+                &bind_closed!(4, 2, "e..s + 1"),
                 &[(0..4).into(), (5..8).into(), (9..12).into(), (13..16).into(), (17..21).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_open!(4, 2, (-1, 1)),
+                &bind_open!(4, 2, "e..s + 1"),
                 &[(0..1).into(), (5..8).into(), (9..12).into(), (13..16).into()],
             );
 
             // larger
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_closed!(4, 2, (-3, 2)),
+                &bind_closed!(4, 2, "e - 2..s + 2"),
                 &[(0..5).into(), (3..9).into(), (7..13).into(), (11..17).into(), (15..21).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_open!(4, 2, (-3, 2)),
+                &bind_open!(4, 2, "e - 2..s + 2"),
                 &[(0..2).into(), (3..9).into(), (7..13).into(), (11..17).into(), (19..21).into()],
             );
 
             // diminish
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_closed!(4, 4, (-1, 0)),
+                &bind_closed!(4, 4, "e..s"),
                 &[(0..3).into(), (15..21).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_closed!(4, 6, (-1, 0)),
+                &bind_closed!(4, 6, "e..s"),
                 &[(0..3).into(), (17..21).into()],
             );
 
-            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 4, (-1, 0)), &[]);
-            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 6, (-1, 0)), &[]);
+            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 4, "e..s"), &[]);
+            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 6, "e..s"), &[]);
+
+            // closed ends (s..e)
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_closed!(4, 2, "s..e"),
+                &[(0..5).into(), (3..9).into(), (7..13).into(), (11..17).into(), (15..21).into()],
+            );
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_open!(4, 2, "s..e"),
+                &[(0..5).into(), (0..9).into(), (7..13).into(), (11..21).into(), (15..21).into()],
+            );
+
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_closed!(4, 2, "s + 1..e - 1"),
+                &[(0..4).into(), (4..8).into(), (8..12).into(), (12..16).into(), (16..21).into()],
+            );
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_open!(4, 2, "s + 1..e - 1"),
+                &[(0..4).into(), (1..8).into(), (8..12).into(), (12..20).into(), (16..21).into()],
+            );
+
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_closed!(4, 2, "s - 1..e + 1"),
+                &[
+                    (0..6).into(),
+                    (2..10).into(),
+                    (6..14).into(),
+                    (10..18).into(),
+                    (14..21).into(),
+                ],
+            );
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_open!(4, 2, "s - 1..e + 1"),
+                &[
+                    (0..6).into(),
+                    (0..10).into(),
+                    (6..14).into(),
+                    (10..21).into(),
+                    (14..21).into(),
+                ],
+            );
         }
     };
 }
@@ -264,7 +320,7 @@ macro_rules! test_long_impl {
             let guide = Box::new(MockSource::new(&guide));
             let src = Box::new(GuidedSlicer::new(src, guide));
 
-            Box::new(BridgeStream::new(src, $offsets))
+            Box::new(BridgeStream::new(src, $offsets).unwrap())
         };
 
         $inner(&v, &bind, &expected);
@@ -285,13 +341,13 @@ macro_rules! test_long {
                 (800..900).into(),
             ];
 
+            // segment-exclusive
             test_long_impl!(
                 $inner,
                 &pattern,
                 &[(0..100).into(), (450..500).into(), (600..700).into(), (900..1000).into(),],
-                (-1, 0)
+                "e..s"
             );
-
             test_long_impl!(
                 $inner,
                 &pattern,
@@ -303,7 +359,39 @@ macro_rules! test_long {
                     (800..810).into(),
                     (890..1000).into(),
                 ],
-                (-11, 10)
+                "e - 10..s + 10"
+            );
+
+            // segment-inclusive
+            test_long_impl!(
+                $inner,
+                &pattern,
+                &[
+                    (0..220).into(),
+                    (100..300).into(),
+                    (200..450).into(),
+                    (300..410).into(),
+                    (400..600).into(),
+                    (500..810).into(),
+                    (700..900).into(),
+                    (800..1000).into(),
+                ],
+                "s..e"
+            );
+            test_long_impl!(
+                $inner,
+                &pattern,
+                &[
+                    (0..210).into(),
+                    (110..290).into(),
+                    (210..440).into(),
+                    (310..400).into(),
+                    (410..590).into(),
+                    (510..800).into(),
+                    (710..890).into(),
+                    (810..1000).into(),
+                ],
+                "s + 10..e - 10"
             );
         }
     };

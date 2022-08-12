@@ -76,8 +76,8 @@ pub struct PipelineArgs {
     #[clap(short = 'x', long = "extend", value_name = "S,E", value_parser = parse_range)]
     extend: Option<(isize, isize)>,
 
-    #[clap(short = 'v', long = "invert", value_name = "S,E", value_parser = parse_range)]
-    invert: Option<(isize, isize)>,
+    #[clap(short = 'v', long = "invert", value_name = "S,E")]
+    invert: Option<String>,
 
     #[clap(short = 'm', long = "merge", value_name = "N", value_parser = parse_usize)]
     merge: Option<isize>,
@@ -110,7 +110,7 @@ pub enum Node {
     Walk(Vec<String>),
     // SegmentFilters: SegmentStream -> SegmentStream
     Regex(String),
-    Bridge((isize, isize)),
+    Bridge(String),
     Merger(MergerParams),
     Foreach(String), // Foreach(Vec<Node>),
     // Post-processing: SegmentStream -> ByteStream (Read)
@@ -219,7 +219,7 @@ impl Pipeline {
         }
 
         if let Some(invert) = &m.invert {
-            nodes.push(Bridge(*invert));
+            nodes.push(Bridge(invert.to_string()));
         }
 
         let merger = MergerParams::from_raw(m.extend, m.merge)?;
@@ -341,9 +341,9 @@ impl Pipeline {
                     let next = Box::new(RegexSlicer::new(prev, pattern));
                     (cache, NodeInstance::Segment(next))
                 }
-                (Bridge(bridge), NodeInstance::Segment(prev)) => {
+                (Bridge(invert), NodeInstance::Segment(prev)) => {
                     eprintln!("Bridge");
-                    let next = Box::new(BridgeStream::new(prev, *bridge));
+                    let next = Box::new(BridgeStream::new(prev, invert)?);
                     (cache, NodeInstance::Segment(next))
                 }
                 (Merger(merger), NodeInstance::Segment(prev)) => {
