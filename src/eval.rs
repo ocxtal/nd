@@ -1265,6 +1265,7 @@ impl Rpn {
         Ok(Rpn { rpn })
     }
 
+    #[allow(dead_code)]
     pub fn tokens(&self) -> Vec<Token> {
         self.rpn.iter().map(|x| x.0).collect::<Vec<_>>()
     }
