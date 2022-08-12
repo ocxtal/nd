@@ -1,4 +1,4 @@
-// @file merger.rs
+// @file merge.rs
 // @author Hajime Suzuki
 
 use super::{Segment, SegmentStream};
@@ -215,7 +215,7 @@ pub struct MergeStream {
     // #segments that are not consumed in the source but already accumulated to `acc`
     // note: not the count from the beginning of the source stream
     src_scanned: usize,
-    src_consumed: usize,
+    src_consumed: usize, // # segments consumed in the source
 
     // #segments that are already consumed in the `segments` array
     target_consumed: usize,
@@ -660,12 +660,13 @@ macro_rules! test_long {
                 (100..220).into(),
                 (200..300).into(),
                 (300..450).into(),
+                (400..410).into(),
                 (500..600).into(),
                 (700..810).into(),
                 (800..900).into(),
             ];
 
-            // test_long_impl!($inner, &pattern, &pattern, None, None);
+            test_long_impl!($inner, &pattern, &pattern, None, None);
             test_long_impl!(
                 $inner,
                 &pattern,
@@ -673,6 +674,7 @@ macro_rules! test_long {
                     (90..230).into(),
                     (190..310).into(),
                     (290..460).into(),
+                    (390..420).into(),
                     (490..610).into(),
                     (690..820).into(),
                     (790..910).into(),
@@ -704,6 +706,7 @@ macro_rules! test_long {
                     (100..220).into(),
                     (200..300).into(),
                     (300..450).into(),
+                    (400..410).into(),
                     (500..600).into(),
                     (700..810).into(),
                     (800..900).into(),
@@ -735,4 +738,4 @@ test_long!(test_merge_long_all_at_once, test_segment_all_at_once);
 test_long!(test_merge_long_random_len, test_segment_random_len);
 test_long!(test_merge_long_occasional_consume, test_segment_occasional_consume);
 
-// end of merger.rs
+// end of merge.rs
