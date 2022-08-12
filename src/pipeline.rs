@@ -217,7 +217,7 @@ impl Pipeline {
             (Some(width), None, None, None) => Width(width),
             (None, Some(pattern), None, None) => Find(pattern.to_string()),
             (None, None, Some(file), None) => SliceBy(file.to_string()),
-            (None, None, None, Some(expr)) => Walk(expr.split(',').map(|x| x.to_string()).collect::<Vec<_>>()),
+            (None, None, None, Some(exprs)) => Walk(exprs.split(',').map(|x| x.to_string()).collect::<Vec<_>>()),
             (None, None, None, None) => Width(16),
             _ => return Err(anyhow!("--width, --find, --slice-by, and --walk are exclusive.")),
         };
@@ -341,9 +341,9 @@ impl Pipeline {
                     let next = Box::new(GuidedSlicer::new(prev, self.open_file(file)?));
                     (cache, NodeInstance::Segment(next))
                 }
-                (Walk(expr), NodeInstance::Byte(prev)) => {
+                (Walk(exprs), NodeInstance::Byte(prev)) => {
                     eprintln!("Walk");
-                    let next = Box::new(WalkSlicer::new(prev, &expr[0]));
+                    let next = Box::new(WalkSlicer::new(prev, exprs));
                     (cache, NodeInstance::Segment(next))
                 }
                 (Regex(pattern), NodeInstance::Segment(prev)) => {

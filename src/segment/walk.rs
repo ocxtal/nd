@@ -129,8 +129,11 @@ pub struct WalkSlicer {
 }
 
 impl WalkSlicer {
-    pub fn new(src: Box<dyn ByteStream>, expr: &str) -> Self {
-        let fetchers: Vec<_> = expr.split(',').map(SpanFetcher::new).collect();
+    pub fn new<T>(src: Box<dyn ByteStream>, exprs: &[T]) -> Self
+    where
+        T: AsRef<str>,
+    {
+        let fetchers: Vec<_> = exprs.iter().map(|x| SpanFetcher::new(x.as_ref())).collect();
         let spans: Vec<_> = (0..fetchers.len()).map(|_| 0).collect();
 
         WalkSlicer {
@@ -236,7 +239,9 @@ macro_rules! bind {
     ( $expr: expr ) => {
         |input: &[u8]| -> Box<dyn SegmentStream> {
             let src = Box::new(MockSource::new(input));
-            Box::new(WalkSlicer::new(src, $expr))
+            let exprs: Vec<_> = $expr.split(',').map(|x| x.to_string()).collect();
+
+            Box::new(WalkSlicer::new(src, &exprs))
         }
     };
 }
