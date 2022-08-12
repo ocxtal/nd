@@ -226,7 +226,7 @@ impl Pipeline {
             nodes.push(Regex(pattern.to_string()));
         }
 
-        let merger = MergerParams::from_raw(m.extend, m.invert, m.merge)?;
+        let merger = MergerParams::from_raw(m.extend, m.merge)?;
         if merger != MergerParams::default() {
             nodes.push(Merger(merger));
         }
