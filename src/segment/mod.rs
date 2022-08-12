@@ -168,7 +168,7 @@ where
             spos.push(s.pos as isize);
         }
 
-        let bytes_to_consume = rng.gen_range(1..=max_consume);
+        let bytes_to_consume = rng.gen_range(1..=std::cmp::max(1, max_consume));
         let (len_fwd, count_fwd) = src.consume(bytes_to_consume).unwrap();
 
         prev_is_eof = is_eof;

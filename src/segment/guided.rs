@@ -39,7 +39,20 @@ impl GuidedSlicer {
         }
     }
 
-    fn extend_segment_buf(&mut self, is_eof: bool, bytes: usize) -> std::io::Result<(bool, usize, usize, usize)> {
+    fn extend_segment_buf(&mut self, is_eof: bool, bytes: usize) -> std::io::Result<bool> {
+        // if the stream is not enough for the next segment, try again
+        if let Some(last) = self.segments.last() {
+            if last.tail() > bytes {
+                if last.pos <= bytes {
+                    self.max_consume = last.pos;
+                }
+                self.guide_consumed = self.segments.len() - 1;
+                return Ok(false);
+            }
+        }
+
+        // if enough, first update max_consume to the end of the segment
+        // (and wait it being updated in the loop)
         self.max_consume = bytes;
 
         let tail = self.src_consumed + bytes; // in absolute offset
@@ -48,10 +61,8 @@ impl GuidedSlicer {
             self.buf.clear();
 
             let (fwd, offset, span) = self.guide.read_line(&mut self.buf)?;
-
             if fwd == 0 {
                 // the guide stream reached EOF
-                self.max_consume = bytes;
                 self.guide_consumed = self.segments.len();
                 break;
             }
@@ -65,17 +76,17 @@ impl GuidedSlicer {
             };
             self.segments.push(Segment { pos, len });
 
-            if pos <= bytes {
-                self.max_consume = pos;
-            }
             if offset + span > tail {
+                if pos <= bytes {
+                    self.max_consume = pos; // may become zero, and try fill_buf again if so
+                }
+
                 // mask the last segment
                 self.guide_consumed = self.segments.len() - 1;
                 break;
             }
         }
-
-        Ok((is_eof, bytes, self.guide_consumed, self.max_consume))
+        Ok(self.max_consume > 0)
     }
 }
 
@@ -90,8 +101,9 @@ impl SegmentStream for GuidedSlicer {
                 return Ok((true, 0, 0, 0));
             }
 
-            if (is_eof && bytes == prev_bytes) || bytes >= request {
-                return self.extend_segment_buf(is_eof, bytes);
+            let needs_extend = (is_eof && bytes == prev_bytes) || bytes >= request;
+            if needs_extend && self.extend_segment_buf(is_eof, bytes)? {
+                return Ok((is_eof, bytes, self.guide_consumed, self.max_consume));
             }
 
             self.src.consume(0);
