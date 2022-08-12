@@ -47,15 +47,15 @@ impl ScatterDrain {
 
     fn fill_buf_impl(&mut self) -> std::io::Result<usize> {
         self.buf.fill_buf(|buf| {
-            let (bytes, _) = self.src.fill_segment_buf()?;
-            if bytes == 0 {
+            let (is_eof, bytes, _, max_consume) = self.src.fill_segment_buf()?;
+            if is_eof && bytes == 0 {
                 return Ok(false);
             }
 
             let (stream, segments) = self.src.as_slices();
             self.formatter.format_segments(self.offset, stream, segments, buf);
 
-            self.offset += self.src.consume(bytes)?.0;
+            self.offset += self.src.consume(max_consume)?.0;
             Ok(false)
         })
     }

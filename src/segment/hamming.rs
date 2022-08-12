@@ -24,9 +24,9 @@ impl HammingSlicer {
 }
 
 impl SegmentStream for HammingSlicer {
-    fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)> {
+    fn fill_segment_buf(&mut self) -> std::io::Result<(bool, usize, usize, usize)> {
         let len = self.src.fill_buf()?;
-        Ok((len, 0))
+        Ok((false, len, 0, len))
     }
 
     fn as_slices(&self) -> (&[u8], &[Segment]) {

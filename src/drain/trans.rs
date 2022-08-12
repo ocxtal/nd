@@ -26,9 +26,8 @@ impl TransparentDrain {
     }
 
     fn consume_segments_impl(&mut self) -> std::io::Result<usize> {
-        let (bytes, _) = self.src.fill_segment_buf()?;
-        // eprintln!("{:?}, {:?}", bytes, count);
-        if bytes == 0 {
+        let (is_eof, bytes, _, max_consume) = self.src.fill_segment_buf()?;
+        if is_eof && bytes == 0 {
             return Ok(0);
         }
 
@@ -36,7 +35,7 @@ impl TransparentDrain {
 
         self.buf.clear();
         self.formatter.format_segments(self.offset, stream, segments, &mut self.buf);
-        self.offset += self.src.consume(bytes)?.0;
+        self.offset += self.src.consume(max_consume)?.0;
 
         self.dst.write_all(&self.buf).unwrap();
 

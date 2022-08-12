@@ -99,13 +99,19 @@ impl From<Range<usize>> for Segment {
 
 pub trait SegmentStream: Send {
     // chunked iterator
-    fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)>; // #bytes, #segments
+
+    // returns (is_eof, #bytes, #segments, first segment offset in the next chunk)
+    fn fill_segment_buf(&mut self) -> std::io::Result<(bool, usize, usize, usize)>;
+
+    // (byte stream, segment stream)
     fn as_slices(&self) -> (&[u8], &[Segment]);
-    fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)>; // #bytes, #segments
+
+    // (#bytes, #segments)
+    fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)>;
 }
 
 impl<T: SegmentStream + ?Sized> SegmentStream for Box<T> {
-    fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)> {
+    fn fill_segment_buf(&mut self) -> std::io::Result<(bool, usize, usize, usize)> {
         (**self).fill_segment_buf()
     }
 
@@ -125,14 +131,22 @@ where
 {
     let mut rng = rand::thread_rng();
     let mut src = slicer(pattern);
+    let mut prev_is_eof = false;
+    let mut prev_len = 0;
     let mut len_acc = 0;
     let mut count_acc = 0;
     let mut last_spos = -1;
     loop {
-        let (len, count) = src.fill_segment_buf().unwrap();
-        if len == 0 {
+        let (is_eof, len, count, max_consume) = src.fill_segment_buf().unwrap();
+        if is_eof && len == 0 {
             assert_eq!(count, 0);
+            assert_eq!(max_consume, 0);
             break;
+        }
+
+        if prev_is_eof {
+            assert!(is_eof);
+            assert_eq!(prev_len, len);
         }
 
         let (stream, segments) = src.as_slices();
@@ -154,8 +168,11 @@ where
             spos.push(s.pos as isize);
         }
 
-        let bytes_to_consume = rng.gen_range(1..=len);
+        let bytes_to_consume = rng.gen_range(1..=max_consume);
         let (len_fwd, count_fwd) = src.consume(bytes_to_consume).unwrap();
+
+        prev_is_eof = is_eof;
+        prev_len = len - len_fwd;
 
         len_acc += len_fwd;
         count_acc += count_fwd;
@@ -175,15 +192,22 @@ where
 {
     let mut rng = rand::thread_rng();
     let mut src = slicer(pattern);
+    let mut prev_is_eof = false;
     let mut prev_len = 0;
     let mut len_acc = 0;
     let mut count_acc = 0;
     let mut last_spos = -1;
     loop {
-        let (len, count) = src.fill_segment_buf().unwrap();
-        if len == 0 {
+        let (is_eof, len, count, max_consume) = src.fill_segment_buf().unwrap();
+        if is_eof && len == 0 {
             assert_eq!(count, 0);
+            assert_eq!(max_consume, 0);
             break;
+        }
+
+        if prev_is_eof {
+            assert!(is_eof);
+            assert_eq!(prev_len, len);
         }
 
         let (stream, segments) = src.as_slices();
@@ -209,10 +233,12 @@ where
             spos.push(s.pos as isize);
         }
 
-        let consume = if len == prev_len { len } else { (len + 1) / 2 };
+        let consume = if is_eof { max_consume } else { (max_consume + 1) / 2 };
         let (len_fwd, count_fwd) = src.consume(consume).unwrap();
 
-        prev_len = len;
+        prev_is_eof = is_eof;
+        prev_len = len - len_fwd;
+
         len_acc += len_fwd;
         count_acc += count_fwd;
         if count_fwd > 0 {
@@ -232,8 +258,8 @@ where
     let mut src = slicer(pattern);
     let mut prev_len = 0;
     loop {
-        let (len, _) = src.fill_segment_buf().unwrap();
-        if len == prev_len {
+        let (is_eof, len, _, _) = src.fill_segment_buf().unwrap();
+        if is_eof && len == prev_len {
             break;
         }
 
@@ -243,9 +269,11 @@ where
         prev_len = len;
     }
 
-    let (len, count) = src.fill_segment_buf().unwrap();
+    let (is_eof, len, count, max_consume) = src.fill_segment_buf().unwrap();
+    assert!(is_eof);
     assert_eq!(len, pattern.len());
     assert_eq!(count, expected.len());
+    assert_eq!(len, max_consume);
 
     let (stream, segments) = src.as_slices();
     assert_eq!(&stream[..len], pattern);
@@ -255,9 +283,11 @@ where
     assert_eq!(len_fwd, len);
     assert_eq!(count_fwd, count);
 
-    let (len, count) = src.fill_segment_buf().unwrap();
+    let (is_eof, len, count, max_consume) = src.fill_segment_buf().unwrap();
+    assert!(is_eof);
     assert_eq!(len, 0);
     assert_eq!(count, 0);
+    assert_eq!(max_consume, 0);
 }
 
 #[cfg(test)]

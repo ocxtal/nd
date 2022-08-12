@@ -3,6 +3,7 @@
 
 use super::{Segment, SegmentStream};
 use crate::byte::{ByteStream, EofStream};
+use crate::params::BLOCK_SIZE;
 use crate::text::parser::TextParser;
 use crate::text::InoutFormat;
 
@@ -20,10 +21,9 @@ pub struct GuidedSlicer {
     guide: TextParser,
     buf: Vec<u8>,
     segments: Vec<Segment>,
-    covered: usize,
-    base_offset: usize,
-    clip: usize,
-    max_fwd: usize,
+    guide_consumed: usize,
+    src_consumed: usize,
+    max_consume: usize,
 }
 
 impl GuidedSlicer {
@@ -33,74 +33,79 @@ impl GuidedSlicer {
             guide: TextParser::new(guide, &InoutFormat::from_str("xxx").unwrap()),
             buf: Vec::new(),
             segments: Vec::new(),
-            covered: 0,
-            base_offset: 0,
-            clip: usize::MAX,
-            max_fwd: 0,
+            guide_consumed: 0,
+            src_consumed: 0,
+            max_consume: 0,
         }
     }
 
-    fn extend_segment_buf(&mut self, is_eof: bool, bytes: usize) -> std::io::Result<(usize, usize)> {
-        if is_eof {
-            self.clip = std::cmp::min(self.clip, bytes);
-        }
-        let bytes = std::cmp::min(self.clip, bytes);
+    fn extend_segment_buf(&mut self, is_eof: bool, bytes: usize) -> std::io::Result<(bool, usize, usize, usize)> {
+        self.max_consume = bytes;
 
+        let tail = self.src_consumed + bytes; // in absolute offset
         loop {
+            // read the next guide to the buffer
             self.buf.clear();
 
             let (fwd, offset, span) = self.guide.read_line(&mut self.buf)?;
 
-            if fwd == 0 || offset - self.base_offset >= self.clip {
+            if fwd == 0 {
+                // the guide stream reached EOF
+                self.max_consume = bytes;
+                self.guide_consumed = self.segments.len();
                 break;
             }
 
-            let offset = offset - self.base_offset;
-            let end = std::cmp::min(offset + span, self.clip);
-            self.segments.push(Segment {
-                pos: offset,
-                len: end - offset,
-            });
+            // slice the stream out by the guide
+            let pos = offset - self.src_consumed;
+            let len = if is_eof {
+                std::cmp::min(offset + span, tail) - offset
+            } else {
+                span
+            };
+            self.segments.push(Segment { pos, len });
 
-            if end > bytes {
+            if pos <= bytes {
+                self.max_consume = pos;
+            }
+            if offset + span > tail {
+                // mask the last segment
+                self.guide_consumed = self.segments.len() - 1;
                 break;
             }
         }
 
-        while self.covered < self.segments.len() {
-            if self.segments[self.covered].tail() > bytes {
-                break;
-            }
-            self.covered += 1;
-        }
-
-        self.max_fwd = if self.covered == self.segments.len() {
-            bytes
-        } else {
-            self.segments[self.covered].pos
-        };
-
-        Ok((bytes, self.covered))
+        Ok((is_eof, bytes, self.guide_consumed, self.max_consume))
     }
 }
 
 impl SegmentStream for GuidedSlicer {
-    fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)> {
-        if self.clip == 0 {
-            return Ok((0, 0));
-        }
+    fn fill_segment_buf(&mut self) -> std::io::Result<(bool, usize, usize, usize)> {
+        let request = std::cmp::max(BLOCK_SIZE, self.segments.last().map_or(0, |x| x.tail()));
 
-        let (is_eof, bytes) = self.src.fill_buf()?;
-        self.extend_segment_buf(is_eof, bytes)
+        let mut prev_bytes = 0;
+        loop {
+            let (is_eof, bytes) = self.src.fill_buf()?;
+            if is_eof && bytes == 0 {
+                return Ok((true, 0, 0, 0));
+            }
+
+            if (is_eof && bytes == prev_bytes) || bytes >= request {
+                return self.extend_segment_buf(is_eof, bytes);
+            }
+
+            self.src.consume(0);
+            prev_bytes = bytes;
+        }
     }
 
     fn as_slices(&self) -> (&[u8], &[Segment]) {
         let stream = self.src.as_slice();
-        (stream, &self.segments[..self.covered])
+        (stream, &self.segments[..self.guide_consumed])
     }
 
     fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)> {
-        let bytes = std::cmp::min(bytes, self.max_fwd);
+        let bytes = std::cmp::min(bytes, self.max_consume);
         self.src.consume(bytes);
 
         let from = self.segments.partition_point(|x| x.pos < bytes);
@@ -112,8 +117,9 @@ impl SegmentStream for GuidedSlicer {
         for s in &mut self.segments {
             *s = s.unwind(bytes);
         }
-        self.base_offset += bytes;
-        self.covered -= from;
+        self.guide_consumed -= from;
+        self.src_consumed += bytes;
+        self.max_consume -= bytes;
 
         Ok((bytes, from))
     }
@@ -127,8 +133,8 @@ fn gen_guide(max_len: usize, max_count: usize) -> (Vec<u8>, Vec<Segment>) {
     let mut v = Vec::new();
 
     while v.len() < max_count {
-        let fwd = rng.gen_range(0..1024);
-        let len = rng.gen_range(0..1024);
+        let fwd = rng.gen_range(0..std::cmp::min(1024, (max_len + 1) / 2));
+        let len = rng.gen_range(0..std::cmp::min(1024, (max_len + 1) / 2));
 
         offset += fwd;
         if offset >= max_len {
@@ -178,6 +184,11 @@ macro_rules! test {
             test_impl!($inner, 1000, 0);
             test_impl!($inner, 1000, 1000);
 
+            // try longer, multiple times
+            test_impl!($inner, 100000, 10000);
+            test_impl!($inner, 100000, 10000);
+            test_impl!($inner, 100000, 10000);
+            test_impl!($inner, 100000, 10000);
             test_impl!($inner, 100000, 10000);
         }
     };
