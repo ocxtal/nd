@@ -124,11 +124,11 @@ impl BridgeStream {
 }
 
 impl SegmentStream for BridgeStream {
-    fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)> {
+    fn fill_segment_buf(&mut self) -> std::io::Result<(bool, usize, usize, usize)> {
         let (is_eof, bytes, _) = self.fill_segment_buf_impl()?;
         self.extend_segment_buf(is_eof, bytes);
 
-        Ok((bytes, self.segments.len()))
+        Ok((is_eof, bytes, self.segments.len(), bytes))
     }
 
     fn as_slices(&self) -> (&[u8], &[Segment]) {

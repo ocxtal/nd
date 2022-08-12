@@ -103,9 +103,8 @@ impl SpanFetcher {
     }
 
     fn get_next_span(&self, skip: usize, src: &mut StreamFeeder) -> usize {
-        let val = self
-            .rpn
-            .evaluate(|id: usize, val: i64| -> i64 { src.get_array_element(skip, id, val) });
+        let getter = |id: usize, val: i64| -> i64 { src.get_array_element(skip, id, val) };
+        let val = self.rpn.evaluate(getter);
         if val.is_err() {
             panic!("failed on evaluating expression: {:?}", &self.expr);
         }
@@ -126,7 +125,7 @@ pub struct WalkSlicer {
     fetchers: Vec<SpanFetcher>,
     spans: Vec<usize>,
     segments: Vec<Segment>,
-    next_pos: usize,
+    pos: usize,
 }
 
 impl WalkSlicer {
@@ -139,64 +138,71 @@ impl WalkSlicer {
             fetchers,
             spans,
             segments: Vec::new(),
-            next_pos: 0,
+            pos: 0,
         }
     }
 
     fn calc_next_chunk_len(&mut self) -> usize {
         let mut chunk_len = 0;
         for (i, f) in self.fetchers.iter().enumerate() {
-            let span = f.get_next_span(self.next_pos, &mut self.feeder);
+            let span = f.get_next_span(self.pos, &mut self.feeder);
             self.spans[i] = span;
 
-            chunk_len = std::cmp::max(chunk_len, span);
+            chunk_len += span;
         }
-
         chunk_len
     }
 
-    fn extend_segment_buf(&mut self, chunk_len: usize) -> std::io::Result<(bool, usize, usize)> {
+    fn extend_segment_buf(&mut self, chunk_len: usize) -> std::io::Result<(bool, usize)> {
         let (is_eof, bytes) = self.feeder.fill_buf(chunk_len)?;
-        if bytes < chunk_len {
+        if is_eof && bytes < chunk_len {
+            // TODO: use logger
             eprintln!("chunk clipped (request = {}, remaining bytes = {})", chunk_len, bytes);
         }
 
-        let mut pos = self.next_pos;
         for span in &self.spans {
-            if pos >= bytes {
+            if self.pos >= bytes {
                 break;
             }
 
-            let len = std::cmp::min(pos + span, bytes) - pos;
+            let len = std::cmp::min(self.pos + span, bytes) - self.pos;
             if len < *span {
-                eprintln!("slice clipped (span = {}, remaining bytes = {}).", span, bytes);
+                eprintln!("slice clipped (span = {}, remaining bytes = {}).", span, len);
             }
 
-            self.segments.push(Segment { pos, len });
-            pos += span;
+            self.segments.push(Segment { pos: self.pos, len });
+            self.pos += span;
         }
-        self.next_pos = pos;
-
-        Ok((is_eof, bytes, self.segments.len()))
+        Ok((is_eof, bytes))
     }
 }
 
 impl SegmentStream for WalkSlicer {
-    fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)> {
-        let (is_eof, bytes) = self.feeder.fill_buf(BLOCK_SIZE)?;
-        if (is_eof, bytes) == (true, 0) {
-            return Ok((0, 0));
+    fn fill_segment_buf(&mut self) -> std::io::Result<(bool, usize, usize, usize)> {
+        let request = std::cmp::max(BLOCK_SIZE, 2 * self.pos);
+        let (is_eof, bytes) = self.feeder.fill_buf(request)?;
+
+        if is_eof && self.pos >= bytes {
+            let count = self.segments.len();
+            let max_consume = std::cmp::min(bytes, self.pos);
+            return Ok((is_eof, bytes, count, max_consume));
         }
 
-        loop {
+        let (is_eof, bytes) = loop {
             let chunk_len = self.calc_next_chunk_len();
-            let (is_eof, bytes, count) = self.extend_segment_buf(chunk_len)?;
-
-            if is_eof || self.next_pos >= BLOCK_SIZE {
-                let bytes = std::cmp::min(bytes, self.next_pos);
-                return Ok((bytes, count));
+            if self.pos + chunk_len > bytes {
+                break (is_eof, bytes);
             }
-        }
+
+            let (is_eof, bytes) = self.extend_segment_buf(chunk_len)?;
+            if self.pos >= bytes {
+                break (is_eof, bytes);
+            }
+        };
+
+        let count = self.segments.len();
+        let max_consume = std::cmp::min(bytes, self.pos);
+        Ok((is_eof, bytes, count, max_consume))
     }
 
     fn as_slices(&self) -> (&[u8], &[Segment]) {
@@ -205,7 +211,7 @@ impl SegmentStream for WalkSlicer {
     }
 
     fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)> {
-        let bytes = std::cmp::min(bytes, self.next_pos);
+        let bytes = std::cmp::min(bytes, self.pos);
         self.feeder.consume(bytes);
 
         let from = self.segments.partition_point(|x| x.pos < bytes);
@@ -217,7 +223,7 @@ impl SegmentStream for WalkSlicer {
         for s in &mut self.segments {
             *s = s.unwind(bytes);
         }
-        self.next_pos -= bytes;
+        self.pos -= bytes;
 
         Ok((bytes, from))
     }
@@ -268,12 +274,42 @@ macro_rules! test {
                 &bind!("b[0], b[1]"),
                 &[(0..1).into(), (1..4).into(), (4..6).into(), (6..7).into()],
             );
+
+            // multiple expressions; long
+            let mut input = Vec::new();
+            let mut expected = Vec::new();
+            for i in 0..10000 {
+                input.extend_from_slice(&[1u8, 3, 0, 0, 2, 1, 0]);
+                expected.extend_from_slice(&[
+                    Segment { pos: i * 7, len: 1 },
+                    Segment { pos: i * 7 + 1, len: 3 },
+                    Segment { pos: i * 7 + 4, len: 2 },
+                    Segment { pos: i * 7 + 6, len: 1 },
+                ]);
+            }
+            $inner(&input, &bind!("b[0], b[1]"), &expected);
+
+            let mut input = Vec::new();
+            let mut expected = Vec::new();
+            for i in 0..10000 {
+                input.extend_from_slice(&[1u8, 0, 0, 0, 6, 0, 0, 5, 0, 0, 0, 1, 0]);
+                expected.extend_from_slice(&[
+                    Segment { pos: i * 13, len: 1 },
+                    Segment { pos: i * 13 + 1, len: 6 },
+                    Segment { pos: i * 13 + 7, len: 5 },
+                    Segment {
+                        pos: i * 13 + 12,
+                        len: 1,
+                    },
+                ]);
+            }
+            $inner(&input, &bind!("w[0], h[2]"), &expected);
         }
     };
 }
 
-test!(test_stride_closed_all_at_once, test_segment_all_at_once);
-test!(test_stride_closed_random_len, test_segment_random_len);
-test!(test_stride_closed_occasional_consume, test_segment_occasional_consume);
+test!(test_walk_all_at_once, test_segment_all_at_once);
+test!(test_walk_random_len, test_segment_random_len);
+test!(test_walk_occasional_consume, test_segment_occasional_consume);
 
 // end of walk.rs

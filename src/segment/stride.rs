@@ -337,7 +337,7 @@ impl ConstSlicer {
 }
 
 impl SegmentStream for ConstSlicer {
-    fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)> {
+    fn fill_segment_buf(&mut self) -> std::io::Result<(bool, usize, usize, usize)> {
         loop {
             let (is_eof, len) = self.src.fill_buf()?;
             if !is_eof && len < self.segments.min_fill_len() {
@@ -345,7 +345,8 @@ impl SegmentStream for ConstSlicer {
                 continue;
             }
 
-            return self.segments.fill_segment_buf(is_eof, len);
+            let (max_fwd, count) = self.segments.fill_segment_buf(is_eof, len)?;
+            return Ok((is_eof, len, count, max_fwd));
         }
     }
 

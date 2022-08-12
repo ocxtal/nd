@@ -388,7 +388,7 @@ impl ForeachStream {
 }
 
 impl SegmentStream for ForeachStream {
-    fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)> {
+    fn fill_segment_buf(&mut self) -> std::io::Result<(bool, usize, usize, usize)> {
         self.src.fill_segment_buf()
     }
 

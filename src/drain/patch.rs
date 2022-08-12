@@ -69,14 +69,14 @@ impl PatchDrain {
             let mut offset = 0;
 
             loop {
-                let (bytes, _) = patch.fill_segment_buf().unwrap();
-                if bytes == 0 {
+                let (is_eof, bytes, _, max_consume) = patch.fill_segment_buf().unwrap();
+                if is_eof && bytes == 0 {
                     break;
                 }
 
                 let (stream, segments) = patch.as_slices();
                 formatter.format_segments(offset, stream, segments, &mut buf);
-                offset += patch.consume(bytes).unwrap().0;
+                offset += patch.consume(max_consume).unwrap().0;
 
                 if buf.len() >= BLOCK_SIZE {
                     writer.write_all(&buf).unwrap();

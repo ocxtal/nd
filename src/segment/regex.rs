@@ -33,7 +33,7 @@ impl RegexSlicer {
 }
 
 impl SegmentStream for RegexSlicer {
-    fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)> {
+    fn fill_segment_buf(&mut self) -> std::io::Result<(bool, usize, usize, usize)> {
         let to_segment = |m: Match, pos: usize| -> Segment {
             Segment {
                 pos: pos + m.start(),
@@ -41,7 +41,7 @@ impl SegmentStream for RegexSlicer {
             }
         };
 
-        let (bytes, count) = self.src.fill_segment_buf()?;
+        let (is_eof, bytes, count, max_consume) = self.src.fill_segment_buf()?;
 
         let (stream, segments) = self.src.as_slices();
         for s in &segments[..count] {
@@ -55,7 +55,7 @@ impl SegmentStream for RegexSlicer {
 
         self.scanned += bytes;
 
-        Ok((bytes, self.matches.len()))
+        Ok((is_eof, bytes, self.matches.len(), max_consume))
     }
 
     fn as_slices(&self) -> (&[u8], &[Segment]) {

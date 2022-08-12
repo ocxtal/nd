@@ -226,11 +226,9 @@ impl MergeStream {
         // TODO: implement SegmentStream variant for the EofStream and use it
         let min_fill_bytes = std::cmp::min(self.min_fill_bytes, self.acc.curr_tail() + 1);
 
-        let mut prev_bytes = 0;
         loop {
-            let (bytes, count) = self.src.fill_segment_buf()?;
-            if bytes == prev_bytes {
-                // eof
+            let (is_eof, bytes, count, _) = self.src.fill_segment_buf()?;
+            if is_eof {
                 return Ok((true, bytes, count));
             }
 
@@ -239,7 +237,6 @@ impl MergeStream {
             }
 
             self.src.consume(0).unwrap();
-            prev_bytes = bytes;
         }
     }
 
@@ -332,13 +329,13 @@ impl MergeStream {
 }
 
 impl SegmentStream for MergeStream {
-    fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)> {
+    fn fill_segment_buf(&mut self) -> std::io::Result<(bool, usize, usize, usize)> {
         let (is_eof, bytes, count) = self.fill_segment_buf_impl()?;
 
         if bytes > 0 && count > self.src_scanned {
             self.extend_segment_buf(is_eof, bytes);
         }
-        Ok((bytes, self.segments.len()))
+        Ok((is_eof, bytes, self.segments.len(), bytes))
     }
 
     fn as_slices(&self) -> (&[u8], &[Segment]) {

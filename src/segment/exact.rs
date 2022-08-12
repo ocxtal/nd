@@ -34,7 +34,7 @@ impl ExactMatchSlicer {
 }
 
 impl SegmentStream for ExactMatchSlicer {
-    fn fill_segment_buf(&mut self) -> std::io::Result<(usize, usize)> {
+    fn fill_segment_buf(&mut self) -> std::io::Result<(bool, usize, usize, usize)> {
         let (is_eof, bytes) = self.fill_buf()?;
 
         let scan_tail = if is_eof { bytes } else { bytes - self.pattern.len() + 1 };
@@ -46,7 +46,7 @@ impl SegmentStream for ExactMatchSlicer {
         }
 
         self.scanned = scan_tail;
-        Ok((self.scanned, self.segments.len()))
+        Ok((is_eof, bytes, self.segments.len(), self.scanned))
     }
 
     fn as_slices(&self) -> (&[u8], &[Segment]) {
