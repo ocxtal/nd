@@ -2,13 +2,30 @@
 // @author Hajime Suzuki
 
 use super::{Segment, SegmentStream};
-use crate::params::BLOCK_SIZE;
+
+#[cfg(test)]
+use crate::byte::tester::*;
+
+#[cfg(test)]
+use super::tester::*;
+
+#[cfg(test)]
+use super::{ConstSlicer, GuidedSlicer};
+
+#[cfg(test)]
+use rand::Rng;
 
 pub struct BridgeStream {
     src: Box<dyn SegmentStream>,
     segments: Vec<Segment>,
-    map: Vec<usize>,
-    start: usize,
+
+    // accumulator
+    next_start: usize,
+
+    // #segments that are not consumed in the source but already accumulated to `acc`
+    // note: not the count from the beginning of the source stream
+    src_scanned: usize,
+
     offsets: (isize, isize),
 }
 
@@ -17,50 +34,33 @@ impl BridgeStream {
         BridgeStream {
             src,
             segments: Vec::new(),
-            map: Vec::new(),
-            start: 0,
+            next_start: 0,
+            src_scanned: 0,
             offsets,
         }
     }
 
-    fn fill_segment_buf_impl(&mut self) -> std::io::Result<(bool, usize, usize)> {
-        let mut prev_bytes = 0;
-        loop {
-            let (bytes, count) = self.src.fill_segment_buf()?;
-            if bytes == prev_bytes {
-                // eof
-                return Ok((true, bytes, count));
-            }
-
-            if bytes >= BLOCK_SIZE && count >= 1 {
-                return Ok((false, bytes, count));
-            }
-
-            self.src.consume(0).unwrap();
-            prev_bytes = bytes;
-        }
-    }
-
-    fn extend_segment_buf(&mut self, is_eof: bool, bytes: usize) {
+    fn extend_segment_buf(&mut self, is_eof: bool, count: usize, bytes: usize) {
         let (_, segments) = self.src.as_slices();
-        let mut start = self.start;
 
-        for &s in segments {
-            let len = (s.len + 1) as isize;
-            let end_offset = self.offsets.1.rem_euclid(len) as usize;
-            let next_start_offset = self.offsets.0.rem_euclid(len) as usize;
+        let mut start = self.next_start;
+        if count > self.src_scanned {
+            for &next in &segments[self.src_scanned..count] {
+                let len = (next.len + 1) as isize;
+                let end_offset = self.offsets.1.rem_euclid(len) as usize;
+                let next_start_offset = self.offsets.0.rem_euclid(len) as usize;
 
-            let end = s.pos + end_offset;
-            let next_start = s.pos + next_start_offset;
+                let end = next.pos + end_offset;
+                let next_start = next.pos + next_start_offset;
 
-            if start < end {
-                self.segments.push(Segment {
-                    pos: start,
-                    len: end - start,
-                });
-                start = next_start;
+                if start < end {
+                    self.segments.push(Segment {
+                        pos: start,
+                        len: end - start,
+                    });
+                }
+                start = std::cmp::max(start, next_start);
             }
-            self.map.push(self.segments.len());
         }
 
         if is_eof && start < bytes {
@@ -69,66 +69,20 @@ impl BridgeStream {
                 len: bytes - start,
             });
             start = bytes;
-            self.map.push(self.segments.len());
         }
 
-        self.start = start;
-    }
-
-    fn consume_map_array(&mut self, count: usize) -> usize {
-        // takes #segments that are consumed in the source,
-        // and computes #segments to be consumed in this merger.
-
-        // if no segment was consumed in the source, so as this
-        if count == 0 {
-            return 0;
-        }
-        if count >= self.map.len() {
-            debug_assert!(count <= self.map.len() + 1);
-
-            self.map.clear();
-            return self.segments.len();
-        }
-
-        // input segments -> output (merged) segment mapping
-        debug_assert!(count < self.map.len());
-        let target = self.map[count];
-
-        let from = count;
-        let to = self.map.len();
-
-        self.map.copy_within(from..to, 0);
-        self.map.truncate(to - from);
-
-        for m in &mut self.map {
-            *m -= target;
-        }
-
-        target
-    }
-
-    fn consume_segment_array(&mut self, bytes: usize, count: usize) {
-        // first remove elements from the segment array
-        debug_assert!(count <= self.segments.len());
-
-        let from = count;
-        let to = self.segments.len();
-
-        self.segments.copy_within(from..to, 0);
-        self.segments.truncate(to - from);
-
-        for s in &mut self.segments {
-            s.pos -= bytes;
-        }
+        self.next_start = start;
+        self.src_scanned = count;
     }
 }
 
 impl SegmentStream for BridgeStream {
     fn fill_segment_buf(&mut self) -> std::io::Result<(bool, usize, usize, usize)> {
-        let (is_eof, bytes, _) = self.fill_segment_buf_impl()?;
-        self.extend_segment_buf(is_eof, bytes);
+        let (is_eof, bytes, count, max_consume) = self.src.fill_segment_buf()?;
+        self.extend_segment_buf(is_eof, count, bytes);
 
-        Ok((is_eof, bytes, self.segments.len(), bytes))
+        let max_consume = std::cmp::min(max_consume, self.next_start);
+        Ok((is_eof, bytes, self.segments.len(), max_consume))
     }
 
     fn as_slices(&self) -> (&[u8], &[Segment]) {
@@ -137,15 +91,226 @@ impl SegmentStream for BridgeStream {
     }
 
     fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)> {
-        let bytes = std::cmp::min(bytes, self.start);
+        let bytes = std::cmp::min(bytes, self.next_start);
         let (bytes, src_count) = self.src.consume(bytes)?;
+        self.src_scanned -= src_count;
 
-        let target_count = self.consume_map_array(src_count);
-        self.consume_segment_array(bytes, target_count);
-        self.start -= bytes;
+        let from = self.segments.partition_point(|x| x.pos < bytes);
+        let to = self.segments.len();
 
-        Ok((bytes, target_count))
+        self.segments.copy_within(from..to, 0);
+        self.segments.truncate(to - from);
+
+        for s in &mut self.segments {
+            s.pos -= bytes;
+        }
+        self.next_start -= bytes;
+
+        Ok((bytes, from))
     }
 }
+
+#[cfg(test)]
+macro_rules! bind_closed {
+    ( $pitch: expr, $span: expr, $offsets: expr ) => {
+        |pattern: &[u8]| -> Box<dyn SegmentStream> {
+            let src = Box::new(MockSource::new(pattern));
+            let src = Box::new(ConstSlicer::new(src, (3, 3), (false, false), $pitch, $span));
+
+            Box::new(BridgeStream::new(src, $offsets))
+        }
+    };
+}
+
+#[cfg(test)]
+macro_rules! bind_open {
+    ( $pitch: expr, $span: expr, $offsets: expr ) => {
+        |pattern: &[u8]| -> Box<dyn SegmentStream> {
+            let src = Box::new(MockSource::new(pattern));
+            let src = Box::new(ConstSlicer::new(src, (3, 3), (true, true), $pitch, $span));
+
+            Box::new(BridgeStream::new(src, $offsets))
+        }
+    };
+}
+
+macro_rules! test {
+    ( $name: ident, $inner: ident ) => {
+        #[test]
+        fn $name() {
+            // invert without margin
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_closed!(4, 2, (-1, 0)),
+                &[(0..3).into(), (5..7).into(), (9..11).into(), (13..15).into(), (17..21).into()],
+            );
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_open!(4, 2, (-1, 0)),
+                &[(5..7).into(), (9..11).into(), (13..15).into()],
+            );
+
+            // invert with leftward margin
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_closed!(4, 2, (-2, 0)),
+                &[(0..3).into(), (4..7).into(), (8..11).into(), (12..15).into(), (16..21).into()],
+            );
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_open!(4, 2, (-2, 0)),
+                &[(4..7).into(), (8..11).into(), (12..15).into(), (20..21).into()],
+            );
+
+            // invert with rightward margin
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_closed!(4, 2, (-1, 1)),
+                &[(0..4).into(), (5..8).into(), (9..12).into(), (13..16).into(), (17..21).into()],
+            );
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_open!(4, 2, (-1, 1)),
+                &[(0..1).into(), (5..8).into(), (9..12).into(), (13..16).into()],
+            );
+
+            // larger
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_closed!(4, 2, (-3, 2)),
+                &[(0..5).into(), (3..9).into(), (7..13).into(), (11..17).into(), (15..21).into()],
+            );
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_open!(4, 2, (-3, 2)),
+                &[(0..2).into(), (3..9).into(), (7..13).into(), (11..17).into(), (19..21).into()],
+            );
+
+            // diminish
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_closed!(4, 4, (-1, 0)),
+                &[(0..3).into(), (15..21).into()],
+            );
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_closed!(4, 6, (-1, 0)),
+                &[(0..3).into(), (17..21).into()],
+            );
+
+            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 4, (-1, 0)), &[]);
+            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 6, (-1, 0)), &[]);
+        }
+    };
+}
+
+test!(test_bridge_all_at_once, test_segment_all_at_once);
+test!(test_bridge_random_len, test_segment_random_len);
+test!(test_bridge_occasional_consume, test_segment_occasional_consume);
+
+#[cfg(test)]
+fn repeat_pattern(pattern: &[Segment], pitch: usize, repeat: usize) -> Vec<Segment> {
+    let mut v: Vec<Segment> = Vec::new();
+    for i in 0..repeat {
+        let offset = i * pitch;
+
+        // fuse the last the next first segments if adjoining
+        let mut skip = 0;
+        if let Some(last) = v.last_mut() {
+            let p = &pattern[0];
+            if last.tail() == p.pos + offset {
+                last.len = p.tail() + offset - last.pos;
+                skip = 1;
+            }
+        };
+
+        for p in &pattern[skip..] {
+            v.push(Segment {
+                pos: p.pos + offset,
+                len: p.len,
+            });
+        }
+    }
+
+    v
+}
+
+#[cfg(test)]
+fn gen_guide(pattern: &[Segment], pitch: usize, repeat: usize) -> Vec<u8> {
+    let v = repeat_pattern(pattern, pitch, repeat);
+
+    let mut s = Vec::new();
+    for x in &v {
+        s.extend_from_slice(format!("{:x} {:x} | \n", x.pos, x.len).as_bytes());
+    }
+
+    s
+}
+
+#[cfg(test)]
+macro_rules! test_long_impl {
+    ( $inner: ident, $pattern: expr, $merged: expr, $offsets: expr ) => {
+        let pitch = 1000;
+        let repeat = 10;
+
+        let mut rng = rand::thread_rng();
+        let v = (0..pitch * repeat).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
+
+        let guide = gen_guide($pattern, pitch, repeat);
+        let expected = repeat_pattern($merged, pitch, repeat);
+
+        let bind = |x: &[u8]| -> Box<dyn SegmentStream> {
+            let src = Box::new(MockSource::new(x));
+            let guide = Box::new(MockSource::new(&guide));
+            let src = Box::new(GuidedSlicer::new(src, guide));
+
+            Box::new(BridgeStream::new(src, $offsets))
+        };
+
+        $inner(&v, &bind, &expected);
+    };
+}
+
+macro_rules! test_long {
+    ( $name: ident, $inner: ident ) => {
+        #[test]
+        fn $name() {
+            let pattern: Vec<Segment> = vec![
+                (100..220).into(),
+                (200..300).into(),
+                (300..450).into(),
+                (400..410).into(),
+                (500..600).into(),
+                (700..810).into(),
+                (800..900).into(),
+            ];
+
+            test_long_impl!(
+                $inner,
+                &pattern,
+                &[(0..100).into(), (450..500).into(), (600..700).into(), (900..1000).into(),],
+                (-1, 0)
+            );
+
+            test_long_impl!(
+                $inner,
+                &pattern,
+                &[
+                    (0..110).into(),
+                    (290..310).into(),
+                    (440..510).into(),
+                    (590..710).into(),
+                    (800..810).into(),
+                    (890..1000).into(),
+                ],
+                (-11, 10)
+            );
+        }
+    };
+}
+
+test_long!(test_bridge_long_all_at_once, test_segment_all_at_once);
+test_long!(test_bridge_long_random_len, test_segment_random_len);
+test_long!(test_bridge_long_occasional_consume, test_segment_occasional_consume);
 
 // end of bridge.rs

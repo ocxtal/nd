@@ -59,9 +59,9 @@ OPTIONS:
 
   Manipulating the slices (applied in this order)
 
-    -e, --regex PCRE        match PCRE on every slice
-    -x, --extend S..E       map every slice to S..E
+    -e, --regex PCRE        match PCRE on every slice and leave the match locations
     -v, --invert S..E       map every adjoining slice pair to S..E (S from the first and E from the second)
+    -x, --extend S..E       map every slice to S..E
     -m, --merge N           merge slices where overlap >= N
     -r, --foreach ARGS      feed every slice to a pipeline built from ARGS (input / output formats default to \"b\")
 

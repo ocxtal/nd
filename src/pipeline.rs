@@ -120,6 +120,7 @@ pub enum Node {
     Walk(Vec<String>),
     // SegmentFilters: SegmentStream -> SegmentStream
     Regex(String),
+    Bridge((isize, isize)),
     Merger(MergerParams),
     Foreach(String), // Foreach(Vec<Node>),
     // Post-processing: SegmentStream -> ByteStream (Read)
@@ -149,6 +150,7 @@ impl Node {
             SliceBy(_) => Slicer,
             Walk(_) => Slicer,
             Regex(_) => SegmentFilter,
+            Bridge(_) => SegmentFilter,
             Merger(_) => SegmentFilter,
             Foreach(_) => SegmentFilter,
             Scatter(_) => Drain,
@@ -224,6 +226,10 @@ impl Pipeline {
         // slice manipulators
         if let Some(pattern) = &m.regex {
             nodes.push(Regex(pattern.to_string()));
+        }
+
+        if let Some(invert) = &m.invert {
+            nodes.push(Bridge(*invert));
         }
 
         let merger = MergerParams::from_raw(m.extend, m.merge)?;
@@ -343,6 +349,11 @@ impl Pipeline {
                 (Regex(pattern), NodeInstance::Segment(prev)) => {
                     eprintln!("Regex");
                     let next = Box::new(RegexSlicer::new(prev, pattern));
+                    (cache, NodeInstance::Segment(next))
+                }
+                (Bridge(bridge), NodeInstance::Segment(prev)) => {
+                    eprintln!("Bridge");
+                    let next = Box::new(BridgeStream::new(prev, *bridge));
                     (cache, NodeInstance::Segment(next))
                 }
                 (Merger(merger), NodeInstance::Segment(prev)) => {
