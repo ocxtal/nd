@@ -14,7 +14,7 @@ mod walk;
 pub use self::bridge::BridgeStream;
 pub use self::exact::ExactMatchSlicer;
 pub use self::guided::GuidedSlicer;
-pub use self::merge::{MergeStream, MergerParams};
+pub use self::merge::MergeStream;
 pub use self::regex::RegexSlicer;
 pub use self::stride::ConstSlicer;
 // pub use self::strip::StripStream;

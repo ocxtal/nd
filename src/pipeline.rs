@@ -80,7 +80,7 @@ pub struct PipelineArgs {
     invert: Option<String>,
 
     #[clap(short = 'm', long = "merge", value_name = "N", value_parser = parse_usize)]
-    merge: Option<isize>,
+    merge: Option<usize>,
 
     #[clap(short = 'r', long = "foreach", value_name = "ARGS")]
     foreach: Option<String>,
@@ -111,7 +111,7 @@ pub enum Node {
     // SegmentFilters: SegmentStream -> SegmentStream
     Regex(String),
     Bridge(String),
-    Merger(MergerParams),
+    Merger(usize),
     Foreach(String), // Foreach(Vec<Node>),
     // Post-processing: SegmentStream -> ByteStream (Read)
     Scatter(String),
@@ -217,14 +217,11 @@ impl Pipeline {
         if let Some(pattern) = &m.regex {
             nodes.push(Regex(pattern.to_string()));
         }
-
         if let Some(invert) = &m.invert {
             nodes.push(Bridge(invert.to_string()));
         }
-
-        let merger = MergerParams::from_raw(m.extend.as_deref(), m.merge)?;
-        if merger != MergerParams::default() {
-            nodes.push(Merger(merger));
+        if let Some(thresh) = m.merge {
+            nodes.push(Merger(thresh));
         }
 
         if let Some(args) = &m.foreach {
@@ -346,9 +343,9 @@ impl Pipeline {
                     let next = Box::new(BridgeStream::new(prev, invert)?);
                     (cache, NodeInstance::Segment(next))
                 }
-                (Merger(merger), NodeInstance::Segment(prev)) => {
+                (Merger(thresh), NodeInstance::Segment(prev)) => {
                     eprintln!("Merger");
-                    let next = Box::new(MergeStream::new(prev, merger));
+                    let next = Box::new(MergeStream::new(prev, *thresh));
                     (cache, NodeInstance::Segment(next))
                 }
                 (Foreach(args), NodeInstance::Segment(prev)) => {
