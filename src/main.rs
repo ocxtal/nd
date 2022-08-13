@@ -67,13 +67,13 @@ OPTIONS:
 
   Post-processing the slices (exclusive)
 
-    -o, --output FILE       dump formatted slices to FILE (leaves nothing in the original stream; default) [-]
-    -P, --patch-back CMD    pipe formatted slices to CMD, then feed them to the original stream as patches
+    -o, --output FILE       dump formatted slices to FILE (\"-\" is treated as stdout; default) [-]
+    -P, --patch-back CMD    pipe formatted slices to CMD, then feed its output onto the cached stream as patches
 
   Miscellaneous
 
     -h, --help              print help (this) message
-    -v, --version           print version information
+    -V, --version           print version information
         --pager PAGER       feed the stream to PAGER (ignored in the --inplace mode) [less -S -F]
 ";
 
@@ -97,7 +97,6 @@ fn main() -> Result<()> {
         .help_template(HELP_TEMPLATE)
         .override_usage(USAGE)
         .color(ColorChoice::Never)
-        .trailing_var_arg(true)
         .dont_delimit_trailing_values(true)
         .infer_long_args(true);
 
