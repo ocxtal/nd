@@ -18,7 +18,7 @@ pub use self::extend::ExtendStream;
 pub use self::guided::GuidedSlicer;
 pub use self::merge::MergeStream;
 pub use self::regex::RegexSlicer;
-pub use self::stride::ConstSlicer;
+pub use self::stride::{ConstSlicer, ConstSlicerParams};
 // pub use self::strip::StripStream;
 pub use self::walk::WalkSlicer;
 

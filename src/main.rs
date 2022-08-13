@@ -80,7 +80,7 @@ OPTIONS:
 
 #[derive(Debug, Parser)]
 struct Args {
-    #[clap(value_name = "FILE")]
+    #[clap(value_name = "FILE", default_value = "-")]
     inputs: Vec<String>,
 
     #[clap(long = "pager", value_name = "PAGER")]

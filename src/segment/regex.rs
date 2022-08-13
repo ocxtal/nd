@@ -91,7 +91,7 @@ macro_rules! bind {
     ( $pattern: expr ) => {
         |input: &[u8]| -> Box<dyn SegmentStream> {
             let src = Box::new(MockSource::new(input));
-            let src = Box::new(ConstSlicer::new(src, (0, -3), (false, false), 4, 6));
+            let src = Box::new(ConstSlicer::from_raw(src, (0, -3), (false, false), 4, 6));
             Box::new(RegexSlicer::new(src, $pattern))
         }
     };

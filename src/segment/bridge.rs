@@ -160,7 +160,7 @@ macro_rules! bind_closed {
     ( $pitch: expr, $span: expr, $offsets: expr ) => {
         |pattern: &[u8]| -> Box<dyn SegmentStream> {
             let src = Box::new(MockSource::new(pattern));
-            let src = Box::new(ConstSlicer::new(src, (3, 3), (false, false), $pitch, $span));
+            let src = Box::new(ConstSlicer::from_raw(src, (3, 3), (false, false), $pitch, $span));
 
             Box::new(BridgeStream::new(src, $offsets).unwrap())
         }
@@ -172,7 +172,7 @@ macro_rules! bind_open {
     ( $pitch: expr, $span: expr, $offsets: expr ) => {
         |pattern: &[u8]| -> Box<dyn SegmentStream> {
             let src = Box::new(MockSource::new(pattern));
-            let src = Box::new(ConstSlicer::new(src, (3, 3), (true, true), $pitch, $span));
+            let src = Box::new(ConstSlicer::from_raw(src, (3, 3), (true, true), $pitch, $span));
 
             Box::new(BridgeStream::new(src, $offsets).unwrap())
         }
