@@ -255,8 +255,6 @@ impl Pipeline {
         };
         nodes.push(node);
 
-        eprintln!("{:?}", nodes);
-
         let pipeline = Pipeline {
             word_size,
             in_format: m.in_format,
@@ -317,73 +315,59 @@ impl Pipeline {
         for next in &self.nodes[1..] {
             (cache, node) = match (next, node) {
                 (Clipper(clipper), NodeInstance::Byte(prev)) => {
-                    eprintln!("Clipper");
                     let next = Box::new(ClipStream::new(prev, clipper));
                     (cache, NodeInstance::Byte(next))
                 }
                 (Patch(file), NodeInstance::Byte(prev)) => {
-                    eprintln!("Patch");
                     let next = Box::new(PatchStream::new(prev, self.open_file(file)?, &self.out_format));
                     (cache, NodeInstance::Byte(next))
                 }
                 (Tee, NodeInstance::Byte(prev)) => {
-                    eprintln!("Tee");
                     let next = Box::new(TeeStream::new(prev));
                     cache = Some(Box::new(next.spawn_reader()));
                     (cache, NodeInstance::Byte(next))
                 }
                 (Width(params), NodeInstance::Byte(prev)) => {
-                    eprintln!("Width");
                     let next = Box::new(ConstSlicer::new(prev, params));
                     (cache, NodeInstance::Segment(next))
                 }
                 (Find(pattern), NodeInstance::Byte(prev)) => {
-                    eprintln!("Find");
                     let next = Box::new(ExactMatchSlicer::new(prev, pattern));
                     (cache, NodeInstance::Segment(next))
                 }
                 (SliceBy(file), NodeInstance::Byte(prev)) => {
-                    eprintln!("SliceBy");
                     let next = Box::new(GuidedSlicer::new(prev, self.open_file(file)?));
                     (cache, NodeInstance::Segment(next))
                 }
                 (Walk(exprs), NodeInstance::Byte(prev)) => {
-                    eprintln!("Walk");
                     let next = Box::new(WalkSlicer::new(prev, exprs));
                     (cache, NodeInstance::Segment(next))
                 }
                 (Regex(pattern), NodeInstance::Segment(prev)) => {
-                    eprintln!("Regex");
                     let next = Box::new(RegexSlicer::new(prev, pattern));
                     (cache, NodeInstance::Segment(next))
                 }
                 (Bridge(invert), NodeInstance::Segment(prev)) => {
-                    eprintln!("Bridge");
                     let next = Box::new(BridgeStream::new(prev, invert)?);
                     (cache, NodeInstance::Segment(next))
                 }
                 (Merge(thresh), NodeInstance::Segment(prev)) => {
-                    eprintln!("Merge");
                     let next = Box::new(MergeStream::new(prev, *thresh));
                     (cache, NodeInstance::Segment(next))
                 }
                 (Extend(extend), NodeInstance::Segment(prev)) => {
-                    eprintln!("Extend");
                     let next = Box::new(ExtendStream::new(prev, extend)?);
                     (cache, NodeInstance::Segment(next))
                 }
                 (Foreach(args), NodeInstance::Segment(prev)) => {
-                    eprintln!("Foreach");
                     let next = Box::new(ForeachStream::new(prev, args));
                     (cache, NodeInstance::Segment(next))
                 }
                 (Scatter(file), NodeInstance::Segment(prev)) => {
-                    eprintln!("Scatter");
                     let next = Box::new(ScatterDrain::new(prev, file, &self.out_format)?);
                     (cache, NodeInstance::Byte(next))
                 }
                 (PatchBack(command), NodeInstance::Segment(prev)) => {
-                    eprintln!("PatchBack");
                     let next = Box::new(PatchDrain::new(prev, cache.unwrap(), command, &self.out_format));
                     (None, NodeInstance::Byte(next))
                 }
