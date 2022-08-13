@@ -236,11 +236,11 @@ impl Pipeline {
         if let Some(invert) = &m.invert {
             nodes.push(Bridge(invert.to_string()));
         }
-        if let Some(thresh) = m.merge {
-            nodes.push(Merge(thresh));
-        }
         if let Some(extend) = &m.extend {
             nodes.push(Extend(extend.to_string()));
+        }
+        if let Some(thresh) = m.merge {
+            nodes.push(Merge(thresh));
         }
 
         if let Some(args) = &m.foreach {
