@@ -2,6 +2,7 @@
 // @author Hajime Suzuki
 
 use super::{Segment, SegmentStream};
+use crate::mapper::SegmentMapper;
 use crate::params::BLOCK_SIZE;
 use anyhow::Result;
 
@@ -20,7 +21,7 @@ use rand::Rng;
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct MergerParams {
     backward_margin: isize,
-    extend: (isize, isize),
+    extend: SegmentMapper,
     merge_threshold: isize,
 }
 
@@ -28,28 +29,49 @@ impl Default for MergerParams {
     fn default() -> Self {
         MergerParams {
             backward_margin: 0,
-            extend: (0, 0),
+            extend: SegmentMapper::from_str("s..e", Some(["s", "e"])).unwrap(),
             merge_threshold: isize::MAX,
         }
     }
 }
 
 impl MergerParams {
-    pub fn from_raw(extend: Option<(isize, isize)>, merge: Option<isize>) -> Result<Self> {
-        let extend = extend.unwrap_or((0, 0));
+    pub fn from_raw(extend: Option<&str>, merge: Option<isize>) -> Result<Self> {
+        eprintln!("\n\nextend({:?}), merge({:?})", extend, merge);
+
+        let extend = extend.unwrap_or("s..e");
+        let extend = SegmentMapper::from_str(extend, Some(["s", "e"]))?;
+
+        eprintln!("mapper({:?})", extend);
+
+        let phantom = [0, 1];
+        let (start, end) = extend.evaluate(&phantom, &phantom);
+        let backward_margin = std::cmp::max(std::cmp::max(-start, -end), 0);
+        eprintln!("backward_margin({}, {}, {})", start, end, backward_margin);
+
+        let merge_threshold = merge.unwrap_or(isize::MAX);
+
         Ok(MergerParams {
-            backward_margin: std::cmp::max(extend.0, 0),
+            backward_margin,
             extend,
-            merge_threshold: merge.unwrap_or(isize::MAX),
+            merge_threshold,
         })
     }
 
-    fn apply_extend(&self, segment: &Segment) -> Option<(isize, isize)> {
-        let (start, end) = (segment.pos as isize, segment.tail() as isize);
+    fn calc_max_dist(&self) -> usize {
+        let phantom = [0, 0];
+        let (start, end) = self.extend.evaluate(&phantom, &phantom);
+        std::cmp::max(start.abs(), end.abs()) as usize
+    }
 
-        // extend
-        let (start, end) = (start - self.extend.0, end + self.extend.1);
-        let (start, end) = (std::cmp::max(start, 0), std::cmp::max(end, 0));
+    fn apply_extend(&self, segment: &Segment, tail_limit: isize) -> Option<(isize, isize)> {
+        let segment = [segment.pos as isize, segment.tail() as isize];
+        eprintln!("segment({:?})", &segment);
+
+        let (start, end) = self.extend.evaluate(&segment, &segment);
+        let start = std::cmp::min(std::cmp::max(0, start), tail_limit);
+        let end = std::cmp::min(std::cmp::max(0, end), tail_limit);
+        eprintln!("mapped({}, {})", start, end);
 
         if start >= end {
             return None;
@@ -98,7 +120,7 @@ struct Accumulator {
     end: isize,
 
     // states for the current segment slice
-    tail_limit: usize,
+    tail_limit: isize,
 
     // params
     params: MergerParams,
@@ -121,22 +143,24 @@ impl Accumulator {
         self.end = end;
     }
 
-    fn pop(&mut self) -> Segment {
-        let pos = std::cmp::max(0, self.start) as usize;
-        let tail = std::cmp::max(0, self.end) as usize;
-        let tail = std::cmp::min(tail, self.tail_limit);
+    fn pop(&mut self) -> Option<Segment> {
+        let pos = self.start as usize;
+        let tail = self.end as usize;
 
         // clear the current state
         self.count = 0;
         self.start = isize::MAX;
         self.end = isize::MAX;
 
-        Segment { pos, len: tail - pos }
+        if pos >= tail {
+            return None;
+        }
+        Some(Segment { pos, len: tail - pos })
     }
 
     fn resume(&mut self, is_eof: bool, bytes: usize, segment: &Segment) -> bool {
         // update state for the current slice
-        self.tail_limit = if is_eof { bytes } else { usize::MAX };
+        self.tail_limit = if is_eof { bytes as isize } else { isize::MAX };
 
         // if the accumulator has a liftover, the first segment is not consumed
         // in `resume`, and forwarded to the first `append` calls
@@ -145,26 +169,25 @@ impl Accumulator {
         }
 
         // the accumulator is empty, and it's initialized with the first segment
-        if let Some((start, end)) = self.params.apply_extend(segment) {
+        if let Some((start, end)) = self.params.apply_extend(segment, self.tail_limit) {
             self.init(start, end);
         }
         true
     }
 
     fn append(&mut self, segment: &Segment) -> Option<Segment> {
-        let mapped = self.params.apply_extend(segment);
+        let mapped = self.params.apply_extend(segment, self.tail_limit);
         if mapped.is_none() {
             self.count += 1;
             return None;
         }
 
         let (start, end) = mapped.unwrap();
-        debug_assert!(start >= self.start);
-
         if self.count == 0 {
             self.init(start, end);
             return None;
         }
+        debug_assert!(start >= self.start);
 
         // merge if overlap is large enough
         if self.params.is_mergable(self.end, start, end) {
@@ -176,7 +199,7 @@ impl Accumulator {
         let popped = self.pop();
         self.init(start, end);
 
-        Some(popped)
+        popped
     }
 
     fn suspend(&mut self, is_eof: bool, max_consume: usize) -> (Option<Segment>, usize) {
@@ -189,7 +212,7 @@ impl Accumulator {
         if !is_eof && self.end >= self.params.furthest_mergable_end(max_consume) {
             return (None, std::cmp::min(self.start as usize, max_consume));
         }
-        (Some(self.pop()), max_consume)
+        (self.pop(), max_consume)
     }
 
     fn count(&self) -> usize {
@@ -232,10 +255,7 @@ pub struct MergeStream {
 
 impl MergeStream {
     pub fn new(src: Box<dyn SegmentStream>, params: &MergerParams) -> Self {
-        // FIXME: max_dist must take invert into account
-
-        // let max_dist = calc_max_dist(params);
-        let max_dist = std::cmp::max(params.extend.0.abs(), params.extend.1.abs()) as usize;
+        let max_dist = params.calc_max_dist();
         let min_fill_bytes = std::cmp::max(BLOCK_SIZE, 2 * max_dist);
 
         MergeStream {
@@ -272,6 +292,13 @@ impl MergeStream {
     fn extend_segment_buf(&mut self, is_eof: bool, bytes: usize, count: usize, max_consume: usize) {
         let (_, segments) = self.src.as_slices();
 
+        eprintln!("start: is_eof({}), bytes({}), count({}), max_consume({})", is_eof, bytes, count, max_consume);
+        eprintln!("start: {:?}", segments);
+        eprintln!("start: max_consume({}), src_scanned({})", self.max_consume, self.src_scanned);
+        eprintln!("start: {:?}", self.segments);
+        eprintln!("start: {:?}", self.map);
+
+
         if count > self.src_scanned {
             // extend the current segment array, with the new segments extended and merged
             let consumed = self.acc.resume(is_eof, bytes, &segments[self.src_scanned]);
@@ -304,6 +331,10 @@ impl MergeStream {
         }
         self.max_consume = max_consume;
         self.src_scanned = count;
+
+        eprintln!("done: max_consume({}), src_scanned({})", self.max_consume, self.src_scanned);
+        eprintln!("done: {:?}", self.segments);
+        eprintln!("done: {:?}", self.map);
     }
 
     fn consume_map_array(&mut self, bytes: usize, count: usize) -> usize {
@@ -452,34 +483,34 @@ macro_rules! test {
             // extend
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_closed!(Some((0, 2)), None),
+                &bind_closed!(Some("s..e + 2"), None),
                 &[(3..11).into(), (7..15).into(), (11..19).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_closed!(Some((2, 0)), None),
+                &bind_closed!(Some("s - 2..e"), None),
                 &[(1..9).into(), (5..13).into(), (9..17).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_closed!(Some((2, 3)), None),
+                &bind_closed!(Some("s - 2..e + 3"), None),
                 &[(1..12).into(), (5..16).into(), (9..20).into()],
             );
 
             // extend (clipped at the head / tail)
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((0, 2)), None),
+                &bind_open!(Some("s..e + 2"), None),
                 &[(0..11).into(), (7..15).into(), (11..21).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((2, 0)), None),
+                &bind_open!(Some("s - 2..e"), None),
                 &[(0..9).into(), (5..13).into(), (9..21).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((2, 3)), None),
+                &bind_open!(Some("s - 2..e + 3"), None),
                 &[(0..12).into(), (5..16).into(), (9..21).into()],
             );
 
@@ -516,81 +547,105 @@ macro_rules! test {
             // merge after extend
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_closed!(Some((2, 3)), Some(2)),
+                &bind_closed!(Some("s - 2..e + 3"), Some(2)),
                 &[(1..20).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_closed!(Some((2, 3)), Some(7)),
+                &bind_closed!(Some("s - 2..e + 3"), Some(7)),
                 &[(1..20).into()],
             );
 
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((2, 3)), Some(2)),
+                &bind_open!(Some("s - 2..e + 3"), Some(2)),
                 &[(0..21).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((2, 3)), Some(7)),
+                &bind_open!(Some("s - 2..e + 3"), Some(7)),
                 &[(0..21).into()],
             );
 
             // not merged after extend
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_closed!(Some((2, 3)), Some(8)),
+                &bind_closed!(Some("s - 2..e + 3"), Some(8)),
                 &[(1..12).into(), (5..16).into(), (9..20).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((2, 3)), Some(8)),
+                &bind_open!(Some("s - 2..e + 3"), Some(8)),
                 &[(0..12).into(), (5..16).into(), (9..21).into()],
             );
 
             // more awkward cases (1); shift segments left then merge
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((8, -8)), None),
+                &bind_open!(Some("s - 8..e - 8"), None),
                 &[(0..1).into(), (0..5).into(), (3..13).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((8, -8)), Some(0)),
+                &bind_open!(Some("s - 8..e - 8"), Some(0)),
                 &[(0..13).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((8, -8)), Some(1)),
+                &bind_open!(Some("s - 8..e - 8"), Some(1)),
                 &[(0..13).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((8, -8)), Some(2)),
+                &bind_open!(Some("s - 8..e - 8"), Some(2)),
                 &[(0..1).into(), (0..13).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((8, -8)), Some(3)),
+                &bind_open!(Some("s - 8..e - 8"), Some(3)),
                 &[(0..1).into(), (0..5).into(), (3..13).into()],
             );
 
             // more awkward cases (2); shift segments right then merge
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((-8, 8)), None),
+                &bind_open!(Some("s + 8..e + 8"), None),
                 &[(8..17).into(), (15..21).into(), (19..21).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((-8, 8)), Some(2)),
+                &bind_open!(Some("s + 8..e + 8"), Some(2)),
                 &[(8..21).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((-8, 8)), Some(3)),
+                &bind_open!(Some("s + 8..e + 8"), Some(3)),
                 &[(8..17).into(), (15..21).into(), (19..21).into()],
             );
+
+            // e..s cases
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_closed!(Some("e..s"), None),
+                &[],
+            );
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_open!(Some("e..s"), None),
+                &[],
+            );
+
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_closed!(Some("e - 4..s + 4"), None),
+                &[(5..7).into(), (9..11).into(), (13..15).into()],
+            );
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_open!(Some("e - 4..s + 4"), None),
+                &[(9..11).into()],
+            );
+
         }
     };
 }
@@ -660,7 +715,7 @@ macro_rules! test_long {
                 (100..220).into(),
                 (200..300).into(),
                 (300..450).into(),
-                (400..410).into(),
+                (400..410).into(), // note: this segment is contained in 300..450
                 (500..600).into(),
                 (700..810).into(),
                 (800..900).into(),
@@ -679,7 +734,7 @@ macro_rules! test_long {
                     (690..820).into(),
                     (790..910).into(),
                 ],
-                Some((10, 10)),
+                Some("s - 10..e + 10"),
                 None
             );
 
@@ -719,7 +774,7 @@ macro_rules! test_long {
                 $inner,
                 &pattern,
                 &[(90..460).into(), (490..610).into(), (690..910).into(),],
-                Some((10, 10)),
+                Some("s - 10..e + 10"),
                 Some(10)
             );
 
@@ -727,9 +782,20 @@ macro_rules! test_long {
                 $inner,
                 &pattern,
                 &[(90..310).into(), (290..460).into(), (490..610).into(), (690..910).into(),],
-                Some((10, 10)),
+                Some("s - 10..e + 10"),
                 Some(30)
             );
+
+            // e..s cases (contained segment matters)
+            test_long_impl!($inner, &pattern, &[], Some("e..s"), None);
+            test_long_impl!(
+                $inner,
+                &pattern,
+                &[(360..450).into()],
+                Some("e - 50..s + 50"),
+                None
+            );
+
         }
     };
 }

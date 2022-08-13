@@ -70,13 +70,13 @@ pub struct PipelineArgs {
     #[clap(short = 'k', long = "walk", value_name = "EXPR[,...]")]
     walk: Option<String>,
 
-    #[clap(short = 'e', long = "regex", value_name = "PCRE[,S..E]")]
+    #[clap(short = 'e', long = "regex", value_name = "PCRE")]
     regex: Option<String>,
 
-    #[clap(short = 'x', long = "extend", value_name = "S,E", value_parser = parse_range)]
-    extend: Option<(isize, isize)>,
+    #[clap(short = 'x', long = "extend", value_name = "S..E")]
+    extend: Option<String>,
 
-    #[clap(short = 'v', long = "invert", value_name = "S,E")]
+    #[clap(short = 'v', long = "invert", value_name = "S..E")]
     invert: Option<String>,
 
     #[clap(short = 'm', long = "merge", value_name = "N", value_parser = parse_usize)]
@@ -222,7 +222,7 @@ impl Pipeline {
             nodes.push(Bridge(invert.to_string()));
         }
 
-        let merger = MergerParams::from_raw(m.extend, m.merge)?;
+        let merger = MergerParams::from_raw(m.extend.as_deref(), m.merge)?;
         if merger != MergerParams::default() {
             nodes.push(Merger(merger));
         }
