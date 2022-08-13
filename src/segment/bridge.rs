@@ -21,12 +21,16 @@ pub struct BridgeStream {
     src: Box<dyn SegmentStream>,
     segments: Vec<Segment>,
 
-    // accumulator
-    next_start: usize,
-
     // #segments that are not consumed in the source but already accumulated to `acc`
     // note: not the count from the beginning of the source stream
     src_scanned: usize,
+
+    // end position of the previous source segment
+    last_end: isize,
+
+    // the number of bytes that can be consumed at most in this slicer. is computed
+    // from the `last_end` so that the next any segment overlaps with the cosumable range
+    max_consume: usize,
 
     mapper: SegmentMapper,
 }
@@ -36,10 +40,41 @@ impl BridgeStream {
         Ok(BridgeStream {
             src,
             segments: Vec::new(),
-            next_start: 0,
+            // sorter: BinaryHeap::new(),
             src_scanned: 0,
-            mapper: SegmentMapper::from_str(expr, Some(["e", "s"]))?,
+            last_end: 0,
+            max_consume: 0,
+            mapper: SegmentMapper::from_str(expr, Some(["s", "e"]))?,
         })
+    }
+
+    fn update_max_consume(&mut self, is_eof: bool, bytes: usize) {
+        if is_eof {
+            self.max_consume = bytes;
+            return;
+        }
+
+        let last_end = self.last_end as isize;
+        let phantom = [last_end, last_end + 1];
+        let (start, end) = self.mapper.evaluate(&phantom, &phantom);
+        self.max_consume = std::cmp::max(0, std::cmp::min(start, end)) as usize;
+    }
+
+    fn map_segment(&self, gap: &[isize; 2], tail: usize) -> Option<Segment> {
+        let (start, end) = self.mapper.evaluate(gap, gap);
+
+        let start = (start.max(0) as usize).min(tail);
+        let end = (end.max(0) as usize).min(tail);
+
+        // record the segment
+        if start < end {
+            Some(Segment {
+                pos: start,
+                len: end - start,
+            })
+        } else {
+            None
+        }
     }
 
     fn extend_segment_buf(&mut self, is_eof: bool, count: usize, bytes: usize) {
@@ -47,35 +82,39 @@ impl BridgeStream {
 
         let (_, segments) = self.src.as_slices();
 
-        let mut start = self.next_start;
+        // first map all the source segment pairs with `mapper`
+        let mut prev_end = self.last_end;
         if count > self.src_scanned {
             for &next in &segments[self.src_scanned..count] {
-                let next = [next.pos as isize, next.tail() as isize];
-                let (next_start, end) = self.mapper.evaluate(&next, &next);
-
-                let end = (end.max(0) as usize).min(tail);
-                let next_start = (next_start.max(0) as usize).min(tail);
-
-                if start < end {
-                    self.segments.push(Segment {
-                        pos: start,
-                        len: end - start,
-                    });
+                // skip if there's no gap between the two segments
+                let curr_start = next.pos as isize;
+                let curr_end = next.tail() as isize;
+                if prev_end >= curr_start {
+                    prev_end = std::cmp::max(prev_end, curr_end);
+                    continue;
                 }
-                start = std::cmp::max(start, next_start);
+
+                // map the gap then clip
+                if let Some(s) = self.map_segment(&[prev_end, curr_start], tail) {
+                    self.segments.push(s);
+                }
+                prev_end = std::cmp::max(prev_end, curr_end);
             }
         }
 
-        if is_eof && start < bytes {
-            self.segments.push(Segment {
-                pos: start,
-                len: bytes - start,
-            });
-            start = bytes;
+        // push the last segment if EOF
+        if is_eof && prev_end < bytes as isize {
+            let bytes = bytes as isize;
+            if let Some(s) = self.map_segment(&[prev_end, bytes], tail) {
+                self.segments.push(s);
+            }
+            prev_end = bytes;
         }
 
-        self.next_start = start;
+        // all source segments are mapped; save the source-scanning states
+        self.last_end = prev_end;
         self.src_scanned = count;
+        self.update_max_consume(is_eof, bytes);
     }
 }
 
@@ -84,7 +123,7 @@ impl SegmentStream for BridgeStream {
         let (is_eof, bytes, count, max_consume) = self.src.fill_segment_buf()?;
         self.extend_segment_buf(is_eof, count, bytes);
 
-        let max_consume = std::cmp::min(max_consume, self.next_start);
+        let max_consume = std::cmp::min(max_consume, self.max_consume);
         Ok((is_eof, bytes, self.segments.len(), max_consume))
     }
 
@@ -94,7 +133,7 @@ impl SegmentStream for BridgeStream {
     }
 
     fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)> {
-        let bytes = std::cmp::min(bytes, self.next_start);
+        let bytes = std::cmp::min(bytes, self.max_consume);
         let (bytes, src_count) = self.src.consume(bytes)?;
         self.src_scanned -= src_count;
 
@@ -107,7 +146,8 @@ impl SegmentStream for BridgeStream {
         for s in &mut self.segments {
             s.pos -= bytes;
         }
-        self.next_start -= bytes;
+        self.last_end -= bytes as isize;
+        self.max_consume -= bytes;
 
         Ok((bytes, from))
     }
@@ -151,110 +191,90 @@ macro_rules! test {
             // invert without margin w/ explicit anchors
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_closed!(4, 2, "e..s"),
+                &bind_closed!(4, 2, "s..e"),
                 &[(0..3).into(), (5..7).into(), (9..11).into(), (13..15).into(), (17..21).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_open!(4, 2, "e..s"),
+                &bind_open!(4, 2, "s..e"),
                 &[(5..7).into(), (9..11).into(), (13..15).into()],
             );
 
             // invert with leftward margin
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_closed!(4, 2, "e - 1..s"),
+                &bind_closed!(4, 2, "s - 1..e"),
                 &[(0..3).into(), (4..7).into(), (8..11).into(), (12..15).into(), (16..21).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_open!(4, 2, "e - 1..s"),
-                &[(4..7).into(), (8..11).into(), (12..15).into(), (20..21).into()],
+                &bind_open!(4, 2, "s - 1..e"),
+                &[(4..7).into(), (8..11).into(), (12..15).into()],
             );
 
             // invert with rightward margin
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_closed!(4, 2, "e..s + 1"),
+                &bind_closed!(4, 2, "s..e + 1"),
                 &[(0..4).into(), (5..8).into(), (9..12).into(), (13..16).into(), (17..21).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_open!(4, 2, "e..s + 1"),
-                &[(0..1).into(), (5..8).into(), (9..12).into(), (13..16).into()],
+                &bind_open!(4, 2, "s..e + 1"),
+                &[(5..8).into(), (9..12).into(), (13..16).into()],
             );
 
             // larger
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_closed!(4, 2, "e - 2..s + 2"),
+                &bind_closed!(4, 2, "s - 2..e + 2"),
                 &[(0..5).into(), (3..9).into(), (7..13).into(), (11..17).into(), (15..21).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_open!(4, 2, "e - 2..s + 2"),
-                &[(0..2).into(), (3..9).into(), (7..13).into(), (11..17).into(), (19..21).into()],
+                &bind_open!(4, 2, "s - 2..e + 2"),
+                &[(3..9).into(), (7..13).into(), (11..17).into()],
             );
 
             // diminish
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_closed!(4, 4, "e..s"),
+                &bind_closed!(4, 4, "s..e"),
                 &[(0..3).into(), (15..21).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_closed!(4, 6, "e..s"),
+                &bind_closed!(4, 6, "s..e"),
                 &[(0..3).into(), (17..21).into()],
             );
 
-            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 4, "e..s"), &[]);
-            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 6, "e..s"), &[]);
+            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 4, "s..e"), &[]);
+            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 6, "s..e"), &[]);
 
-            // closed ends (s..e)
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_closed!(4, 2, "s..e"),
-                &[(0..5).into(), (3..9).into(), (7..13).into(), (11..17).into(), (15..21).into()],
-            );
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_open!(4, 2, "s..e"),
-                &[(0..5).into(), (0..9).into(), (7..13).into(), (11..21).into(), (15..21).into()],
-            );
+            // anchors swapped
+            $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 2, "e..s"), &[]);
+            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 2, "e..s"), &[]);
 
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_closed!(4, 2, "s + 1..e - 1"),
-                &[(0..4).into(), (4..8).into(), (8..12).into(), (12..16).into(), (16..21).into()],
+                &bind_closed!(4, 2, "e - 2..s + 2"),
+                &[(1..2).into(), (5..7).into(), (9..11).into(), (13..15).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_open!(4, 2, "s + 1..e - 1"),
-                &[(0..4).into(), (1..8).into(), (8..12).into(), (12..20).into(), (16..21).into()],
+                &bind_closed!(4, 2, "e - 2..s + 3"),
+                &[(1..3).into(), (5..8).into(), (9..12).into(), (13..16).into(), (19..20).into()],
+            );
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_closed!(4, 2, "e - 4..s + 2"),
+                &[(0..2).into(), (3..7).into(), (7..11).into(), (11..15).into(), (17..19).into()],
             );
 
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_closed!(4, 2, "s - 1..e + 1"),
-                &[
-                    (0..6).into(),
-                    (2..10).into(),
-                    (6..14).into(),
-                    (10..18).into(),
-                    (14..21).into(),
-                ],
-            );
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_open!(4, 2, "s - 1..e + 1"),
-                &[
-                    (0..6).into(),
-                    (0..10).into(),
-                    (6..14).into(),
-                    (10..21).into(),
-                    (14..21).into(),
-                ],
+                &bind_open!(4, 2, "e - 2..s + 2"),
+                &[(5..7).into(), (9..11).into(), (13..15).into()],
             );
         }
     };
@@ -346,52 +366,52 @@ macro_rules! test_long {
                 $inner,
                 &pattern,
                 &[(0..100).into(), (450..500).into(), (600..700).into(), (900..1000).into(),],
-                "e..s"
-            );
-            test_long_impl!(
-                $inner,
-                &pattern,
-                &[
-                    (0..110).into(),
-                    (290..310).into(),
-                    (440..510).into(),
-                    (590..710).into(),
-                    (800..810).into(),
-                    (890..1000).into(),
-                ],
-                "e - 10..s + 10"
-            );
-
-            // segment-inclusive
-            test_long_impl!(
-                $inner,
-                &pattern,
-                &[
-                    (0..220).into(),
-                    (100..300).into(),
-                    (200..450).into(),
-                    (300..410).into(),
-                    (400..600).into(),
-                    (500..810).into(),
-                    (700..900).into(),
-                    (800..1000).into(),
-                ],
                 "s..e"
             );
             test_long_impl!(
                 $inner,
                 &pattern,
-                &[
-                    (0..210).into(),
-                    (110..290).into(),
-                    (210..440).into(),
-                    (310..400).into(),
-                    (410..590).into(),
-                    (510..800).into(),
-                    (710..890).into(),
-                    (810..1000).into(),
-                ],
-                "s + 10..e - 10"
+                &[(0..110).into(), (440..510).into(), (590..710).into(), (890..1000).into(),],
+                "s - 10..e + 10"
+            );
+
+            // segment-inclusive
+            test_long_impl!($inner, &pattern, &[], "e..s");
+            test_long_impl!($inner, &pattern, &[(450..500).into(),], "e - 50..s + 50");
+
+            // more overlapping and contained segments
+            let pattern: Vec<Segment> = vec![
+                (100..700).into(),
+                (200..600).into(),
+                (300..550).into(),
+                (400..510).into(),
+                (500..550).into(),
+                (600..810).into(),
+                (700..800).into(),
+                (800..900).into(),
+            ];
+            test_long_impl!($inner, &pattern, &[(0..100).into(), (900..1000).into(),], "s..e");
+            test_long_impl!($inner, &pattern, &[(0..150).into(), (850..1000).into(),], "s - 50..e + 50");
+
+            let pattern: Vec<Segment> = vec![
+                (100..600).into(),
+                (200..610).into(),
+                (300..550).into(),
+                (400..610).into(),
+                (500..510).into(),
+                (800..900).into(),
+            ];
+            test_long_impl!(
+                $inner,
+                &pattern,
+                &[(0..100).into(), (610..800).into(), (900..1000).into(),],
+                "s..e"
+            );
+            test_long_impl!(
+                $inner,
+                &pattern,
+                &[(0..150).into(), (560..850).into(), (850..1000).into(),],
+                "s - 50..e + 50"
             );
         }
     };
