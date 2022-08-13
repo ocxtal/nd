@@ -4,6 +4,8 @@
 
 use super::{Segment, SegmentStream};
 use crate::byte::{ByteStream, EofStream};
+use crate::mapper::SegmentMapper;
+use anyhow::{anyhow, Result};
 
 #[cfg(test)]
 use crate::byte::tester::*;
@@ -13,6 +15,86 @@ use super::tester::*;
 
 #[cfg(test)]
 use rand::Rng;
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub struct ConstSlicerParams {
+    margin: (isize, isize),
+    open_ended: (bool, bool),
+    pitch: usize,
+    span: usize,
+}
+
+impl ConstSlicerParams {
+    pub fn from_raw(pitch: usize, expr: Option<&str>) -> Result<Self> {
+        let pitch = pitch as isize;
+
+        // parse mapper (if it results in an empty slice it's an error)
+        let expr = expr.unwrap_or("s..e");
+        let mapper = SegmentMapper::from_str(expr, Some(["s", "e"]))?;
+
+        let segment = [0, pitch];
+        let (start, end) = mapper.evaluate(&segment, &segment);
+        if start >= end {
+            return Err(anyhow!(
+                "map expression {:?} on {}-byte slicer results in an empty stream",
+                expr,
+                pitch
+            ));
+        }
+
+        let span = end - start;
+        debug_assert!(span > 0);
+
+        // calculate clips and margins
+        let head_margin = if start >= 0 {
+            start
+        } else {
+            let mut margin = -start;
+            while margin >= span {
+                margin -= pitch;
+            }
+            -margin
+        };
+
+        let tail_margin = if end < 1 { 1 - end } else { std::cmp::max(1 - end, 1 - span) };
+
+        Ok(ConstSlicerParams {
+            margin: (head_margin, tail_margin),
+            open_ended: (false, false),
+            pitch: pitch as usize,
+            span: span as usize,
+        })
+    }
+}
+
+#[test]
+fn test_const_slicer_params() {
+    macro_rules! test {
+        ( $pitch: expr, $mapper: expr, $expected: expr ) => {
+            // `expected` in ((isize, isize), usize, usize) for (margin, pitch, span)
+            let params = ConstSlicerParams::from_raw($pitch, $mapper).unwrap();
+
+            assert_eq!(params.pitch, $expected.1);
+            assert_eq!(params.span, $expected.2);
+            assert_eq!(params.margin, $expected.0);
+        };
+    }
+
+    // without mapper
+    test!(4, None, ((0, -3), 4, 4));
+    test!(16, None, ((0, -15), 16, 16));
+    test!(128, None, ((0, -127), 128, 128));
+
+    // mapper extends slices forward
+    test!(16, Some("s..e + 4"), ((0, -19), 16, 20));
+    test!(16, Some("s..e + 32"), ((0, -47), 16, 48));
+
+    // clips
+    test!(16, Some("s..e - 4"), ((0, -11), 16, 12));
+    test!(16, Some("s + 4..e"), ((4, -11), 16, 12));
+
+    // FIXME: we need another parameter to handle tail clipping properly
+}
 
 struct InitState {
     phase_offset: usize,
@@ -325,7 +407,11 @@ pub struct ConstSlicer {
 }
 
 impl ConstSlicer {
-    pub fn new(src: Box<dyn ByteStream>, margin: (isize, isize), open_ended: (bool, bool), pitch: usize, span: usize) -> Self {
+    pub fn new(src: Box<dyn ByteStream>, params: &ConstSlicerParams) -> Self {
+        ConstSlicer::from_raw(src, params.margin, params.open_ended, params.pitch, params.span)
+    }
+
+    pub fn from_raw(src: Box<dyn ByteStream>, margin: (isize, isize), open_ended: (bool, bool), pitch: usize, span: usize) -> Self {
         assert!(pitch > 0);
         assert!(span > 0);
 
@@ -367,7 +453,7 @@ macro_rules! bind_closed {
     ( $margin: expr, $pitch: expr, $span: expr ) => {
         |pattern: &[u8]| -> Box<dyn SegmentStream> {
             let src = Box::new(MockSource::new(pattern));
-            Box::new(ConstSlicer::new(src, $margin, (false, false), $pitch, $span))
+            Box::new(ConstSlicer::from_raw(src, $margin, (false, false), $pitch, $span))
         }
     };
 }
@@ -377,7 +463,7 @@ macro_rules! bind_open {
     ( $margin: expr, $pitch: expr, $span: expr ) => {
         |pattern: &[u8]| -> Box<dyn SegmentStream> {
             let src = Box::new(MockSource::new(pattern));
-            Box::new(ConstSlicer::new(src, $margin, (true, true), $pitch, $span))
+            Box::new(ConstSlicer::from_raw(src, $margin, (true, true), $pitch, $span))
         }
     };
 }

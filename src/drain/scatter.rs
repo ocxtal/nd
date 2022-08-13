@@ -91,7 +91,7 @@ impl ByteStream for ScatterDrain {
 macro_rules! test_impl {
     ( $inner: ident, $pattern: expr, $drain: expr, $expected: expr ) => {
         let src = Box::new(MockSource::new($pattern));
-        let src = Box::new(ConstSlicer::new(src, (0, -3), (false, false), 4, 6));
+        let src = Box::new(ConstSlicer::from_raw(src, (0, -3), (false, false), 4, 6));
         let src = ScatterDrain::new(src, $drain, &InoutFormat::from_str("b").unwrap()).unwrap();
 
         $inner(src, $expected);

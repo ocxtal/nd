@@ -29,6 +29,20 @@ fn parse_wordsize(s: &str) -> Result<usize> {
     Ok(parsed)
 }
 
+fn parse_const_slicer_params(s: &str) -> Result<ConstSlicerParams> {
+    let v = s.split(',').map(|x| x.to_string()).collect::<Vec<_>>();
+    assert!(!v.is_empty());
+
+    if v.len() > 2 {
+        return Err(anyhow!("too many elements found when parsing {:?} as W[,S..E]", s));
+    }
+
+    let pitch = parse_usize(&v[0])?;
+    let expr = v.get(1).map(|x| x.as_str());
+    let params = ConstSlicerParams::from_raw(pitch, expr)?;
+    Ok(params)
+}
+
 #[derive(Debug, Parser)]
 pub struct PipelineArgs {
     #[clap(short = 'F', long = "in-format", value_name = "FORMAT", value_parser = InoutFormat::from_str, default_value = "b")]
@@ -58,8 +72,8 @@ pub struct PipelineArgs {
     #[clap(short = 'p', long = "patch", value_name = "FILE")]
     patch: Option<String>,
 
-    #[clap(short = 'w', long = "width", value_name = "N", value_parser = parse_usize)]
-    width: Option<usize>,
+    #[clap(short = 'w', long = "width", value_name = "N[,S..E]", value_parser = parse_const_slicer_params)]
+    width: Option<ConstSlicerParams>,
 
     #[clap(short = 'd', long = "find", value_name = "PAT")]
     find: Option<String>,
@@ -104,7 +118,7 @@ pub enum Node {
     Patch(String),
     Tee,
     // Slicers: ByteStream -> SegmentStream
-    Width(usize),
+    Width(ConstSlicerParams),
     Find(String),
     SliceBy(String),
     Walk(Vec<String>),
@@ -210,7 +224,7 @@ impl Pipeline {
             (None, Some(pattern), None, None) => Find(pattern.to_string()),
             (None, None, Some(file), None) => SliceBy(file.to_string()),
             (None, None, None, Some(exprs)) => Walk(exprs.split(',').map(|x| x.to_string()).collect::<Vec<_>>()),
-            (None, None, None, None) => Width(16),
+            (None, None, None, None) => Width(ConstSlicerParams::from_raw(16, None)?),
             _ => return Err(anyhow!("--width, --find, --slice-by, and --walk are exclusive.")),
         };
         nodes.push(node);
@@ -318,9 +332,9 @@ impl Pipeline {
                     cache = Some(Box::new(next.spawn_reader()));
                     (cache, NodeInstance::Byte(next))
                 }
-                (Width(width), NodeInstance::Byte(prev)) => {
+                (Width(params), NodeInstance::Byte(prev)) => {
                     eprintln!("Width");
-                    let next = Box::new(ConstSlicer::new(prev, (0, 1 - (*width as isize)), (false, false), *width, *width));
+                    let next = Box::new(ConstSlicer::new(prev, params));
                     (cache, NodeInstance::Segment(next))
                 }
                 (Find(pattern), NodeInstance::Byte(prev)) => {
