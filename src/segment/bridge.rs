@@ -48,14 +48,14 @@ impl BridgeStream {
         })
     }
 
-    fn update_max_consume(&mut self, is_eof: bool, bytes: usize, max_consume: usize) {
+    fn update_max_consume(&mut self, is_eof: bool, bytes: usize) {
         if is_eof {
             self.max_consume = bytes;
             return;
         }
 
         let last_end = self.last_end as isize;
-        let phantom = [last_end, max_consume as isize];
+        let phantom = [last_end, last_end + 1];
 
         let (start, end) = self.mapper.evaluate(&phantom, &phantom);
         self.max_consume = std::cmp::max(0, std::cmp::min(start, end)) as usize;
@@ -124,7 +124,7 @@ impl SegmentStream for BridgeStream {
         self.extend_segment_buf(is_eof, count, bytes);
 
         // update max_consume
-        self.update_max_consume(is_eof, bytes, max_consume);
+        self.update_max_consume(is_eof, bytes);
         let max_consume = std::cmp::min(max_consume, self.max_consume);
 
         Ok((is_eof, bytes, self.segments.len(), max_consume))
