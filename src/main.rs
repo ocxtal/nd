@@ -36,7 +36,7 @@ OPTIONS:
   Input and output formats
 
     -F, --in-format FMT     input format signature (applies to all inputs) [b]
-    -f, --out-format FMT    output format signature (applies to --output) [xxx]
+    -f, --out-format FMT    output format signature (applies to --output) [x]
 
   Constructing input stream (exclusive)
 
@@ -61,10 +61,9 @@ OPTIONS:
   Manipulating the slices (applied in this order)
 
     -e, --regex PCRE        match PCRE on every slice and leave the match locations
-    -v, --invert S..E       map every adjoining slice pair to S..E (S from the first and E from the second)
+    -v, --invert S..E       invert slices and map them to S..E
     -x, --extend S..E       map every slice to S..E
-    -m, --merge N           merge slices where overlap >= N
-    -r, --foreach ARGS      feed every slice to a pipeline built from ARGS (input / output formats default to \"b\")
+    -m, --merge N           iteratively merge slices where distance <= N
 
   Post-processing the slices (exclusive)
 
@@ -103,8 +102,6 @@ fn main() -> Result<()> {
         .infer_long_args(true);
 
     let args = Args::from_arg_matches(&command.get_matches_mut())?;
-    eprintln!("{:?}", args);
-
     let pipeline = Pipeline::from_args(&args.pipeline)?;
 
     // process the stream
