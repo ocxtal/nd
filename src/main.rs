@@ -102,8 +102,6 @@ fn main() -> Result<()> {
         .infer_long_args(true);
 
     let args = Args::from_arg_matches(&command.get_matches_mut())?;
-    eprintln!("{:?}", args);
-
     let pipeline = Pipeline::from_args(&args.pipeline)?;
 
     // process the stream
