@@ -335,7 +335,7 @@ macro_rules! test_long {
                 (100..220).into(),
                 (200..300).into(),
                 (300..450).into(),
-                (400..410).into(),
+                (400..410).into(), // note: this segment is contained in 300..450
                 (500..600).into(),
                 (700..810).into(),
                 (800..900).into(),
