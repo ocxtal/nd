@@ -2,8 +2,6 @@
 // @author Hajime Suzuki
 
 use super::{Segment, SegmentStream};
-use crate::params::BLOCK_SIZE;
-use anyhow::Result;
 
 #[cfg(test)]
 use crate::byte::tester::*;
@@ -17,157 +15,74 @@ use super::{ConstSlicer, GuidedSlicer};
 #[cfg(test)]
 use rand::Rng;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct MergerParams {
-    backward_margin: isize,
-    extend: (isize, isize),
-    merge_threshold: isize,
-}
-
-impl Default for MergerParams {
-    fn default() -> Self {
-        MergerParams {
-            backward_margin: 0,
-            extend: (0, 0),
-            merge_threshold: isize::MAX,
-        }
-    }
-}
-
-impl MergerParams {
-    pub fn from_raw(extend: Option<(isize, isize)>, merge: Option<isize>) -> Result<Self> {
-        let extend = extend.unwrap_or((0, 0));
-        Ok(MergerParams {
-            backward_margin: std::cmp::max(extend.0, 0),
-            extend,
-            merge_threshold: merge.unwrap_or(isize::MAX),
-        })
-    }
-
-    fn apply_extend(&self, segment: &Segment) -> Option<(isize, isize)> {
-        let (start, end) = (segment.pos as isize, segment.tail() as isize);
-
-        // extend
-        let (start, end) = (start - self.extend.0, end + self.extend.1);
-        let (start, end) = (std::cmp::max(start, 0), std::cmp::max(end, 0));
-
-        if start >= end {
-            return None;
-        }
-        Some((start, end))
-    }
-
-    fn is_mergable(&self, prev_end: isize, curr_start: isize, curr_end: isize) -> bool {
-        let overlap = std::cmp::min(prev_end, curr_end) - curr_start;
-        overlap >= self.merge_threshold
-    }
-
-    fn max_consume(&self, is_eof: bool, bytes: usize) -> usize {
-        // if the accumulator is empty, we can consume the entire of the current stream
-        if is_eof {
-            return bytes;
-        }
-
-        // otherwise it's clipped by the extension margin
-        std::cmp::max(bytes as isize - self.backward_margin, 0) as usize
-    }
-
-    fn furthest_mergable_end(&self, bytes: usize) -> isize {
-        let furthest_end = std::cmp::max(bytes as isize - self.backward_margin, 0);
-        std::cmp::max(furthest_end.saturating_add(self.merge_threshold), 0)
-    }
-}
-
-// We use an array of `SegmentMap` to locate which result segment built from which input
-// segments. The array is build along with the merge operation, and every i-th element
-// corresponds to the i-th input. The `to_target` field tells the relative index of the
-// merged segment that corresponds to the i-th input segment. Also, `to_first` tells the
-// relative index of the first input segment from which the result segment is built.
-#[derive(Copy, Clone, Debug)]
-struct SegmentMap {
-    to_target: usize,
-    to_first: usize,
-}
-
 // working variable; segments are accumulated onto this
 #[derive(Copy, Clone, Debug)]
 struct Accumulator {
     // states for the current segment pile
     count: usize,
-    start: isize,
-    end: isize,
-
-    // states for the current segment slice
-    tail_limit: usize,
+    start: usize,
+    end: usize,
 
     // params
-    params: MergerParams,
+    merge_threshold: usize,
 }
 
 impl Accumulator {
-    fn new(params: &MergerParams) -> Self {
+    fn new(merge_threshold: usize) -> Self {
         Accumulator {
             count: 0,
-            start: isize::MAX,
-            end: isize::MAX,
-            tail_limit: 0,
-            params: *params,
+            start: usize::MAX,
+            end: usize::MAX,
+            merge_threshold,
         }
     }
 
-    fn init(&mut self, start: isize, end: isize) {
+    fn init(&mut self, start: usize, end: usize) {
         self.count = 1;
         self.start = start;
         self.end = end;
     }
 
-    fn pop(&mut self) -> Segment {
-        let pos = std::cmp::max(0, self.start) as usize;
-        let tail = std::cmp::max(0, self.end) as usize;
-        let tail = std::cmp::min(tail, self.tail_limit);
+    fn pop(&mut self) -> Option<Segment> {
+        let pos = self.start;
+        let tail = self.end;
 
         // clear the current state
         self.count = 0;
-        self.start = isize::MAX;
-        self.end = isize::MAX;
+        self.start = usize::MAX;
+        self.end = usize::MAX;
 
-        Segment { pos, len: tail - pos }
+        if pos >= tail {
+            return None;
+        }
+        Some(Segment { pos, len: tail - pos })
     }
 
-    fn resume(&mut self, is_eof: bool, bytes: usize, segment: &Segment) -> bool {
-        // update state for the current slice
-        self.tail_limit = if is_eof { bytes } else { usize::MAX };
-
+    fn resume(&mut self, segment: &Segment) -> bool {
         // if the accumulator has a liftover, the first segment is not consumed
-        // in `resume`, and forwarded to the first `append` calls
+        // in `resume`, and forwarded to the first `append` call
         if self.count > 0 {
             return false;
         }
 
         // the accumulator is empty, and it's initialized with the first segment
-        if let Some((start, end)) = self.params.apply_extend(segment) {
-            self.init(start, end);
-        }
+        self.init(segment.pos, segment.tail());
         true
     }
 
     fn append(&mut self, segment: &Segment) -> Option<Segment> {
-        let mapped = self.params.apply_extend(segment);
-        if mapped.is_none() {
-            self.count += 1;
-            return None;
-        }
-
-        let (start, end) = mapped.unwrap();
-        debug_assert!(start >= self.start);
+        let start = segment.pos;
+        let end = segment.tail();
 
         if self.count == 0 {
             self.init(start, end);
             return None;
         }
+        debug_assert!(start >= self.start);
 
-        // merge if overlap is large enough
-        if self.params.is_mergable(self.end, start, end) {
+        // merge if the distance is small enough, or
+        // the segment is contained in the accumulator's segment
+        if self.end > start || (start - self.end) <= self.merge_threshold {
             self.count += 1;
             self.end = std::cmp::max(self.end, end);
             return None;
@@ -176,38 +91,38 @@ impl Accumulator {
         let popped = self.pop();
         self.init(start, end);
 
-        Some(popped)
+        popped
     }
 
-    fn suspend(&mut self, is_eof: bool, max_consume: usize) -> (Option<Segment>, usize) {
-        let max_consume = self.params.max_consume(is_eof, max_consume);
+    fn suspend(&mut self, is_eof: bool, max_consume: usize) -> Option<Segment> {
         if self.count == 0 {
-            return (None, max_consume);
+            return None;
+        }
+        if !is_eof && max_consume <= self.furthest_margable_pos() {
+            return None;
         }
 
-        // debug_assert!(self.end <= self.bytes as isize);
-        if !is_eof && self.end >= self.params.furthest_mergable_end(max_consume) {
-            return (None, std::cmp::min(self.start as usize, max_consume));
-        }
-        (Some(self.pop()), max_consume)
-    }
-
-    fn count(&self) -> usize {
-        self.count
+        // the next segment cannot be merged into the accumulator; pop it
+        self.pop()
     }
 
     fn unwind(&mut self, bytes: usize) {
         // update states
-        let bytes = bytes as isize;
         self.start -= bytes;
         self.end -= bytes;
+    }
+
+    fn furthest_margable_pos(&self) -> usize {
+        if self.count == 0 {
+            return 0;
+        }
+        self.end.saturating_add(self.merge_threshold)
     }
 }
 
 pub struct MergeStream {
     src: Box<dyn SegmentStream>,
     segments: Vec<Segment>,
-    map: Vec<SegmentMap>,
 
     // the last unclosed segment in the previous `extend_segment_buf`
     acc: Accumulator,
@@ -215,172 +130,64 @@ pub struct MergeStream {
     // #segments that are not consumed in the source but already accumulated to `acc`
     // note: not the count from the beginning of the source stream
     src_scanned: usize,
-    src_consumed: usize, // # segments consumed in the source
-
-    // #segments that are already consumed in the `segments` array
-    target_consumed: usize,
 
     // #bytes that can be consumed
     max_consume: usize,
-
-    // #bytes needed for the next fill_segment_buf
-    next_request: usize,
-
-    // minimum input stream length in bytes to forward the state
-    min_fill_bytes: usize,
 }
 
 impl MergeStream {
-    pub fn new(src: Box<dyn SegmentStream>, params: &MergerParams) -> Self {
-        // FIXME: max_dist must take invert into account
-
-        // let max_dist = calc_max_dist(params);
-        let max_dist = std::cmp::max(params.extend.0.abs(), params.extend.1.abs()) as usize;
-        let min_fill_bytes = std::cmp::max(BLOCK_SIZE, 2 * max_dist);
-
+    pub fn new(src: Box<dyn SegmentStream>, merge_threshold: usize) -> Self {
         MergeStream {
             src,
             segments: Vec::new(),
-            map: Vec::new(),
-            acc: Accumulator::new(params),
+            acc: Accumulator::new(merge_threshold),
             src_scanned: 0,
-            src_consumed: 0,
-            target_consumed: 0,
             max_consume: 0,
-            next_request: 0,
-            min_fill_bytes,
         }
     }
 
-    fn fill_segment_buf_impl(&mut self) -> std::io::Result<(bool, usize, usize, usize)> {
-        // TODO: implement SegmentStream variant for the EofStream and use it
-        let min_fill_bytes = std::cmp::max(self.min_fill_bytes, self.next_request);
-        loop {
-            let (is_eof, bytes, count, max_consume) = self.src.fill_segment_buf()?;
-            if is_eof {
-                return Ok((true, bytes, count, max_consume));
-            }
-
-            if bytes >= min_fill_bytes {
-                return Ok((false, bytes, count, max_consume));
-            }
-
-            self.src.consume(0).unwrap();
+    fn update_max_consume(&mut self, is_eof: bool, bytes: usize, max_consume: usize) {
+        if is_eof {
+            self.max_consume = bytes;
+            return;
         }
+        if max_consume <= self.acc.furthest_margable_pos() {
+            self.max_consume = self.acc.start;
+            return;
+        }
+
+        self.max_consume = max_consume;
     }
 
-    fn extend_segment_buf(&mut self, is_eof: bool, bytes: usize, count: usize, max_consume: usize) {
+    fn extend_segment_buf(&mut self, is_eof: bool, count: usize, max_consume: usize) {
         let (_, segments) = self.src.as_slices();
 
         if count > self.src_scanned {
             // extend the current segment array, with the new segments extended and merged
-            let consumed = self.acc.resume(is_eof, bytes, &segments[self.src_scanned]);
-            if consumed {
-                let to_target = self.target_consumed + self.segments.len();
-                self.map.push(SegmentMap { to_target, to_first: 0 });
-            }
-
+            let consumed = self.acc.resume(&segments[self.src_scanned]);
             let src_scanned = self.src_scanned + consumed as usize;
-            for next in &segments[src_scanned..count] {
-                let to_target = self.target_consumed + self.segments.len();
-                let to_first = self.acc.count();
 
+            for next in &segments[src_scanned..count] {
                 if let Some(s) = self.acc.append(next) {
                     self.segments.push(s);
-                    self.map.push(SegmentMap {
-                        to_target: to_target + 1,
-                        to_first: 0,
-                    });
-                } else {
-                    self.map.push(SegmentMap { to_target, to_first });
                 }
             }
         }
 
-        let (s, max_consume) = self.acc.suspend(is_eof, max_consume);
-        if let Some(s) = s {
+        if let Some(s) = self.acc.suspend(is_eof, max_consume) {
             // the accumulator is popped as the last segment
             self.segments.push(s);
         }
-        self.max_consume = max_consume;
         self.src_scanned = count;
-    }
-
-    fn consume_map_array(&mut self, bytes: usize, count: usize) -> usize {
-        self.src_scanned -= count;
-
-        // #segments consumed in the source -> #elements consumed in the `map` array
-        let (count, skip) = if count > self.src_consumed {
-            (count - self.src_consumed, 0)
-        } else {
-            (0, self.src_consumed - count)
-        };
-
-        // this method takes #segments that are consumed in the source,
-        // and computes #segments to be consumed in this merger (consumed in `self.segments`).
-        if count >= self.map.len() {
-            self.map.clear();
-            return self.segments.len();
-        }
-
-        // first determine the number of segments that overlap with the consumed range
-        // (this is caused by extending segments headward)
-        let next_skip = self.map[count..].partition_point(|m| {
-            let target_index = m.to_target - self.target_consumed;
-            if target_index >= self.segments.len() {
-                return false;
-            }
-            self.segments[target_index].pos < bytes
-        });
-
-        let count = count + next_skip;
-        self.src_consumed = skip + next_skip;
-
-        // all segments are consumed
-        if count >= self.map.len() {
-            self.map.clear();
-            return self.segments.len();
-        }
-
-        // mapping from input segment -> target segment that the input segment contributed
-        debug_assert!(count < self.map.len());
-        let map = self.map[count];
-
-        let from = count - map.to_first;
-        let to = self.map.len();
-
-        self.map.copy_within(from..to, 0);
-        self.map.truncate(to - from);
-
-        // calculate the number of segments to be consumed in the `self.segments` array
-        map.to_target - self.target_consumed
-    }
-
-    fn consume_segment_array(&mut self, bytes: usize, count: usize) {
-        debug_assert!(count <= self.segments.len());
-
-        // remove elements from the segment array
-        let from = count;
-        let to = self.segments.len();
-
-        self.segments.copy_within(from..to, 0);
-        self.segments.truncate(to - from);
-
-        for s in &mut self.segments {
-            s.pos -= bytes;
-        }
-        self.target_consumed += from;
     }
 }
 
 impl SegmentStream for MergeStream {
     fn fill_segment_buf(&mut self) -> std::io::Result<(bool, usize, usize, usize)> {
-        let (is_eof, bytes, count, max_consume) = self.fill_segment_buf_impl()?;
-        self.next_request = bytes + 1;
+        let (is_eof, bytes, count, max_consume) = self.src.fill_segment_buf()?;
 
-        if bytes > 0 && count >= self.src_scanned {
-            self.extend_segment_buf(is_eof, bytes, count, max_consume);
-        }
+        self.extend_segment_buf(is_eof, count, max_consume);
+        self.update_max_consume(is_eof, bytes, max_consume);
 
         Ok((is_eof, bytes, self.segments.len(), self.max_consume))
     }
@@ -393,43 +200,42 @@ impl SegmentStream for MergeStream {
     fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)> {
         let bytes = std::cmp::min(bytes, self.max_consume);
         let (bytes, src_count) = self.src.consume(bytes)?;
+        self.src_scanned -= src_count;
 
-        // update the segment array using the input-result segment map table
-        // this returns #segments to be consumed in this merger
-        let target_count = self.consume_map_array(bytes, src_count);
-        self.consume_segment_array(bytes, target_count);
+        let from = self.segments.partition_point(|x| x.pos < bytes);
+        let to = self.segments.len();
 
-        // update states
+        self.segments.copy_within(from..to, 0);
+        self.segments.truncate(to - from);
+
+        for s in &mut self.segments {
+            s.pos -= bytes;
+        }
         self.acc.unwind(bytes);
         self.max_consume -= bytes;
-        self.next_request -= bytes;
 
-        Ok((bytes, target_count))
+        Ok((bytes, from))
     }
 }
 
 #[cfg(test)]
 macro_rules! bind_closed {
-    ( $extend: expr, $merge: expr ) => {
+    ( $pitch: expr, $span: expr, $merge: expr ) => {
         |pattern: &[u8]| -> Box<dyn SegmentStream> {
             let src = Box::new(MockSource::new(pattern));
-            let src = Box::new(ConstSlicer::new(src, (3, 3), (false, false), 4, 6));
-
-            let params = MergerParams::from_raw($extend, $merge).unwrap();
-            Box::new(MergeStream::new(src, &params))
+            let src = Box::new(ConstSlicer::new(src, (3, 3), (false, false), $pitch, $span));
+            Box::new(MergeStream::new(src, $merge))
         }
     };
 }
 
 #[cfg(test)]
 macro_rules! bind_open {
-    ( $extend: expr, $merge: expr ) => {
+    ( $pitch: expr, $span: expr, $merge: expr ) => {
         |pattern: &[u8]| -> Box<dyn SegmentStream> {
             let src = Box::new(MockSource::new(pattern));
-            let src = Box::new(ConstSlicer::new(src, (3, 3), (true, true), 4, 6));
-
-            let params = MergerParams::from_raw($extend, $merge).unwrap();
-            Box::new(MergeStream::new(src, &params))
+            let src = Box::new(ConstSlicer::new(src, (3, 3), (true, true), $pitch, $span));
+            Box::new(MergeStream::new(src, $merge))
         }
     };
 }
@@ -438,159 +244,43 @@ macro_rules! test {
     ( $name: ident, $inner: ident ) => {
         #[test]
         fn $name() {
+            // thresh == 0
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_closed!(None, None),
-                &[(3..9).into(), (7..13).into(), (11..17).into()],
+                &bind_closed!(4, 2, 0),
+                &[(3..5).into(), (7..9).into(), (11..13).into(), (15..17).into()],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_open!(None, None),
-                &[(0..9).into(), (7..13).into(), (11..21).into()],
-            );
-
-            // extend
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_closed!(Some((0, 2)), None),
-                &[(3..11).into(), (7..15).into(), (11..19).into()],
-            );
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_closed!(Some((2, 0)), None),
-                &[(1..9).into(), (5..13).into(), (9..17).into()],
-            );
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_closed!(Some((2, 3)), None),
-                &[(1..12).into(), (5..16).into(), (9..20).into()],
+                &bind_open!(4, 2, 0),
+                &[(0..5).into(), (7..9).into(), (11..13).into(), (15..21).into()],
             );
 
-            // extend (clipped at the head / tail)
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((0, 2)), None),
-                &[(0..11).into(), (7..15).into(), (11..21).into()],
-            );
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((2, 0)), None),
-                &[(0..9).into(), (5..13).into(), (9..21).into()],
-            );
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((2, 3)), None),
-                &[(0..12).into(), (5..16).into(), (9..21).into()],
-            );
+            $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 4, 0), &[(3..15).into()]);
+            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 4, 0), &[(0..21).into()]);
 
-            // merge (into a single segment)
-            $inner(b"abcdefghijklmnopqrstu", &bind_closed!(None, Some(2)), &[(3..17).into()]);
-            $inner(b"abcdefghijklmnopqrstu", &bind_closed!(None, Some(-2)), &[(3..17).into()]);
+            $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 6, 0), &[(3..17).into()]);
+            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 6, 0), &[(0..21).into()]);
 
-            $inner(b"abcdefghijklmnopqrstu", &bind_open!(None, Some(2)), &[(0..21).into()]);
-            $inner(b"abcdefghijklmnopqrstu", &bind_open!(None, Some(-2)), &[(0..21).into()]);
+            // thresh == 2
+            $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 2, 2), &[(3..17).into()]);
+            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 2, 2), &[(0..21).into()]);
 
-            // merge (not merged; left as the original)
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_closed!(None, Some(3)),
-                &[(3..9).into(), (7..13).into(), (11..17).into()],
-            );
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_closed!(None, Some(5)),
-                &[(3..9).into(), (7..13).into(), (11..17).into()],
-            );
+            $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 4, 2), &[(3..15).into()]);
+            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 4, 2), &[(0..21).into()]);
 
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_open!(None, Some(3)),
-                &[(0..9).into(), (7..13).into(), (11..21).into()],
-            );
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_open!(None, Some(5)),
-                &[(0..9).into(), (7..13).into(), (11..21).into()],
-            );
+            $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 6, 2), &[(3..17).into()]);
+            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 6, 2), &[(0..21).into()]);
 
-            // merge after extend
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_closed!(Some((2, 3)), Some(2)),
-                &[(1..20).into()],
-            );
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_closed!(Some((2, 3)), Some(7)),
-                &[(1..20).into()],
-            );
+            // thresh == inf
+            $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 2, usize::MAX), &[(3..17).into()]);
+            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 2, usize::MAX), &[(0..21).into()]);
 
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((2, 3)), Some(2)),
-                &[(0..21).into()],
-            );
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((2, 3)), Some(7)),
-                &[(0..21).into()],
-            );
+            $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 4, usize::MAX), &[(3..15).into()]);
+            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 4, usize::MAX), &[(0..21).into()]);
 
-            // not merged after extend
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_closed!(Some((2, 3)), Some(8)),
-                &[(1..12).into(), (5..16).into(), (9..20).into()],
-            );
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((2, 3)), Some(8)),
-                &[(0..12).into(), (5..16).into(), (9..21).into()],
-            );
-
-            // more awkward cases (1); shift segments left then merge
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((8, -8)), None),
-                &[(0..1).into(), (0..5).into(), (3..13).into()],
-            );
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((8, -8)), Some(0)),
-                &[(0..13).into()],
-            );
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((8, -8)), Some(1)),
-                &[(0..13).into()],
-            );
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((8, -8)), Some(2)),
-                &[(0..1).into(), (0..13).into()],
-            );
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((8, -8)), Some(3)),
-                &[(0..1).into(), (0..5).into(), (3..13).into()],
-            );
-
-            // more awkward cases (2); shift segments right then merge
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((-8, 8)), None),
-                &[(8..17).into(), (15..21).into(), (19..21).into()],
-            );
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((-8, 8)), Some(2)),
-                &[(8..21).into()],
-            );
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_open!(Some((-8, 8)), Some(3)),
-                &[(8..17).into(), (15..21).into(), (19..21).into()],
-            );
+            $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 6, usize::MAX), &[(3..17).into()]);
+            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 6, usize::MAX), &[(0..21).into()]);
         }
     };
 }
@@ -629,9 +319,9 @@ fn gen_guide(pattern: &[Segment], pitch: usize, repeat: usize) -> Vec<u8> {
 
 #[cfg(test)]
 macro_rules! test_long_impl {
-    ( $inner: ident, $pattern: expr, $merged: expr, $extend: expr, $merge: expr ) => {
+    ( $inner: ident, $pattern: expr, $merged: expr, $merge: expr ) => {
         let pitch = 1000;
-        let repeat = 10;
+        let repeat = 2;
 
         let mut rng = rand::thread_rng();
         let v = (0..pitch * repeat).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
@@ -643,9 +333,7 @@ macro_rules! test_long_impl {
             let src = Box::new(MockSource::new(x));
             let guide = Box::new(MockSource::new(&guide));
             let src = Box::new(GuidedSlicer::new(src, guide));
-
-            let params = MergerParams::from_raw($extend, $merge).unwrap();
-            Box::new(MergeStream::new(src, &params))
+            Box::new(MergeStream::new(src, $merge))
         };
 
         $inner(&v, &bind, &expected);
@@ -660,76 +348,27 @@ macro_rules! test_long {
                 (100..220).into(),
                 (200..300).into(),
                 (300..450).into(),
-                (400..410).into(),
+                (400..410).into(), // note: this segment is contained in 300..450
                 (500..600).into(),
                 (700..810).into(),
                 (800..900).into(),
             ];
 
-            test_long_impl!($inner, &pattern, &pattern, None, None);
-            test_long_impl!(
-                $inner,
-                &pattern,
-                &[
-                    (90..230).into(),
-                    (190..310).into(),
-                    (290..460).into(),
-                    (390..420).into(),
-                    (490..610).into(),
-                    (690..820).into(),
-                    (790..910).into(),
-                ],
-                Some((10, 10)),
-                None
-            );
-
             test_long_impl!(
                 $inner,
                 &pattern,
                 &[(100..450).into(), (500..600).into(), (700..900).into(),],
-                None,
-                Some(0)
+                0
             );
-
             test_long_impl!(
                 $inner,
                 &pattern,
-                &[(100..300).into(), (300..450).into(), (500..600).into(), (700..900).into(),],
-                None,
-                Some(10)
+                &[(100..450).into(), (500..600).into(), (700..900).into(),],
+                49
             );
-
-            test_long_impl!(
-                $inner,
-                &pattern,
-                &[
-                    (100..220).into(),
-                    (200..300).into(),
-                    (300..450).into(),
-                    (400..410).into(),
-                    (500..600).into(),
-                    (700..810).into(),
-                    (800..900).into(),
-                ],
-                None,
-                Some(30)
-            );
-
-            test_long_impl!(
-                $inner,
-                &pattern,
-                &[(90..460).into(), (490..610).into(), (690..910).into(),],
-                Some((10, 10)),
-                Some(10)
-            );
-
-            test_long_impl!(
-                $inner,
-                &pattern,
-                &[(90..310).into(), (290..460).into(), (490..610).into(), (690..910).into(),],
-                Some((10, 10)),
-                Some(30)
-            );
+            test_long_impl!($inner, &pattern, &[(100..600).into(), (700..900).into(),], 50);
+            test_long_impl!($inner, &pattern, &[(100..600).into(), (700..900).into(),], 99);
+            test_long_impl!($inner, &pattern, &[(100..900).into(),], 100);
         }
     };
 }

@@ -12,7 +12,6 @@ struct Anchor {
     offset: isize,
 }
 
-#[allow(dead_code)]
 impl Anchor {
     fn from_str(expr: &str, default_anchor: &str) -> Result<Self> {
         let default_anchor = match default_anchor {
@@ -44,7 +43,7 @@ impl Anchor {
         Ok(Anchor { anchor, offset })
     }
 
-    fn evaluate(&self, input: &[isize; 2]) -> isize {
+    pub fn evaluate(&self, input: &[isize; 2]) -> isize {
         input[self.anchor] + self.offset
     }
 }
@@ -55,7 +54,6 @@ pub struct SegmentMapper {
     end: Anchor,
 }
 
-#[allow(dead_code)]
 impl SegmentMapper {
     pub fn from_str(expr: &str, default_anchors: Option<[&str; 2]>) -> Result<Self> {
         let default_anchors = default_anchors.unwrap_or(["s", "e"]);
@@ -76,7 +74,7 @@ impl SegmentMapper {
         Ok(SegmentMapper { start: v[0], end: v[1] })
     }
 
-    fn evaluate(&self, start: &[isize; 2], end: &[isize; 2]) -> (isize, isize) {
+    pub fn evaluate(&self, start: &[isize; 2], end: &[isize; 2]) -> (isize, isize) {
         (self.start.evaluate(start), self.end.evaluate(end))
     }
 }
