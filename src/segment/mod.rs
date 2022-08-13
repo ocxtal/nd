@@ -4,6 +4,7 @@
 
 mod bridge;
 mod exact;
+mod extend;
 mod guided;
 mod merge;
 mod regex;
@@ -13,6 +14,7 @@ mod walk;
 
 pub use self::bridge::BridgeStream;
 pub use self::exact::ExactMatchSlicer;
+pub use self::extend::ExtendStream;
 pub use self::guided::GuidedSlicer;
 pub use self::merge::MergeStream;
 pub use self::regex::RegexSlicer;

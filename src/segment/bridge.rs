@@ -40,7 +40,6 @@ impl BridgeStream {
         Ok(BridgeStream {
             src,
             segments: Vec::new(),
-            // sorter: BinaryHeap::new(),
             src_scanned: 0,
             last_end: 0,
             max_consume: 0,
