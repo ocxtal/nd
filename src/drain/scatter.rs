@@ -26,13 +26,13 @@ pub struct ScatterDrain {
 
 impl ScatterDrain {
     pub fn new(src: Box<dyn SegmentStream>, file: &str, format: &InoutFormat) -> Result<Self> {
-        let formatter = TextFormatter::new(format, (0, 0), 0);
+        let formatter = TextFormatter::new(format, (0, 0));
 
         // when "-" or nothing specified, we treat it as stdout
         let file = if file.is_empty() || file == "-" {
             None
         } else {
-            Some(std::fs::OpenOptions::new().read(false).write(true).open(file)?)
+            Some(std::fs::OpenOptions::new().read(false).write(true).create(true).open(file)?)
         };
 
         Ok(ScatterDrain {

@@ -44,11 +44,11 @@ pub struct TextFormatter {
 }
 
 impl TextFormatter {
-    pub fn new(format: &InoutFormat, offset: (usize, usize), min_width: usize) -> Self {
+    pub fn new(format: &InoutFormat, offset: (usize, usize)) -> Self {
         TextFormatter {
             format_lines: if format.is_binary() { format_binary } else { format_hex },
             offset,
-            min_width,
+            min_width: format.cols,
         }
     }
 

@@ -65,6 +65,10 @@ impl ConstSlicerParams {
             span: span as usize,
         })
     }
+
+    pub fn columns(&self) -> usize {
+        self.span
+    }
 }
 
 #[test]
