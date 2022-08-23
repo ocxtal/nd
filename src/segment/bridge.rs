@@ -291,18 +291,36 @@ macro_rules! test {
             $inner(
                 b"abcdefghijklmnopqrstu",
                 &bind_closed!(4, 2, "..11"),
-                &[(0..11).into(), (5..16).into(), (9..20).into(), (13..21).into(), (17..21).into()],
+                &[
+                    (0..11).into(),
+                    (5..16).into(),
+                    (9..20).into(),
+                    (13..21).into(),
+                    (17..21).into(),
+                ],
             );
 
             $inner(
                 b"abcdefghijklmnopqrstu",
                 &bind_closed!(4, 2, "e - 1.."),
-                &[(2..3).into(), (6..7).into(), (10..11).into(), (14..15).into(), (20..21).into()],
+                &[
+                    (2..3).into(),
+                    (6..7).into(),
+                    (10..11).into(),
+                    (14..15).into(),
+                    (20..21).into(),
+                ],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
                 &bind_closed!(4, 2, "e - 1..e"),
-                &[(2..3).into(), (6..7).into(), (10..11).into(), (14..15).into(), (20..21).into()],
+                &[
+                    (2..3).into(),
+                    (6..7).into(),
+                    (10..11).into(),
+                    (14..15).into(),
+                    (20..21).into(),
+                ],
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
