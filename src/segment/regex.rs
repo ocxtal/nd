@@ -78,7 +78,7 @@ impl SegmentStream for RegexSlicer {
         self.matches.truncate(to - from);
 
         for m in &mut self.matches {
-            *m = m.unwind(bytes);
+            m.pos -= bytes;
         }
 
         self.scanned -= bytes;

@@ -225,7 +225,7 @@ impl SegmentStream for WalkSlicer {
         self.segments.truncate(to - from);
 
         for s in &mut self.segments {
-            *s = s.unwind(bytes);
+            s.pos -= bytes;
         }
         self.pos -= bytes;
 
