@@ -80,7 +80,7 @@ impl ExtendStream {
             sorter: BinaryHeap::new(),
             src_scanned: 0,
             max_consume: 0,
-            mapper: SegmentMapper::from_str(expr, Some(["s", "e"]))?,
+            mapper: SegmentMapper::from_str(expr)?,
         })
     }
 
@@ -219,18 +219,7 @@ macro_rules! test {
             );
             $inner(
                 b"abcdefghijklmnopqrstu",
-                &bind_closed!(4, 2, "0..0"),
-                &[(3..5).into(), (7..9).into(), (11..13).into(), (15..17).into()],
-            );
-
-            $inner(
-                b"abcdefghijklmnopqrstu",
                 &bind_open!(4, 2, ".."),
-                &[(0..5).into(), (7..9).into(), (11..13).into(), (15..21).into()],
-            );
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_open!(4, 2, "0..0"),
                 &[(0..5).into(), (7..9).into(), (11..13).into(), (15..21).into()],
             );
 
@@ -243,6 +232,17 @@ macro_rules! test {
             $inner(
                 b"abcdefghijklmnopqrstu",
                 &bind_open!(4, 2, "s..e"),
+                &[(0..5).into(), (7..9).into(), (11..13).into(), (15..21).into()],
+            );
+
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_closed!(4, 2, "s+0..e+0"),
+                &[(3..5).into(), (7..9).into(), (11..13).into(), (15..17).into()],
+            );
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_open!(4, 2, "s+0..e+0"),
                 &[(0..5).into(), (7..9).into(), (11..13).into(), (15..21).into()],
             );
 
@@ -304,6 +304,17 @@ macro_rules! test {
             );
 
             // both anchors start / both anchors end
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_closed!(4, 2, "..5"),
+                &[(3..8).into(), (7..12).into(), (11..16).into(), (15..20).into()],
+            );
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_closed!(4, 2, "-5..0"),
+                &[(0..3).into(), (2..7).into(), (6..11).into(), (10..15).into()],
+            );
+
             $inner(
                 b"abcdefghijklmnopqrstu",
                 &bind_closed!(4, 2, "s..s + 5"),
