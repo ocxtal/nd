@@ -44,44 +44,6 @@ impl Segment {
     pub fn as_range(&self) -> Range<usize> {
         self.pos..self.tail()
     }
-
-    // pub fn overlap(&self, latter: &Self) -> isize {
-    //     // distance in negative value if they don't overlap
-
-    //     debug_assert!(self.pos <= latter.pos);
-
-    //     let clipped_tail = std::cmp::min(self.tail(), latter.tail());
-    //     clipped_tail as isize - latter.pos as isize
-    // }
-
-    // pub fn extend(&self, amount: (isize, isize)) -> Self {
-    //     let pos = self.pos as isize;
-    //     let tail = self.tail() as isize;
-
-    //     let pos = std::cmp::max(0, pos - amount.0);
-    //     let tail = std::cmp::max(0, tail + amount.0);
-
-    //     Segment {
-    //         pos: pos as usize,
-    //         len: tail as usize - pos as usize,
-    //     }
-    // }
-
-    // pub fn clip(&self, limit: usize) -> Self {
-    //     let clipped_tail = std::cmp::min(self.tail(), limit);
-    //     Segment {
-    //         pos: self.pos,
-    //         len: clipped_tail - self.pos,
-    //     }
-    // }
-
-    pub fn unwind(&self, adj: usize) -> Self {
-        debug_assert!(adj <= self.pos);
-        Segment {
-            pos: self.pos - adj,
-            len: self.len,
-        }
-    }
 }
 
 impl From<Range<usize>> for Segment {
