@@ -147,7 +147,7 @@ impl ExtendStream {
 }
 
 impl SegmentStream for ExtendStream {
-    fn fill_segment_buf(&mut self) -> std::io::Result<(bool, usize, usize, usize)> {
+    fn fill_segment_buf(&mut self) -> Result<(bool, usize, usize, usize)> {
         let (is_eof, bytes, count, max_consume) = self.src.fill_segment_buf()?;
         self.extend_segment_buf(is_eof, count, bytes);
 
@@ -163,7 +163,7 @@ impl SegmentStream for ExtendStream {
         (stream, &self.segments)
     }
 
-    fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)> {
+    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
         let bytes = std::cmp::min(bytes, self.max_consume);
         let (bytes, src_count) = self.src.consume(bytes)?;
         self.src_scanned -= src_count;

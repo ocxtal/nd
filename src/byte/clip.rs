@@ -131,7 +131,7 @@ impl ClipStream {
 }
 
 impl ByteStream for ClipStream {
-    fn fill_buf(&mut self) -> std::io::Result<usize> {
+    fn fill_buf(&mut self) -> Result<usize> {
         while self.skip > 0 {
             let (is_eof, len) = self.src.fill_buf()?;
             let consume_len = std::cmp::min(self.skip, len);

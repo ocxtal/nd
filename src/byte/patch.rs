@@ -6,6 +6,7 @@ use super::ByteStream;
 use crate::streambuf::StreamBuf;
 use crate::text::parser::TextParser;
 use crate::text::InoutFormat;
+use anyhow::Result;
 
 #[cfg(test)]
 use super::tester::*;
@@ -27,7 +28,7 @@ impl PatchFeeder {
         }
     }
 
-    fn fill_buf(&mut self) -> std::io::Result<(usize, usize)> {
+    fn fill_buf(&mut self) -> Result<(usize, usize)> {
         // offset is set usize::MAX once the source reached EOF
         if self.offset == usize::MAX {
             return Ok((usize::MAX, 0));
@@ -48,7 +49,7 @@ impl PatchFeeder {
         Ok((self.offset, self.span))
     }
 
-    fn feed_until(&mut self, offset: usize, rem_len: usize, buf: &mut Vec<u8>) -> std::io::Result<usize> {
+    fn feed_until(&mut self, offset: usize, rem_len: usize, buf: &mut Vec<u8>) -> Result<usize> {
         let mut acc = 0;
         while acc < rem_len {
             buf.extend_from_slice(&self.buf);
@@ -93,7 +94,7 @@ impl PatchStream {
 }
 
 impl ByteStream for PatchStream {
-    fn fill_buf(&mut self) -> std::io::Result<usize> {
+    fn fill_buf(&mut self) -> Result<usize> {
         self.buf.fill_buf(|buf| {
             while self.skip > 0 {
                 let len = self.src.fill_buf()?;

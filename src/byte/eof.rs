@@ -4,6 +4,7 @@
 
 use super::ByteStream;
 use crate::params::BLOCK_SIZE;
+use anyhow::Result;
 
 #[cfg(test)]
 use super::tester::*;
@@ -23,7 +24,7 @@ impl<T: Sized + ByteStream> EofStream<T> {
         }
     }
 
-    pub fn fill_buf(&mut self) -> std::io::Result<(bool, usize)> {
+    pub fn fill_buf(&mut self) -> Result<(bool, usize)> {
         self.len = self.src.fill_buf()?;
         if self.len >= self.request {
             return Ok((false, self.len));

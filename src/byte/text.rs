@@ -7,6 +7,7 @@ use crate::params::BLOCK_SIZE;
 use crate::streambuf::StreamBuf;
 use crate::text::parser::TextParser;
 use crate::text::InoutFormat;
+use anyhow::Result;
 
 #[cfg(test)]
 use super::tester::*;
@@ -29,7 +30,7 @@ impl GaplessTextStream {
 }
 
 impl ByteStream for GaplessTextStream {
-    fn fill_buf(&mut self) -> std::io::Result<usize> {
+    fn fill_buf(&mut self) -> Result<usize> {
         self.buf.fill_buf(|buf| {
             self.inner.read_line(buf)?;
             Ok(false)
@@ -120,7 +121,7 @@ impl TextFeeder {
         }
     }
 
-    fn fill_buf(&mut self) -> std::io::Result<(usize, usize)> {
+    fn fill_buf(&mut self) -> Result<(usize, usize)> {
         // offset is set usize::MAX once the source reached EOF
         if self.offset == usize::MAX {
             return Ok((usize::MAX, 0));
@@ -163,7 +164,7 @@ impl TextStream {
 }
 
 impl ByteStream for TextStream {
-    fn fill_buf(&mut self) -> std::io::Result<usize> {
+    fn fill_buf(&mut self) -> Result<usize> {
         self.buf.fill_buf(|buf| {
             if self.line.offset == usize::MAX {
                 return Ok(false);

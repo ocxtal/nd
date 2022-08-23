@@ -5,6 +5,7 @@
 use super::{ByteStream, EofStream};
 use crate::filluninit::FillUninit;
 use crate::streambuf::StreamBuf;
+use anyhow::Result;
 
 #[cfg(test)]
 use super::tester::*;
@@ -13,14 +14,14 @@ struct Zipper {
     srcs: Vec<EofStream<Box<dyn ByteStream>>>,
     ptrs: Vec<*const u8>, // pointer cache (only for use in the fill_buf_impl function)
     mask: usize,
-    gather_impl: fn(&mut Self, usize, &mut [u8]) -> std::io::Result<usize>,
+    gather_impl: fn(&mut Self, usize, &mut [u8]) -> Result<usize>,
 }
 
 unsafe impl Send for Zipper {}
 
 macro_rules! gather_impl {
     ( $name: ident, $w: expr ) => {
-        fn $name(&mut self, bytes_per_src: usize, buf: &mut [u8]) -> std::io::Result<usize> {
+        fn $name(&mut self, bytes_per_src: usize, buf: &mut [u8]) -> Result<usize> {
             let mut dst = buf.as_mut_ptr();
 
             for _ in 0..bytes_per_src / $w {
@@ -60,7 +61,7 @@ impl Zipper {
         }
     }
 
-    fn fill_buf(&mut self) -> std::io::Result<(usize, usize)> {
+    fn fill_buf(&mut self) -> Result<(usize, usize)> {
         // bulk_len is the minimum valid slice length among the source buffers
         let len = loop {
             let mut is_eof = true;
@@ -92,7 +93,7 @@ impl Zipper {
     gather_impl!(gather_impl_w8, 8);
     gather_impl!(gather_impl_w16, 16);
 
-    fn gather(&mut self, bytes_per_src: usize, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn gather(&mut self, bytes_per_src: usize, buf: &mut [u8]) -> Result<usize> {
         (self.gather_impl)(self, bytes_per_src, buf)
     }
 
@@ -118,7 +119,7 @@ impl ZipStream {
 }
 
 impl ByteStream for ZipStream {
-    fn fill_buf(&mut self) -> std::io::Result<usize> {
+    fn fill_buf(&mut self) -> Result<usize> {
         self.buf.fill_buf(|buf| {
             let (bytes_per_src, bytes_all) = self.src.fill_buf()?;
             if bytes_per_src == 0 {

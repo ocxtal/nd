@@ -5,6 +5,7 @@ use crate::byte::ByteStream;
 use crate::filluninit::FillUninit;
 use crate::params::BLOCK_SIZE;
 use crate::streambuf::StreamBuf;
+use anyhow::Result;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::sync::{Arc, Mutex};
 use tempfile::SpooledTempFile;
@@ -54,7 +55,7 @@ impl TeeStream {
 }
 
 impl ByteStream for TeeStream {
-    fn fill_buf(&mut self) -> std::io::Result<usize> {
+    fn fill_buf(&mut self) -> Result<usize> {
         self.src.fill_buf()
     }
 
@@ -79,7 +80,7 @@ impl ByteStream for TeeStream {
 }
 
 impl ByteStream for TeeStreamReader {
-    fn fill_buf(&mut self) -> std::io::Result<usize> {
+    fn fill_buf(&mut self) -> Result<usize> {
         match self.cache.lock() {
             Ok(mut cache) => {
                 if cache.clear_eof {
@@ -88,7 +89,7 @@ impl ByteStream for TeeStreamReader {
                 }
                 self.buf.fill_buf(|buf| {
                     cache.file.seek(SeekFrom::Start(self.offset as u64)).unwrap();
-                    self.offset += buf.fill_uninit(BLOCK_SIZE, |buf| cache.file.read(buf))?;
+                    self.offset += buf.fill_uninit(BLOCK_SIZE, |buf| Ok(cache.file.read(buf)?))?;
                     Ok(false)
                 })
             }

@@ -4,6 +4,7 @@
 
 use super::ByteStream;
 use crate::params::{BLOCK_SIZE, MARGIN_SIZE};
+use anyhow::Result;
 use std::io::Read;
 
 #[cfg(test)]
@@ -64,7 +65,7 @@ impl Read for MockSource {
 }
 
 impl ByteStream for MockSource {
-    fn fill_buf(&mut self) -> std::io::Result<usize> {
+    fn fill_buf(&mut self) -> Result<usize> {
         if self.offset >= self.len {
             return Ok(0);
         }

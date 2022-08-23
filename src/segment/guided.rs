@@ -6,6 +6,7 @@ use crate::byte::{ByteStream, EofStream};
 use crate::params::BLOCK_SIZE;
 use crate::text::parser::TextParser;
 use crate::text::InoutFormat;
+use anyhow::Result;
 
 #[cfg(test)]
 use crate::byte::tester::*;
@@ -39,7 +40,7 @@ impl GuidedSlicer {
         }
     }
 
-    fn extend_segment_buf(&mut self, is_eof: bool, bytes: usize) -> std::io::Result<bool> {
+    fn extend_segment_buf(&mut self, is_eof: bool, bytes: usize) -> Result<bool> {
         // if the stream is not enough for the next segment, try again
         if let Some(last) = self.segments.last() {
             if last.tail() > bytes {
@@ -91,7 +92,7 @@ impl GuidedSlicer {
 }
 
 impl SegmentStream for GuidedSlicer {
-    fn fill_segment_buf(&mut self) -> std::io::Result<(bool, usize, usize, usize)> {
+    fn fill_segment_buf(&mut self) -> Result<(bool, usize, usize, usize)> {
         let request = std::cmp::max(BLOCK_SIZE, self.segments.last().map_or(0, |x| x.tail()));
 
         let mut prev_bytes = 0;
@@ -116,7 +117,7 @@ impl SegmentStream for GuidedSlicer {
         (stream, &self.segments[..self.guide_consumed])
     }
 
-    fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)> {
+    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
         let bytes = std::cmp::min(bytes, self.max_consume);
         self.src.consume(bytes);
 
