@@ -13,11 +13,13 @@ struct Anchor {
 }
 
 impl Anchor {
-    fn from_str(expr: &str, default_anchor: &str) -> Result<Self> {
-        let default_anchor = match default_anchor {
+    fn from_str(expr: &str, empty_default: &str, const_default: &str) -> Result<Self> {
+        let expr = if expr.is_empty() { empty_default } else { expr };
+
+        let const_default = match const_default {
             "s" => 0,
             "e" => 1,
-            _ => return Err(anyhow!("unrecognized default anchor {:?} (internal error)", default_anchor)),
+            _ => return Err(anyhow!("unrecognized default anchor {:?} (internal error)", const_default)),
         };
 
         // "s" for the start of a slice, and "e" for the end
@@ -30,7 +32,7 @@ impl Anchor {
         // parse the expression into a RPN, and extract coefficient
         let rpn = Rpn::new(expr, Some(&vars))?;
         let (anchor, offset) = match rpn.tokens().as_slice() {
-            [Val(c)] => (default_anchor, *c as isize),
+            [Val(c)] => (const_default, *c as isize),
             [Var(id, 1)] => (*id, 0),
             [Var(id, 1), Val(c), Op('+')] => (*id, *c as isize),
             _ => {
@@ -55,16 +57,14 @@ pub struct SegmentMapper {
 }
 
 impl SegmentMapper {
-    pub fn from_str(expr: &str, default_anchors: Option<[&str; 2]>) -> Result<Self> {
-        let default_anchors = default_anchors.unwrap_or(["s", "e"]);
-        let default_anchors = default_anchors.as_slice();
+    pub fn from_str(expr: &str) -> Result<Self> {
+        // [[start empty, start constant], [end empty, end constant]]
+        let default_anchors = [["s", "s"], ["e", "s"]];
 
         let mut v = Vec::new();
         for (i, x) in expr.split("..").enumerate() {
-            let x = if x.is_empty() { "0" } else { x };
-            let default_anchor = default_anchors.get(i).unwrap_or(&"s");
-
-            v.push(Anchor::from_str(x, default_anchor)?);
+            let default_anchor = default_anchors.get(i).unwrap_or(&["s", "s"]);
+            v.push(Anchor::from_str(x, default_anchor[0], default_anchor[1])?);
         }
 
         if v.len() != 2 {
@@ -82,8 +82,8 @@ impl SegmentMapper {
 #[test]
 fn test_mapper_from_str() {
     macro_rules! test {
-        ( $input: expr, $anchor: expr, $expected: expr ) => {
-            let mapper = SegmentMapper::from_str($input, $anchor).unwrap();
+        ( $input: expr, $expected: expr ) => {
+            let mapper = SegmentMapper::from_str($input).unwrap();
             let expected = SegmentMapper {
                 start: Anchor {
                     anchor: $expected.0,
@@ -99,60 +99,43 @@ fn test_mapper_from_str() {
         };
     }
 
-    assert!(SegmentMapper::from_str("", None).is_err());
-    assert!(SegmentMapper::from_str(",", None).is_err());
-    assert!(SegmentMapper::from_str(".", None).is_err());
-    assert!(SegmentMapper::from_str("...", None).is_err());
-    assert!(SegmentMapper::from_str("0...1", None).is_err());
+    assert!(SegmentMapper::from_str("").is_err());
+    assert!(SegmentMapper::from_str(",").is_err());
+    assert!(SegmentMapper::from_str(".").is_err());
+    assert!(SegmentMapper::from_str("...").is_err());
+    assert!(SegmentMapper::from_str("0...1").is_err());
 
-    assert!(SegmentMapper::from_str("x..y", None).is_err());
-    assert!(SegmentMapper::from_str("s * 2..e", None).is_err());
+    assert!(SegmentMapper::from_str("x..y").is_err());
+    assert!(SegmentMapper::from_str("s * 2..e").is_err());
 
-    assert!(SegmentMapper::from_str("s..e", Some(["s", ""])).is_err());
-    assert!(SegmentMapper::from_str("s..e", Some(["s", "t"])).is_err());
-    assert!(SegmentMapper::from_str("s..e", Some(["s", "ee"])).is_err());
-    assert!(SegmentMapper::from_str("s..e", Some(["", "e"])).is_err());
-    assert!(SegmentMapper::from_str("s..e", Some(["d", "e"])).is_err());
-    assert!(SegmentMapper::from_str("s..e", Some(["s ", "e"])).is_err());
+    // implicit anchors
+    test!("..", (0, 0, 1, 0));
+    test!("0..", (0, 0, 1, 0));
+    test!("-1..", (0, -1, 1, 0));
+    test!("10..", (0, 10, 1, 0));
+    test!("..0", (0, 0, 0, 0));
+    test!("..3", (0, 0, 0, 3));
 
-    // w/ default anchors
-    test!("..", None, (0, 0, 1, 0));
-    test!("..3", None, (0, 0, 1, 3));
-    test!("-1..", None, (0, -1, 1, 0));
-    test!("3..-1", None, (0, 3, 1, -1));
-
-    // w/ overridden default anchors
-    test!("..", Some(["e", "s"]), (1, 0, 0, 0));
-    test!("..3", Some(["e", "s"]), (1, 0, 0, 3));
-    test!("-1..", Some(["e", "s"]), (1, -1, 0, 0));
-    test!("3..-1", Some(["e", "s"]), (1, 3, 0, -1));
+    test!("3..-1", (0, 3, 0, -1));
+    test!("3..10", (0, 3, 0, 10));
 
     // explicit anchors
-    test!("e..", None, (1, 0, 1, 0));
-    test!("e..3", None, (1, 0, 1, 3));
-    test!("e-1..", None, (1, -1, 1, 0));
-    test!("e+3..-1", None, (1, 3, 1, -1));
-    test!("..s", None, (0, 0, 0, 0));
-    test!("..3+s", None, (0, 0, 0, 3));
-    test!("-1..s", None, (0, -1, 0, 0));
-    test!("+3..-1+s", None, (0, 3, 0, -1));
-
-    // explicit anchors
-    test!("s..", Some(["e", "s"]), (0, 0, 0, 0));
-    test!("s..3", Some(["e", "s"]), (0, 0, 0, 3));
-    test!("s-1..", Some(["e", "s"]), (0, -1, 0, 0));
-    test!("s+3..-1", Some(["e", "s"]), (0, 3, 0, -1));
-    test!("..e", Some(["e", "s"]), (1, 0, 1, 0));
-    test!("..3+e", Some(["e", "s"]), (1, 0, 1, 3));
-    test!("-1..e", Some(["e", "s"]), (1, -1, 1, 0));
-    test!("+3..-1+e", Some(["e", "s"]), (1, 3, 1, -1));
+    test!("e..", (1, 0, 1, 0));
+    test!("e..3", (1, 0, 0, 3));
+    test!("e-1..", (1, -1, 1, 0));
+    test!("e+3..-1", (1, 3, 0, -1));
+    test!("..e", (0, 0, 1, 0));
+    test!("..3+e", (0, 0, 1, 3));
+    test!("..3+s", (0, 0, 0, 3));
+    test!("-1..e", (0, -1, 1, 0));
+    test!("+3..-1+e", (0, 3, 1, -1));
 }
 
 #[test]
 fn test_mapper_evaluate() {
     macro_rules! test {
-        ( $input: expr, $anchor: expr, $slices: expr, $expected: expr ) => {
-            let mapper = SegmentMapper::from_str($input, $anchor).unwrap();
+        ( $input: expr, $slices: expr, $expected: expr ) => {
+            let mapper = SegmentMapper::from_str($input).unwrap();
             let (start, end) = mapper.evaluate(&$slices.0, &$slices.1);
 
             assert_eq!(start, $expected.0);
@@ -160,20 +143,20 @@ fn test_mapper_evaluate() {
         };
     }
 
-    test!("..", None, ([10, 20], [30, 40]), (10, 40));
-    test!("3..", None, ([10, 20], [30, 40]), (13, 40));
-    test!("..5", None, ([10, 20], [30, 40]), (10, 45));
-    test!("3..5", None, ([10, 20], [30, 40]), (13, 45));
+    test!("..", ([10, 20], [30, 40]), (10, 40));
+    test!("3..", ([10, 20], [30, 40]), (13, 40));
+    test!("..5", ([10, 20], [30, 40]), (10, 35));
+    test!("3..5", ([10, 20], [30, 40]), (13, 35));
 
-    test!("..", Some(["e", "s"]), ([10, 20], [30, 40]), (20, 30));
-    test!("3..", Some(["e", "s"]), ([10, 20], [30, 40]), (23, 30));
-    test!("..5", Some(["e", "s"]), ([10, 20], [30, 40]), (20, 35));
-    test!("3..5", Some(["e", "s"]), ([10, 20], [30, 40]), (23, 35));
+    test!("s..e", ([10, 20], [30, 40]), (10, 40));
+    test!("3+s..e", ([10, 20], [30, 40]), (13, 40));
+    test!("s..e+5", ([10, 20], [30, 40]), (10, 45));
+    test!("3+s..e+5", ([10, 20], [30, 40]), (13, 45));
 
-    test!("s..e", Some(["e", "s"]), ([10, 20], [30, 40]), (10, 40));
-    test!("3+s..e", Some(["e", "s"]), ([10, 20], [30, 40]), (13, 40));
-    test!("s..e+5", Some(["e", "s"]), ([10, 20], [30, 40]), (10, 45));
-    test!("3+s..e+5", Some(["e", "s"]), ([10, 20], [30, 40]), (13, 45));
+    test!("e..e", ([10, 20], [30, 40]), (20, 40));
+    test!("3+e..e", ([10, 20], [30, 40]), (23, 40));
+    test!("e..e+5", ([10, 20], [30, 40]), (20, 45));
+    test!("3+e..e+5", ([10, 20], [30, 40]), (23, 45));
 }
 
 // end of mapper.rs

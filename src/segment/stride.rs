@@ -30,7 +30,7 @@ impl ConstSlicerParams {
 
         // parse mapper (if it results in an empty slice it's an error)
         let expr = expr.unwrap_or("s..e");
-        let mapper = SegmentMapper::from_str(expr, Some(["s", "e"]))?;
+        let mapper = SegmentMapper::from_str(expr)?;
 
         let segment = [0, pitch];
         let (start, end) = mapper.evaluate(&segment, &segment);

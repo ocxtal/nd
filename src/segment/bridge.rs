@@ -43,7 +43,7 @@ impl BridgeStream {
             src_scanned: 0,
             last_end: 0,
             max_consume: 0,
-            mapper: SegmentMapper::from_str(expr, Some(["s", "e"]))?,
+            mapper: SegmentMapper::from_str(expr)?,
         })
     }
 
@@ -183,13 +183,6 @@ macro_rules! test {
     ( $name: ident, $inner: ident ) => {
         #[test]
         fn $name() {
-            // invert without margin w/ default anchors
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_closed!(4, 2, "0..0"),
-                &[(0..3).into(), (5..7).into(), (9..11).into(), (13..15).into(), (17..21).into()],
-            );
-
             // invert without margin w/ explicit anchors
             $inner(
                 b"abcdefghijklmnopqrstu",
@@ -277,6 +270,44 @@ macro_rules! test {
                 b"abcdefghijklmnopqrstu",
                 &bind_open!(4, 2, "e - 2..s + 2"),
                 &[(5..7).into(), (9..11).into(), (13..15).into()],
+            );
+
+            // both anchors start / both anchors end
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_closed!(4, 2, "..1"),
+                &[(0..1).into(), (5..6).into(), (9..10).into(), (13..14).into(), (17..18).into()],
+            );
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_closed!(4, 2, "s..1"),
+                &[(0..1).into(), (5..6).into(), (9..10).into(), (13..14).into(), (17..18).into()],
+            );
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_closed!(4, 2, "s..s + 1"),
+                &[(0..1).into(), (5..6).into(), (9..10).into(), (13..14).into(), (17..18).into()],
+            );
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_closed!(4, 2, "..11"),
+                &[(0..11).into(), (5..16).into(), (9..20).into(), (13..21).into(), (17..21).into()],
+            );
+
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_closed!(4, 2, "e - 1.."),
+                &[(2..3).into(), (6..7).into(), (10..11).into(), (14..15).into(), (20..21).into()],
+            );
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_closed!(4, 2, "e - 1..e"),
+                &[(2..3).into(), (6..7).into(), (10..11).into(), (14..15).into(), (20..21).into()],
+            );
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_closed!(4, 2, "e - 11..e"),
+                &[(0..3).into(), (0..7).into(), (0..11).into(), (4..15).into(), (10..21).into()],
             );
         }
     };
