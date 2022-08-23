@@ -88,8 +88,8 @@ impl SpanFetcher {
         let vars: HashMap<&[u8], VarAttr> = [
             (b"b", VarAttr { is_array: true, id: 1 }),
             (b"h", VarAttr { is_array: true, id: 2 }),
-            (b"w", VarAttr { is_array: true, id: 4 }),
-            (b"d", VarAttr { is_array: true, id: 8 }),
+            (b"i", VarAttr { is_array: true, id: 4 }),
+            (b"l", VarAttr { is_array: true, id: 8 }),
         ]
         .iter()
         .map(|(x, y)| (x.as_slice(), *y))
@@ -264,11 +264,11 @@ macro_rules! test {
 
             // 16, 32, and 64-bit integers
             $inner(&[2u8, 0, 4, 0, 0, 0], &bind!("h[0]"), &[(0..2).into(), (2..6).into()]);
-            $inner(&[4u8, 0, 0, 0, 4, 0, 0, 0], &bind!("w[0]"), &[(0..4).into(), (4..8).into()]);
-            $inner(&[8u8, 0, 0, 0, 0, 0, 0, 0], &bind!("d[0]"), &[(0..8).into()]);
+            $inner(&[4u8, 0, 0, 0, 4, 0, 0, 0], &bind!("i[0]"), &[(0..4).into(), (4..8).into()]);
+            $inner(&[8u8, 0, 0, 0, 0, 0, 0, 0], &bind!("l[0]"), &[(0..8).into()]);
 
             // more complicated expressions
-            $inner(&[8u8, 0, 1, 2, 3, 4, 5, 6], &bind!("d[0] & 0xff"), &[(0..8).into()]);
+            $inner(&[8u8, 0, 1, 2, 3, 4, 5, 6], &bind!("l[0] & 0xff"), &[(0..8).into()]);
             $inner(&[0u8, 3, 0, 0, 0], &bind!("b[0] + 1"), &[(0..1).into(), (1..5).into()]);
             $inner(&[2u8, 0, 0, 0, 1, 1], &bind!("2 * b[0]"), &[(0..4).into(), (4..6).into()]);
 
@@ -308,7 +308,7 @@ macro_rules! test {
                     },
                 ]);
             }
-            $inner(&input, &bind!("w[0], h[2]"), &expected);
+            $inner(&input, &bind!("i[0], h[2]"), &expected);
         }
     };
 }
