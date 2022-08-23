@@ -21,20 +21,10 @@ use super::InoutFormat;
 use crate::byte::{ByteStream, EofStream};
 use crate::filluninit::FillUninit;
 use crate::params::MARGIN_SIZE;
-use std::io::{Error, ErrorKind};
+use anyhow::{Context, Result};
 
 #[cfg(test)]
 use crate::byte::tester::*;
-
-pub trait ToResult<T> {
-    fn to_result(self) -> std::io::Result<T>;
-}
-
-impl<T> ToResult<T> for Option<T> {
-    fn to_result(self) -> std::io::Result<T> {
-        self.ok_or_else(|| Error::from(ErrorKind::Other))
-    }
-}
 
 #[allow(unreachable_code)]
 fn parse_hex_single(src: &[u8]) -> Option<(u64, usize)> {
@@ -334,7 +324,7 @@ impl TextParser {
         span: usize,
         is_in_tail: bool,
         buf: &mut Vec<u8>,
-    ) -> std::io::Result<(usize, usize, usize)> {
+    ) -> Result<(usize, usize, usize)> {
         let (_, len) = self.src.fill_buf()?;
         if len == 0 {
             return Ok((consumed, offset, span));
@@ -344,7 +334,9 @@ impl TextParser {
         let mut rem_len = len;
         let mut is_in_tail = is_in_tail;
         while rem_len > 0 {
-            let (fwd, delim_found, eol_found, refeed) = self.read_body(stream, rem_len, is_in_tail, buf).to_result()?;
+            let (fwd, delim_found, eol_found, refeed) = self
+                .read_body(stream, rem_len, is_in_tail, buf)
+                .with_context(|| "failed to read body (cont'd)".to_string())?;
             rem_len -= fwd;
             is_in_tail = delim_found;
 
@@ -365,7 +357,7 @@ impl TextParser {
         self.read_line_continued(consumed + len - rem_len, offset, span, is_in_tail, buf)
     }
 
-    pub fn read_line(&mut self, buf: &mut Vec<u8>) -> std::io::Result<(usize, usize, usize)> {
+    pub fn read_line(&mut self, buf: &mut Vec<u8>) -> Result<(usize, usize, usize)> {
         let len = loop {
             let (is_eof, len) = self.src.fill_buf()?;
             if is_eof || len > 2 * 4 * 48 {
@@ -380,14 +372,16 @@ impl TextParser {
         let stream = self.src.as_slice();
         debug_assert!(stream.len() >= MARGIN_SIZE);
 
-        let (fwd, offset, span) = self.read_head(stream).to_result()?;
+        let (fwd, offset, span) = self.read_head(stream).with_context(|| "failed to read head".to_string())?;
 
         let (_, rem_stream) = stream.split_at(fwd);
         let mut stream = rem_stream;
         let mut rem_len = len - fwd;
         let mut is_in_tail = false;
         while rem_len > 0 {
-            let (fwd, delim_found, eol_found, refeed) = self.read_body(stream, rem_len, is_in_tail, buf).to_result()?;
+            let (fwd, delim_found, eol_found, refeed) = self
+                .read_body(stream, rem_len, is_in_tail, buf)
+                .with_context(|| "failed to read body (first)".to_string())?;
 
             rem_len -= fwd;
             is_in_tail = delim_found;

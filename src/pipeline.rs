@@ -408,7 +408,7 @@ impl ForeachStream {
 }
 
 impl SegmentStream for ForeachStream {
-    fn fill_segment_buf(&mut self) -> std::io::Result<(bool, usize, usize, usize)> {
+    fn fill_segment_buf(&mut self) -> Result<(bool, usize, usize, usize)> {
         self.src.fill_segment_buf()
     }
 
@@ -416,7 +416,7 @@ impl SegmentStream for ForeachStream {
         self.src.as_slices()
     }
 
-    fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)> {
+    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
         self.src.consume(bytes)
     }
 }

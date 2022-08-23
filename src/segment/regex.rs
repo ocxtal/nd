@@ -3,6 +3,7 @@
 // @brief regex slicer
 
 use super::{Segment, SegmentStream};
+use anyhow::Result;
 use regex::bytes::{Match, Regex};
 
 #[cfg(test)]
@@ -33,7 +34,7 @@ impl RegexSlicer {
 }
 
 impl SegmentStream for RegexSlicer {
-    fn fill_segment_buf(&mut self) -> std::io::Result<(bool, usize, usize, usize)> {
+    fn fill_segment_buf(&mut self) -> Result<(bool, usize, usize, usize)> {
         let to_segment = |m: Match, pos: usize| -> Segment {
             Segment {
                 pos: pos + m.start(),
@@ -63,7 +64,7 @@ impl SegmentStream for RegexSlicer {
         (stream, &self.matches)
     }
 
-    fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)> {
+    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
         let (bytes, _) = self.src.consume(bytes)?;
         if bytes == 0 {
             return Ok((0, 0));

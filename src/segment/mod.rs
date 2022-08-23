@@ -22,6 +22,7 @@ pub use self::stride::{ConstSlicer, ConstSlicerParams};
 // pub use self::strip::StripStream;
 pub use self::walk::WalkSlicer;
 
+use anyhow::Result;
 use std::ops::Range;
 
 #[cfg(test)]
@@ -97,17 +98,17 @@ pub trait SegmentStream: Send {
     // chunked iterator
 
     // returns (is_eof, #bytes, #segments, first segment offset in the next chunk)
-    fn fill_segment_buf(&mut self) -> std::io::Result<(bool, usize, usize, usize)>;
+    fn fill_segment_buf(&mut self) -> Result<(bool, usize, usize, usize)>;
 
     // (byte stream, segment stream)
     fn as_slices(&self) -> (&[u8], &[Segment]);
 
     // (#bytes, #segments)
-    fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)>;
+    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)>;
 }
 
 impl<T: SegmentStream + ?Sized> SegmentStream for Box<T> {
-    fn fill_segment_buf(&mut self) -> std::io::Result<(bool, usize, usize, usize)> {
+    fn fill_segment_buf(&mut self) -> Result<(bool, usize, usize, usize)> {
         (**self).fill_segment_buf()
     }
 
@@ -115,7 +116,7 @@ impl<T: SegmentStream + ?Sized> SegmentStream for Box<T> {
         (**self).as_slices()
     }
 
-    fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)> {
+    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
         (**self).consume(bytes)
     }
 }

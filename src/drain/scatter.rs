@@ -45,7 +45,7 @@ impl ScatterDrain {
         })
     }
 
-    fn fill_buf_impl(&mut self) -> std::io::Result<usize> {
+    fn fill_buf_impl(&mut self) -> Result<usize> {
         self.buf.fill_buf(|buf| {
             let (is_eof, bytes, _, max_consume) = self.src.fill_segment_buf()?;
             if is_eof && bytes == 0 {
@@ -62,7 +62,7 @@ impl ScatterDrain {
 }
 
 impl ByteStream for ScatterDrain {
-    fn fill_buf(&mut self) -> std::io::Result<usize> {
+    fn fill_buf(&mut self) -> Result<usize> {
         loop {
             let bytes = self.fill_buf_impl()?;
 

@@ -3,6 +3,7 @@
 
 use super::{Segment, SegmentStream};
 use crate::byte::{ByteStream, EofStream};
+use anyhow::Result;
 
 #[cfg(test)]
 use crate::byte::tester::*;
@@ -34,7 +35,7 @@ impl ExactMatchSlicer {
 }
 
 impl SegmentStream for ExactMatchSlicer {
-    fn fill_segment_buf(&mut self) -> std::io::Result<(bool, usize, usize, usize)> {
+    fn fill_segment_buf(&mut self) -> Result<(bool, usize, usize, usize)> {
         let (is_eof, bytes) = self.src.fill_buf()?;
 
         // no need to scan the bytes when the pattern is empty
@@ -62,7 +63,7 @@ impl SegmentStream for ExactMatchSlicer {
         (stream, &self.segments)
     }
 
-    fn consume(&mut self, bytes: usize) -> std::io::Result<(usize, usize)> {
+    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
         let bytes = std::cmp::min(bytes, self.scanned);
         self.src.consume(bytes);
 

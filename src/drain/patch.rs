@@ -5,6 +5,7 @@ use crate::byte::{ByteStream, PatchStream, RawStream};
 use crate::params::BLOCK_SIZE;
 use crate::segment::SegmentStream;
 use crate::text::{InoutFormat, TextFormatter};
+use anyhow::Result;
 use std::io::Write;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::thread::JoinHandle;
@@ -101,7 +102,7 @@ impl PatchDrain {
 }
 
 impl ByteStream for PatchDrain {
-    fn fill_buf(&mut self) -> std::io::Result<usize> {
+    fn fill_buf(&mut self) -> Result<usize> {
         let bytes = self.patch.fill_buf()?;
 
         if bytes == self.prev_bytes {

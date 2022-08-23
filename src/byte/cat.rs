@@ -4,6 +4,7 @@
 
 use super::{ByteStream, EofStream};
 use crate::streambuf::StreamBuf;
+use anyhow::Result;
 
 #[cfg(test)]
 use super::tester::*;
@@ -28,7 +29,7 @@ impl CatStream {
         }
     }
 
-    fn accumulate_into_cache(&mut self, is_eof: bool, len: usize) -> std::io::Result<usize> {
+    fn accumulate_into_cache(&mut self, is_eof: bool, len: usize) -> Result<usize> {
         let stream = self.srcs[self.i].as_slice();
         self.cache.extend_from_slice(&stream[self.rem..len]);
 
@@ -64,7 +65,7 @@ impl CatStream {
 }
 
 impl ByteStream for CatStream {
-    fn fill_buf(&mut self) -> std::io::Result<usize> {
+    fn fill_buf(&mut self) -> Result<usize> {
         if self.i >= self.srcs.len() {
             debug_assert!(self.rem == usize::MAX);
             return Ok(self.cache.len());

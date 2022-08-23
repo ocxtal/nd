@@ -25,6 +25,8 @@ pub use self::text::{GaplessTextStream, TextStream};
 pub use self::zero::ZeroStream;
 pub use self::zip::ZipStream;
 
+use anyhow::Result;
+
 #[cfg(test)]
 use crate::params::{BLOCK_SIZE, MARGIN_SIZE};
 
@@ -32,13 +34,13 @@ use crate::params::{BLOCK_SIZE, MARGIN_SIZE};
 use rand::Rng;
 
 pub trait ByteStream: Send {
-    fn fill_buf(&mut self) -> std::io::Result<usize>;
+    fn fill_buf(&mut self) -> Result<usize>;
     fn as_slice(&self) -> &[u8];
     fn consume(&mut self, amount: usize);
 }
 
 impl<T: ByteStream + ?Sized> ByteStream for Box<T> {
-    fn fill_buf(&mut self) -> std::io::Result<usize> {
+    fn fill_buf(&mut self) -> Result<usize> {
         (**self).fill_buf()
     }
 
