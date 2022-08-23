@@ -1484,12 +1484,12 @@ fn test_parse_delimited() {
 
 pub fn parse_usize_pair(s: &str) -> Result<(usize, usize)> {
     let vals = parse_delimited(s, ",")?;
-    if vals.len() != 2 {
+    if s.is_empty() || vals.len() > 2 {
         return Err(anyhow!("\"N,M\" format expected for this option."));
     }
 
     let head_raw = vals[0].unwrap_or(0);
-    let tail_raw = vals[1].unwrap_or(0);
+    let tail_raw = vals.get(1).unwrap_or(&Some(0)).unwrap_or(0);
 
     let head = head_raw.try_into();
     let tail = tail_raw.try_into();
@@ -1509,8 +1509,16 @@ pub fn parse_usize_pair(s: &str) -> Result<(usize, usize)> {
 #[test]
 fn test_parse_usize_pair() {
     assert!(parse_usize_pair("").is_err());
+    assert!(parse_usize_pair(",,").is_err());
+    assert!(parse_usize_pair("0,,2").is_err());
+    assert!(parse_usize_pair(",1,2").is_err());
+    assert!(parse_usize_pair("0,1,2").is_err());
+    assert!(parse_usize_pair("x,3").is_err());
+    assert!(parse_usize_pair("0,y").is_err());
+
     assert_eq!(parse_usize_pair(",").unwrap(), (0, 0));
     assert_eq!(parse_usize_pair("1,").unwrap(), (1, 0));
+    assert_eq!(parse_usize_pair("1").unwrap(), (1, 0));
     assert_eq!(parse_usize_pair(",3").unwrap(), (0, 3));
     assert_eq!(parse_usize_pair("4,5").unwrap(), (4, 5));
 
