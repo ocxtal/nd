@@ -16,10 +16,14 @@ pub struct InoutFormat {
     pub offset: u8, // in {'b', 'd', 'x'}
     pub span: u8,   // in {'b', 'd', 'x'}
     pub body: u8,   // in {'b', 'd', 'x', 'a'}
+
+    // the minimum number of columns of the body part when formatting;
+    // ignored in parsing
+    pub cols: usize,
 }
 
 impl InoutFormat {
-    fn from_signature(sig: &str) -> Self {
+    fn new(sig: &str, cols: usize) -> Self {
         debug_assert!(sig.len() == 3);
 
         let sig = sig.as_bytes();
@@ -27,10 +31,10 @@ impl InoutFormat {
         let span = sig[1];
         let body = sig[2];
 
-        InoutFormat { offset, span, body }
+        InoutFormat { offset, span, body, cols }
     }
 
-    pub fn from_str(config: &str) -> Result<Self> {
+    pub fn from_str_with_columns(config: &str, cols: usize) -> Result<Self> {
         let map = [
             // shorthand form
             ("x", "xxx"),
@@ -57,9 +61,13 @@ impl InoutFormat {
         let map: HashMap<&str, &str> = map.iter().cloned().collect();
 
         match map.get(config) {
-            Some(x) => Ok(InoutFormat::from_signature(x)),
+            Some(x) => Ok(InoutFormat::new(x, cols)),
             _ => Err(anyhow!("unrecognized input / output format signature: {:?}", config)),
         }
+    }
+
+    pub fn from_str(config: &str) -> Result<Self> {
+        Self::from_str_with_columns(config, 16)
     }
 
     // pub fn input_default() -> Self {

@@ -45,11 +45,11 @@ fn parse_const_slicer_params(s: &str) -> Result<ConstSlicerParams> {
 
 #[derive(Debug, Parser)]
 pub struct PipelineArgs {
-    #[clap(short = 'F', long = "in-format", value_name = "FORMAT", value_parser = InoutFormat::from_str, default_value = "b")]
-    in_format: InoutFormat,
+    #[clap(short = 'F', long = "in-format", value_name = "FORMAT", value_parser = InoutFormat::from_str)]
+    in_format: Option<InoutFormat>,
 
-    #[clap(short = 'f', long = "out-format", value_name = "FORMAT", value_parser = InoutFormat::from_str, default_value = "xxx")]
-    out_format: InoutFormat,
+    #[clap(short = 'f', long = "out-format", value_name = "FORMAT", value_parser = InoutFormat::from_str)]
+    out_format: Option<InoutFormat>,
 
     #[clap(short = 'c', long = "cat", value_name = "W", value_parser = parse_wordsize)]
     cat: Option<usize>,
@@ -188,6 +188,7 @@ pub struct Pipeline {
     word_size: usize,
     in_format: InoutFormat,
     out_format: InoutFormat,
+    patch_format: InoutFormat,
     nodes: Vec<Node>,
 }
 
@@ -219,12 +220,12 @@ impl Pipeline {
         }
 
         // slicers are exclusive as well
-        let node = match (m.width, &m.find, &m.slice_by, &m.walk) {
-            (Some(width), None, None, None) => Width(width),
-            (None, Some(pattern), None, None) => Find(pattern.to_string()),
-            (None, None, Some(file), None) => SliceBy(file.to_string()),
-            (None, None, None, Some(exprs)) => Walk(exprs.split(',').map(|x| x.to_string()).collect::<Vec<_>>()),
-            (None, None, None, None) => Width(ConstSlicerParams::from_raw(16, None)?),
+        let (cols, node) = match (m.width, &m.find, &m.slice_by, &m.walk) {
+            (Some(width), None, None, None) => (width.columns(), Width(width)),
+            (None, Some(pattern), None, None) => (0, Find(pattern.to_string())),
+            (None, None, Some(file), None) => (0, SliceBy(file.to_string())),
+            (None, None, None, Some(exprs)) => (0, Walk(exprs.split(',').map(|x| x.to_string()).collect::<Vec<_>>())),
+            (None, None, None, None) => (16, Width(ConstSlicerParams::from_raw(16, None)?)),
             _ => return Err(anyhow!("--width, --find, --slice-by, and --walk are exclusive.")),
         };
         nodes.push(node);
@@ -247,18 +248,31 @@ impl Pipeline {
             nodes.push(Foreach(args.to_string()));
         }
 
-        let node = match (&m.output, &m.patch_back) {
-            (Some(file), None) => Scatter(file.to_string()),
-            (None, Some(command)) => PatchBack(command.to_string()),
-            (None, None) => Scatter("-".to_string()),
+        let (written_back, node) = match (&m.output, &m.patch_back) {
+            (Some(file), None) => (file.is_empty() || file == "-", Scatter(file.to_string())),
+            (None, Some(command)) => (false, PatchBack(command.to_string())),
+            (None, None) => (true, Scatter("-".to_string())),
             _ => return Err(anyhow!("--output and --patch-back are exclusive.")),
         };
         nodes.push(node);
 
+        // special handling for input / output formats
+        let default_in_signature = "b";
+        let default_out_signature = if m.inplace && written_back { "b" } else { "xxx" };
+
+        let in_format = m
+            .in_format
+            .unwrap_or_else(|| InoutFormat::from_str_with_columns(default_in_signature, cols).unwrap());
+        let out_format = m
+            .out_format
+            .unwrap_or_else(|| InoutFormat::from_str_with_columns(default_out_signature, cols).unwrap());
+        let patch_format = InoutFormat::from_str_with_columns("xxx", cols).unwrap();
+
         let pipeline = Pipeline {
             word_size,
-            in_format: m.in_format,
-            out_format: m.out_format,
+            in_format,
+            out_format,
+            patch_format,
             nodes,
         };
         pipeline.validate()?;
@@ -319,7 +333,7 @@ impl Pipeline {
                     (cache, NodeInstance::Byte(next))
                 }
                 (Patch(file), NodeInstance::Byte(prev)) => {
-                    let next = Box::new(PatchStream::new(prev, self.open_file(file)?, &self.out_format));
+                    let next = Box::new(PatchStream::new(prev, self.open_file(file)?, &self.patch_format));
                     (cache, NodeInstance::Byte(next))
                 }
                 (Tee, NodeInstance::Byte(prev)) => {
@@ -368,7 +382,7 @@ impl Pipeline {
                     (cache, NodeInstance::Byte(next))
                 }
                 (PatchBack(command), NodeInstance::Segment(prev)) => {
-                    let next = Box::new(PatchDrain::new(prev, cache.unwrap(), command, &self.out_format));
+                    let next = Box::new(PatchDrain::new(prev, cache.unwrap(), command, &self.patch_format));
                     (None, NodeInstance::Byte(next))
                 }
                 (next, _) => return Err(anyhow!("unallowed node {:?} found after (internal error)", next)),

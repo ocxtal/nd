@@ -61,7 +61,7 @@ impl PatchDrain {
     pub fn new(patch: Box<dyn SegmentStream>, original: Box<dyn ByteStream>, command: &str, format: &InoutFormat) -> Self {
         let mut pipe = BashPipe::new(command);
         let mut writer = pipe.spawn_writer();
-        let formatter = TextFormatter::new(format, (0, 0), 0);
+        let formatter = TextFormatter::new(format, (0, 0));
 
         let thread = std::thread::spawn(move || {
             let mut patch = patch;
