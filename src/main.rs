@@ -42,7 +42,7 @@ OPTIONS:
 
     -c, --cat W             concat all input streams into one with W-byte alignment (default) [1]
     -z, --zip W             zip all input streams into one with W-byte words
-    -i, --inplace           edit each input file in-place (not allowed inside --foreach)
+    -i, --inplace           edit each input file in-place
 
   Manipulating the stream (applied in this order)
 
