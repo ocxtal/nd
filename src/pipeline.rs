@@ -96,9 +96,6 @@ pub struct PipelineArgs {
     #[clap(short = 'm', long = "merge", value_name = "N", value_parser = parse_usize)]
     merge: Option<usize>,
 
-    #[clap(short = 'r', long = "foreach", value_name = "ARGS")]
-    foreach: Option<String>,
-
     #[clap(short = 'o', long = "output", value_name = "FILE")]
     output: Option<String>,
 
@@ -127,7 +124,6 @@ pub enum Node {
     Bridge(String),
     Merge(usize),
     Extend(String),
-    Foreach(String), // Foreach(Vec<Node>),
     // Post-processing: SegmentStream -> ByteStream (Read)
     Scatter(String),
     PatchBack(String),
@@ -158,7 +154,6 @@ impl Node {
             Bridge(_) => SegmentFilter,
             Merge(_) => SegmentFilter,
             Extend(_) => SegmentFilter,
-            Foreach(_) => SegmentFilter,
             Scatter(_) => Drain,
             PatchBack(_) => Drain,
         }
@@ -242,10 +237,6 @@ impl Pipeline {
         }
         if let Some(thresh) = m.merge {
             nodes.push(Merge(thresh));
-        }
-
-        if let Some(args) = &m.foreach {
-            nodes.push(Foreach(args.to_string()));
         }
 
         let (written_back, node) = match (&m.output, &m.patch_back) {
@@ -373,10 +364,6 @@ impl Pipeline {
                     let next = Box::new(ExtendStream::new(prev, extend)?);
                     (cache, NodeInstance::Segment(next))
                 }
-                (Foreach(args), NodeInstance::Segment(prev)) => {
-                    let next = Box::new(ForeachStream::new(prev, args));
-                    (cache, NodeInstance::Segment(next))
-                }
                 (Scatter(file), NodeInstance::Segment(prev)) => {
                     let next = Box::new(ScatterDrain::new(prev, file, &self.out_format)?);
                     (cache, NodeInstance::Byte(next))
@@ -393,31 +380,6 @@ impl Pipeline {
             NodeInstance::Byte(node) => Ok(node),
             _ => Err(anyhow!("the last node of the stream must be a ByteStream (internal error)")),
         }
-    }
-}
-
-// tentatively put here
-pub struct ForeachStream {
-    src: Box<dyn SegmentStream>,
-}
-
-impl ForeachStream {
-    pub fn new(src: Box<dyn SegmentStream>, _args: &str) -> Self {
-        ForeachStream { src }
-    }
-}
-
-impl SegmentStream for ForeachStream {
-    fn fill_segment_buf(&mut self) -> Result<(bool, usize, usize, usize)> {
-        self.src.fill_segment_buf()
-    }
-
-    fn as_slices(&self) -> (&[u8], &[Segment]) {
-        self.src.as_slices()
-    }
-
-    fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
-        self.src.consume(bytes)
     }
 }
 
