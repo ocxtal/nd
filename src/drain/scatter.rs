@@ -2,11 +2,13 @@
 // @author Hajime Suzuki
 
 use crate::byte::ByteStream;
+use crate::eval::VarAttr;
 use crate::segment::SegmentStream;
 use crate::streambuf::StreamBuf;
+use crate::template::Template;
 use crate::text::{InoutFormat, TextFormatter};
 use anyhow::Result;
-use std::fs::File;
+use std::collections::HashMap;
 use std::io::Write;
 
 #[cfg(test)]
@@ -17,11 +19,21 @@ use crate::segment::ConstSlicer;
 
 pub struct ScatterDrain {
     src: Box<dyn SegmentStream>,
+    src_consumed: usize, // #segments to skip at the head in the next iteration (TODO: rename the variable)
+
+    // cumulative
     offset: usize,
-    // lines: usize,
+    lines: usize,
+
+    // formatter (shared between scatter mode and transparent mode)
     formatter: TextFormatter,
-    file: Option<File>,
-    buf: StreamBuf, // shared output buffer for Drain::Cat and Drain::Through
+
+    // drain for the scatter mode
+    file: Option<Template>,
+    buf: Vec<u8>,
+
+    // output buffer for the transparent mode
+    drain: StreamBuf,
 }
 
 impl ScatterDrain {
@@ -32,58 +44,95 @@ impl ScatterDrain {
         let file = if file.is_empty() || file == "-" {
             None
         } else {
-            Some(std::fs::OpenOptions::new().read(false).write(true).create(true).open(file)?)
+            let vars = [
+                (b"n", VarAttr { is_array: false, id: 0 }), // byte offset
+                (b"l", VarAttr { is_array: false, id: 1 }), // line
+            ];
+            let vars: HashMap<&[u8], VarAttr> = vars.iter().map(|(x, y)| (x.as_slice(), *y)).collect();
+
+            Some(Template::from_str(file, Some(&vars))?)
         };
 
         Ok(ScatterDrain {
             src,
-            offset: 0, // TODO: parameterize?
-            // lines: 0,  // TODO: parameterize?
+            src_consumed: 0,
+            offset: 0,
+            lines: 0,
             formatter,
             file,
-            buf: StreamBuf::new(),
+            buf: Vec::new(),
+            drain: StreamBuf::new(),
         })
     }
 
-    fn fill_buf_impl(&mut self) -> Result<usize> {
-        self.buf.fill_buf(|buf| {
-            let (is_eof, bytes, _, max_consume) = self.src.fill_segment_buf()?;
+    fn fill_buf_impl_through(&mut self) -> Result<usize> {
+        self.drain.fill_buf(|buf| {
+            let (is_eof, bytes, count, max_consume) = self.src.fill_segment_buf()?;
             if is_eof && bytes == 0 {
                 return Ok(false);
             }
 
             let (stream, segments) = self.src.as_slices();
-            self.formatter.format_segments(self.offset, stream, segments, buf);
+            self.formatter
+                .format_segments(self.offset, stream, &segments[self.src_consumed..count], buf);
+            self.src_consumed += count;
 
-            self.offset += self.src.consume(max_consume)?.0;
+            // consumed bytes and count
+            let (bytes, count) = self.src.consume(max_consume)?;
+            self.src_consumed -= count;
+            self.offset += bytes;
+            self.lines += count;
+
             Ok(false)
         })
+    }
+
+    fn fill_buf_impl_scatter(&mut self) -> Result<usize> {
+        loop {
+            let (is_eof, bytes, count, max_consume) = self.src.fill_segment_buf()?;
+            if is_eof && bytes == 0 {
+                return Ok(0);
+            }
+
+            let (stream, segments) = self.src.as_slices();
+            for (i, s) in segments[self.src_consumed..count].windows(1).enumerate() {
+                let file = self.file.as_ref().unwrap().render(|id, _| match id {
+                    0 => (self.offset + s[0].pos) as i64,
+                    1 => (self.lines + i) as i64,
+                    _ => 0,
+                })?;
+                let mut file = std::fs::OpenOptions::new().read(false).write(true).create(true).open(file)?;
+
+                self.formatter.format_segments(self.offset, stream, s, &mut self.buf);
+                file.write_all(&self.buf)?;
+                self.buf.clear();
+            }
+            self.src_consumed += count;
+
+            // consumed bytes and count
+            let (bytes, count) = self.src.consume(max_consume)?;
+            self.src_consumed -= count;
+            self.offset += bytes;
+            self.lines += count;
+        }
     }
 }
 
 impl ByteStream for ScatterDrain {
     fn fill_buf(&mut self) -> Result<usize> {
-        loop {
-            let bytes = self.fill_buf_impl()?;
-
-            // if it has already reached the tail, or if the pipeline has an external drain
-            if bytes == 0 || self.file.is_none() {
-                return Ok(bytes);
-            }
-
-            let stream = self.buf.as_slice();
-            self.file.as_mut().unwrap().write_all(&stream[..bytes])?;
-
-            self.buf.consume(bytes);
+        if self.file.is_some() {
+            self.fill_buf_impl_scatter()
+        } else {
+            self.fill_buf_impl_through()
         }
     }
 
     fn as_slice(&self) -> &[u8] {
-        self.buf.as_slice()
+        self.drain.as_slice()
     }
 
     fn consume(&mut self, amount: usize) {
-        self.buf.consume(amount)
+        self.drain.consume(amount)
     }
 }
 
@@ -117,6 +166,8 @@ macro_rules! test {
             // tempfile
             let file = tempfile::NamedTempFile::new().unwrap();
             test_impl!($inner, b"0123456789a", file.path().to_str().unwrap(), b"");
+
+            // TODO: test template rendering
         }
     };
 }
