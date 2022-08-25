@@ -7,12 +7,12 @@ use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-struct Anchor {
-    anchor: usize,
-    offset: isize,
+pub struct SegmentMapperAnchor {
+    pub anchor: usize,
+    pub offset: isize,
 }
 
-impl Anchor {
+impl SegmentMapperAnchor {
     fn from_str(expr: &str, empty_default: &str, const_default: &str) -> Result<Self> {
         let expr = if expr.is_empty() { empty_default } else { expr };
 
@@ -42,7 +42,7 @@ impl Anchor {
             }
         };
 
-        Ok(Anchor { anchor, offset })
+        Ok(SegmentMapperAnchor { anchor, offset })
     }
 
     pub fn evaluate(&self, input: &[isize; 2]) -> isize {
@@ -52,8 +52,8 @@ impl Anchor {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct SegmentMapper {
-    start: Anchor,
-    end: Anchor,
+    pub start: SegmentMapperAnchor,
+    pub end: SegmentMapperAnchor,
 }
 
 impl SegmentMapper {
@@ -64,7 +64,7 @@ impl SegmentMapper {
         let mut v = Vec::new();
         for (i, x) in expr.split("..").enumerate() {
             let default_anchor = default_anchors.get(i).unwrap_or(&["s", "s"]);
-            v.push(Anchor::from_str(x, default_anchor[0], default_anchor[1])?);
+            v.push(SegmentMapperAnchor::from_str(x, default_anchor[0], default_anchor[1])?);
         }
 
         if v.len() != 2 {
@@ -85,11 +85,11 @@ fn test_mapper_from_str() {
         ( $input: expr, $expected: expr ) => {
             let mapper = SegmentMapper::from_str($input).unwrap();
             let expected = SegmentMapper {
-                start: Anchor {
+                start: SegmentMapperAnchor {
                     anchor: $expected.0,
                     offset: $expected.1,
                 },
-                end: Anchor {
+                end: SegmentMapperAnchor {
                     anchor: $expected.2,
                     offset: $expected.3,
                 },
