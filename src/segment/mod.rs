@@ -5,21 +5,21 @@
 mod bridge;
 mod exact;
 mod extend;
+mod filter;
 mod guided;
 mod merge;
 mod regex;
 mod stride;
-// mod strip;
 mod walk;
 
 pub use self::bridge::BridgeStream;
 pub use self::exact::ExactMatchSlicer;
 pub use self::extend::ExtendStream;
+pub use self::filter::FilterStream;
 pub use self::guided::GuidedSlicer;
 pub use self::merge::MergeStream;
 pub use self::regex::RegexSlicer;
 pub use self::stride::{ConstSlicer, ConstSlicerParams};
-// pub use self::strip::StripStream;
 pub use self::walk::WalkSlicer;
 
 use anyhow::Result;

@@ -1,18 +1,20 @@
 // @file mapper.rs
 // @brief slice mapper
 
+use self::RangeMapperAnchor::*;
 use crate::eval::Token::*;
 use crate::eval::{Rpn, VarAttr};
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
+use std::ops::Range;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-struct Anchor {
+struct SegmentMapperAnchor {
     anchor: usize,
     offset: isize,
 }
 
-impl Anchor {
+impl SegmentMapperAnchor {
     fn from_str(expr: &str, empty_default: &str, const_default: &str) -> Result<Self> {
         let expr = if expr.is_empty() { empty_default } else { expr };
 
@@ -42,7 +44,7 @@ impl Anchor {
             }
         };
 
-        Ok(Anchor { anchor, offset })
+        Ok(SegmentMapperAnchor { anchor, offset })
     }
 
     pub fn evaluate(&self, input: &[isize; 2]) -> isize {
@@ -52,8 +54,8 @@ impl Anchor {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct SegmentMapper {
-    start: Anchor,
-    end: Anchor,
+    start: SegmentMapperAnchor,
+    end: SegmentMapperAnchor,
 }
 
 impl SegmentMapper {
@@ -64,7 +66,7 @@ impl SegmentMapper {
         let mut v = Vec::new();
         for (i, x) in expr.split("..").enumerate() {
             let default_anchor = default_anchors.get(i).unwrap_or(&["s", "s"]);
-            v.push(Anchor::from_str(x, default_anchor[0], default_anchor[1])?);
+            v.push(SegmentMapperAnchor::from_str(x, default_anchor[0], default_anchor[1])?);
         }
 
         if v.len() != 2 {
@@ -85,11 +87,11 @@ fn test_mapper_from_str() {
         ( $input: expr, $expected: expr ) => {
             let mapper = SegmentMapper::from_str($input).unwrap();
             let expected = SegmentMapper {
-                start: Anchor {
+                start: SegmentMapperAnchor {
                     anchor: $expected.0,
                     offset: $expected.1,
                 },
-                end: Anchor {
+                end: SegmentMapperAnchor {
                     anchor: $expected.2,
                     offset: $expected.3,
                 },
@@ -157,6 +159,93 @@ fn test_mapper_evaluate() {
     test!("3+e..e", ([10, 20], [30, 40]), (23, 40));
     test!("e..e+5", ([10, 20], [30, 40]), (20, 45));
     test!("3+e..e+5", ([10, 20], [30, 40]), (23, 45));
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum RangeMapperAnchor {
+    StartAnchored(usize), // "left-anchored start"; derived from original.start
+    EndAnchored(usize),   // from original.end
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RangeMapper {
+    start: RangeMapperAnchor,
+    end: RangeMapperAnchor,
+}
+
+impl RangeMapper {
+    pub fn from_str(expr: &str) -> Result<Self> {
+        let mapper = SegmentMapper::from_str(expr)?;
+
+        let start = if mapper.start.anchor == 0 {
+            StartAnchored(std::cmp::max(mapper.start.offset, 0) as usize)
+        } else {
+            EndAnchored(std::cmp::max(-mapper.start.offset, 0) as usize)
+        };
+
+        let end = if mapper.end.anchor == 0 {
+            StartAnchored(std::cmp::max(mapper.end.offset, 0) as usize)
+        } else {
+            EndAnchored(std::cmp::max(-mapper.end.offset, 0) as usize)
+        };
+
+        Ok(RangeMapper { start, end })
+    }
+
+    pub fn body_len(&self) -> usize {
+        match (self.start, self.end) {
+            (StartAnchored(_), StartAnchored(_)) => usize::MAX,
+            (StartAnchored(x), EndAnchored(_)) => x,
+            (EndAnchored(_), StartAnchored(y)) => y,
+            (EndAnchored(_), EndAnchored(_)) => usize::MAX,
+        }
+    }
+
+    pub fn tail_len(&self) -> usize {
+        match (self.start, self.end) {
+            (StartAnchored(_), StartAnchored(_)) => 0,
+            (StartAnchored(_), EndAnchored(y)) => y,
+            (EndAnchored(x), StartAnchored(_)) => x,
+            (EndAnchored(x), EndAnchored(y)) => std::cmp::max(x, y),
+        }
+    }
+
+    pub fn left_anchored_range(&self, base: usize) -> Range<usize> {
+        match (self.start, self.end) {
+            (StartAnchored(x), StartAnchored(y)) => {
+                let start = x.saturating_sub(base);
+                let end = y.saturating_sub(base);
+                let end = std::cmp::max(start, end);
+                start..end
+            }
+            _ => 0..0,
+        }
+    }
+
+    pub fn right_anchored_range(&self, base: usize, count: usize) -> Range<usize> {
+        let start = match self.start {
+            StartAnchored(x) => x.saturating_sub(base),
+            EndAnchored(x) => count.saturating_sub(x),
+        };
+        let end = match self.end {
+            StartAnchored(x) => x.saturating_sub(base),
+            EndAnchored(x) => count.saturating_sub(x),
+        };
+        let end = std::cmp::max(start, end);
+
+        start..end
+    }
+
+    pub fn has_right_anchor(&self) -> bool {
+        matches!((self.start, self.end), (EndAnchored(_), _) | (_, EndAnchored(_)))
+    }
+
+    pub fn left_anchor_key(&self) -> (usize, usize) {
+        match (self.start, self.end) {
+            (StartAnchored(x), StartAnchored(y)) => (x, y),
+            _ => (0, 0),
+        }
+    }
 }
 
 // end of mapper.rs
