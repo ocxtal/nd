@@ -46,9 +46,8 @@ OPTIONS:
 
   Manipulating the stream (applied in this order)
 
+    -n, --bytes S..E[,...]  leave only bytes within the S..E range(s)
     -a, --pad N,M           add N and M bytes of zeros at the head and tail
-    -s, --seek N            skip first N bytes and clear stream offset
-    -n, --bytes N..M        drop bytes out of the range
     -p, --patch FILE        patch the input stream with the patchfile
 
   Slicing the stream (exclusive)
