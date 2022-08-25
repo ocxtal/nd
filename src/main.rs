@@ -55,6 +55,7 @@ OPTIONS:
 
     -w, --width N[,S..E]    slice into N bytes and map them to S..E (default) [16,s..e]
     -d, --find PATTERN      slice out every PATTERN location
+    -r, --slice S..E[,...]  slice out S..E range(s)
     -g, --slice-by FILE     slice out [pos, pos + len) ranges loaded from the file
     -k, --walk EXPR[,...]   split the stream into eval(EXPR)-byte chunk(s), repeat it until the end
 
