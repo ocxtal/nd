@@ -82,11 +82,7 @@ impl Filter {
     }
 
     fn has_right_anchor(&self) -> bool {
-        match (self.start, self.end) {
-            (EndAnchored(_), _) => true,
-            (_, EndAnchored(_)) => true,
-            _ => false,
-        }
+        matches!((self.start, self.end), (EndAnchored(_), _) | (_, EndAnchored(_)))
     }
 }
 
@@ -113,7 +109,7 @@ impl FilterStream {
         let mut filters = Vec::new();
         let mut tail_filters = Vec::new();
 
-        for expr in exprs.split(",") {
+        for expr in exprs.split(',') {
             let expr = Filter::from_mapper(&SegmentMapper::from_str(expr)?);
 
             if expr.has_right_anchor() {

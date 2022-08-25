@@ -127,6 +127,7 @@ pub enum Node {
     Bridge(String),
     Merge(usize),
     Extend(String),
+    Lines(String),
     // Post-processing: SegmentStream -> ByteStream (Read)
     Scatter(String),
     PatchBack(String),
@@ -157,6 +158,7 @@ impl Node {
             Bridge(_) => SegmentFilter,
             Merge(_) => SegmentFilter,
             Extend(_) => SegmentFilter,
+            Lines(_) => SegmentFilter,
             Scatter(_) => Drain,
             PatchBack(_) => Drain,
         }
@@ -240,6 +242,9 @@ impl Pipeline {
         }
         if let Some(thresh) = m.merge {
             nodes.push(Merge(thresh));
+        }
+        if let Some(exprs) = &m.lines {
+            nodes.push(Lines(exprs.to_string()));
         }
 
         let (written_back, node) = match (&m.output, &m.patch_back) {
@@ -365,6 +370,10 @@ impl Pipeline {
                 }
                 (Extend(extend), NodeInstance::Segment(prev)) => {
                     let next = Box::new(ExtendStream::new(prev, extend)?);
+                    (cache, NodeInstance::Segment(next))
+                }
+                (Lines(exprs), NodeInstance::Segment(prev)) => {
+                    let next = Box::new(FilterStream::new(prev, exprs)?);
                     (cache, NodeInstance::Segment(next))
                 }
                 (Scatter(file), NodeInstance::Segment(prev)) => {
