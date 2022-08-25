@@ -5,11 +5,11 @@
 mod bridge;
 mod exact;
 mod extend;
+mod filter;
 mod guided;
 mod merge;
 mod regex;
 mod stride;
-// mod strip;
 mod walk;
 
 pub use self::bridge::BridgeStream;

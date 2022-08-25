@@ -64,6 +64,7 @@ OPTIONS:
     -v, --invert S..E       invert slices and map them to S..E
     -x, --extend S..E       map every slice to S..E
     -m, --merge N           iteratively merge slices where distance <= N
+    -l, --lines S..E        leave only slices (lines) in the range S..E
 
   Post-processing the slices (exclusive)
 

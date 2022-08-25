@@ -96,6 +96,9 @@ pub struct PipelineArgs {
     #[clap(short = 'm', long = "merge", value_name = "N", value_parser = parse_usize)]
     merge: Option<usize>,
 
+    #[clap(short = 'l', long = "lines", value_name = "S..E")]
+    lines: Option<String>,
+
     #[clap(short = 'o', long = "output", value_name = "FILE")]
     output: Option<String>,
 
