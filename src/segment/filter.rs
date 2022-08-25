@@ -1,9 +1,8 @@
 // @file filter.rs
 // @author Hajime Suzuki
 
-use self::FilterAnchor::*;
 use super::{Segment, SegmentStream};
-use crate::mapper::SegmentMapper;
+use crate::mapper::RangeMapper;
 use anyhow::Result;
 use std::cmp::Reverse;
 use std::ops::Range;
@@ -15,76 +14,10 @@ use crate::byte::tester::*;
 use super::tester::*;
 
 #[cfg(test)]
-use super::ConstSlicer;
+use super::{ConstSlicer, GuidedSlicer};
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum FilterAnchor {
-    StartAnchored(usize), // "left-anchored start"; derived from original.start
-    EndAnchored(usize),   // from original.end
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct Filter {
-    start: FilterAnchor,
-    end: FilterAnchor,
-}
-
-impl Filter {
-    fn from_mapper(mapper: &SegmentMapper) -> Self {
-        let start = if mapper.start.anchor == 0 {
-            StartAnchored(std::cmp::max(mapper.start.offset, 0) as usize)
-        } else {
-            EndAnchored(std::cmp::max(-mapper.start.offset, 0) as usize)
-        };
-
-        let end = if mapper.end.anchor == 0 {
-            StartAnchored(std::cmp::max(mapper.end.offset, 0) as usize)
-        } else {
-            EndAnchored(std::cmp::max(-mapper.end.offset, 0) as usize)
-        };
-
-        Filter { start, end }
-    }
-
-    fn tail_margin(&self) -> usize {
-        match (self.start, self.end) {
-            (EndAnchored(x), EndAnchored(y)) => std::cmp::max(x, y),
-            (EndAnchored(x), _) => x,
-            (_, EndAnchored(y)) => y,
-            _ => 0,
-        }
-    }
-
-    fn left_anchored_range(&self, base: usize) -> Range<usize> {
-        match (self.start, self.end) {
-            (StartAnchored(x), StartAnchored(y)) => {
-                let start = x.saturating_sub(base);
-                let end = y.saturating_sub(base);
-                let end = std::cmp::max(start, end);
-                start..end
-            }
-            _ => 0..0,
-        }
-    }
-
-    fn right_anchored_range(&self, base: usize, count: usize) -> Range<usize> {
-        let start = match self.start {
-            StartAnchored(x) => x.saturating_sub(base),
-            EndAnchored(x) => count.saturating_sub(x),
-        };
-        let end = match self.end {
-            StartAnchored(x) => x.saturating_sub(base),
-            EndAnchored(x) => count.saturating_sub(x),
-        };
-        let end = std::cmp::max(start, end);
-
-        start..end
-    }
-
-    fn has_right_anchor(&self) -> bool {
-        matches!((self.start, self.end), (EndAnchored(_), _) | (_, EndAnchored(_)))
-    }
-}
+#[cfg(test)]
+use rand::Rng;
 
 pub struct FilterStream {
     src: Box<dyn SegmentStream>,
@@ -97,34 +30,33 @@ pub struct FilterStream {
     // range vector
     // FIXME: we may need to use interval tree (or similar structure) to query
     // overlapping ranges faster for the case #filter is large...
-    filters: Vec<Filter>,
+    body_filters: Vec<RangeMapper>,
+    body_len: usize,
 
     // filters that have tail-anchored ends
-    tail_filters: Vec<Filter>,
-    tail_margin: usize, // #segments to be left at the tail
+    tail_filters: Vec<RangeMapper>,
+    tail_len: usize, // #segments to be left at the tail
 }
 
 impl FilterStream {
     pub fn new(src: Box<dyn SegmentStream>, exprs: &str) -> Result<Self> {
-        let mut filters = Vec::new();
+        let mut body_filters = Vec::new();
         let mut tail_filters = Vec::new();
 
-        for expr in exprs.split(',') {
-            let expr = Filter::from_mapper(&SegmentMapper::from_str(expr)?);
-
-            if expr.has_right_anchor() {
-                tail_filters.push(expr);
-            } else {
-                filters.push(expr);
+        if !exprs.is_empty() {
+            for expr in exprs.strip_suffix(',').unwrap_or(exprs).split(',') {
+                let expr = RangeMapper::from_str(expr)?;
+                if expr.has_right_anchor() {
+                    tail_filters.push(expr);
+                } else {
+                    body_filters.push(expr);
+                }
             }
         }
+        body_filters.sort_by_key(|x| Reverse(x.left_anchor_key()));
 
-        filters.sort_by_key(|x| match (x.start, x.end) {
-            (StartAnchored(x), StartAnchored(y)) => Reverse((x, y)),
-            _ => Reverse((0, 0)),
-        });
-
-        let tail_margin = tail_filters.iter().map(|x| x.tail_margin()).max().unwrap_or(0);
+        let body_len = tail_filters.iter().map(|x| x.body_len()).max().unwrap_or(0);
+        let tail_len = tail_filters.iter().map(|x| x.tail_len()).max().unwrap_or(0);
 
         Ok(FilterStream {
             src,
@@ -132,9 +64,10 @@ impl FilterStream {
             src_consumed: 0,
             max_consume: 0,
             segments: Vec::new(),
-            filters,
+            body_filters,
+            body_len,
             tail_filters,
-            tail_margin,
+            tail_len,
         })
     }
 }
@@ -156,7 +89,7 @@ impl SegmentStream for FilterStream {
         };
 
         let mut last_scanned = self.src_scanned;
-        while let Some(filter) = self.filters.pop() {
+        while let Some(filter) = self.body_filters.pop() {
             // evaluate the filter range into a relative offsets on the current segment array
             let range = filter.left_anchored_range(self.src_consumed);
             let clamped = clamp(&range, last_scanned);
@@ -166,7 +99,7 @@ impl SegmentStream for FilterStream {
 
             // if not all consumed, the remainders are postponed to the next call
             if !is_eof && clamped.end < range.end {
-                self.filters.push(filter);
+                self.body_filters.push(filter);
                 break;
             }
         }
@@ -178,18 +111,22 @@ impl SegmentStream for FilterStream {
 
                 self.segments.extend_from_slice(&segments[clamped]);
             }
-            self.segments.dedup(); // for simplicity; I know it's not the optimal
+
+            // for simplicity; I know it's not the optimal
+            self.segments.sort_by_key(|x| (x.pos, x.len));
+            self.segments.dedup();
         }
 
         self.src_scanned = count;
         self.max_consume = if is_eof {
             bytes
-        } else if self.tail_margin == 0 {
-            max_consume
-        } else if self.tail_margin <= count {
-            std::cmp::min(segments[count - self.tail_margin].pos, max_consume)
         } else {
-            0
+            let i = std::cmp::min(self.body_len, count - self.tail_len);
+            if i >= segments.len() {
+                max_consume
+            } else {
+                std::cmp::min(segments[i].pos, max_consume)
+            }
         };
 
         Ok((is_eof, bytes, self.segments.len(), self.max_consume))
@@ -205,6 +142,7 @@ impl SegmentStream for FilterStream {
         let (bytes, src_count) = self.src.consume(bytes)?;
         self.src_scanned -= src_count;
         self.src_consumed += src_count;
+        self.body_len = self.body_len.saturating_sub(src_count);
 
         let from = self.segments.partition_point(|x| x.pos < bytes);
         let to = self.segments.len();
@@ -238,6 +176,7 @@ macro_rules! test {
         #[test]
         fn $name() {
             // pass all
+            $inner(b"", &bind!(".."), &[]);
             $inner(
                 b"abcdefghijklmnopqrstu",
                 &bind!(".."),
@@ -249,9 +188,20 @@ macro_rules! test {
                 &[(3..5).into(), (7..9).into(), (11..13).into(), (15..17).into()],
             );
 
+            // trailing ',' allowed
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind!("..,"),
+                &[(3..5).into(), (7..9).into(), (11..13).into(), (15..17).into()],
+            );
+
             // pass none
+            $inner(b"", &bind!(""), &[]);
+            $inner(b"abcdefghijklmnopqrstu", &bind!(""), &[]);
             $inner(b"abcdefghijklmnopqrstu", &bind!("s..s"), &[]);
             $inner(b"abcdefghijklmnopqrstu", &bind!("e..e"), &[]);
+            $inner(b"abcdefghijklmnopqrstu", &bind!("s..s,"), &[]);
+            $inner(b"abcdefghijklmnopqrstu", &bind!("e..e,"), &[]);
 
             // left-anchored
             $inner(b"abcdefghijklmnopqrstu", &bind!("s..s + 1"), &[(3..5).into()]);
@@ -311,5 +261,118 @@ macro_rules! test {
 test!(test_filter_all_at_once, test_segment_all_at_once);
 test!(test_filter_random_len, test_segment_random_len);
 test!(test_filter_occasional_consume, test_segment_occasional_consume);
+
+#[cfg(test)]
+fn gen_range(len: usize, count: usize) -> (Vec<u8>, String, Vec<Segment>) {
+    let mut rng = rand::thread_rng();
+
+    // first generate random slices
+    let mut offset = 0;
+    let mut v = Vec::new();
+
+    while v.len() < count {
+        let fwd = rng.gen_range(0..std::cmp::min(1024, (len + 1) / 2));
+        let len = rng.gen_range(0..std::cmp::min(1024, (len + 1) / 2));
+
+        offset += fwd;
+        if offset >= len {
+            break;
+        }
+
+        v.push(Segment {
+            pos: offset,
+            len: std::cmp::min(len, len - offset),
+        });
+    }
+
+    v.sort_by_key(|x| (x.pos, x.len));
+    v.dedup();
+
+    let mut s = Vec::new();
+    for x in &v {
+        s.extend_from_slice(format!("{:x} {:x} | \n", x.pos, x.len).as_bytes());
+    }
+
+    // pick up slices
+    let mut t = String::new();
+    let mut w = Vec::new();
+
+    if v.is_empty() {
+        return (s, t, w);
+    }
+
+    for _ in 0..v.len() / 10 {
+        let pos1 = rng.gen_range(0..v.len());
+        let pos2 = rng.gen_range(0..v.len());
+        if pos1 == pos2 {
+            continue;
+        }
+
+        let (start, end) = if pos1 < pos2 { (pos1, pos2) } else { (pos2, pos1) };
+        w.extend_from_slice(&v[start..end]);
+        let anchor_range = if start < v.len() / 2 { 1 } else { 4 };
+
+        // gen anchors and format string
+        let dup = rng.gen_range(0..10) == 0;
+        let mut push = || match rng.gen_range(0..anchor_range) {
+            0 => t.push_str(&format!("s+{}..s+{},", start, end)),
+            1 => t.push_str(&format!("s+{}..e-{},", start, v.len() - end)),
+            2 => t.push_str(&format!("e-{}..s+{},", v.len() - start, end)),
+            _ => t.push_str(&format!("e-{}..e-{},", v.len() - start, v.len() - end)),
+        };
+
+        push();
+        if dup {
+            push();
+        }
+    }
+
+    w.sort_by_key(|x| (x.pos, x.len));
+    w.dedup();
+
+    (s, t, w)
+}
+
+#[cfg(test)]
+macro_rules! test_long_impl {
+    ( $inner: ident, $len: expr, $count: expr ) => {
+        let mut rng = rand::thread_rng();
+        let v = (0..$len).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
+        let (guide, exprs, segments) = gen_range($len, $count);
+
+        let bind = |x: &[u8]| -> Box<dyn SegmentStream> {
+            let stream = Box::new(MockSource::new(x));
+            let guide = Box::new(MockSource::new(&guide));
+            let stream = Box::new(GuidedSlicer::new(stream, guide));
+            Box::new(FilterStream::new(stream, &exprs).unwrap())
+        };
+        $inner(&v, &bind, &segments);
+    };
+}
+
+macro_rules! test_long {
+    ( $name: ident, $inner: ident ) => {
+        #[test]
+        fn $name() {
+            test_long_impl!($inner, 0, 0);
+            test_long_impl!($inner, 10, 0);
+            test_long_impl!($inner, 10, 1);
+
+            test_long_impl!($inner, 1000, 0);
+            test_long_impl!($inner, 1000, 100);
+
+            // try longer, multiple times
+            test_long_impl!($inner, 100000, 1000);
+            test_long_impl!($inner, 100000, 1000);
+            test_long_impl!($inner, 100000, 1000);
+            test_long_impl!($inner, 100000, 1000);
+            test_long_impl!($inner, 100000, 1000);
+        }
+    };
+}
+
+test_long!(test_filter_long_all_at_once, test_segment_all_at_once);
+test_long!(test_filter_long_random_len, test_segment_random_len);
+test_long!(test_filter_long_occasional_consume, test_segment_occasional_consume);
 
 // end of filter.rs
