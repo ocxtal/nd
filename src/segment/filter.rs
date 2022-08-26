@@ -5,7 +5,6 @@ use super::{Segment, SegmentStream};
 use crate::mapper::RangeMapper;
 use anyhow::Result;
 use std::cmp::Reverse;
-use std::ops::Range;
 
 #[cfg(test)]
 use crate::byte::tester::*;
@@ -19,28 +18,16 @@ use super::{ConstSlicer, GuidedSlicer};
 #[cfg(test)]
 use rand::Rng;
 
-pub struct FilterStream {
-    src: Box<dyn SegmentStream>,
-    src_scanned: usize,  // relative count in the next segment array
-    src_consumed: usize, // absolute count from the head
-    max_consume: usize,  // in #bytes
-
-    segments: Vec<Segment>,
-
-    // range vector
-    // FIXME: we may need to use interval tree (or similar structure) to query
-    // overlapping ranges faster for the case #filter is large...
-    body_filters: Vec<RangeMapper>,
-    body_len: usize,
-
-    // filters that have tail-anchored ends
-    tail_filters: Vec<RangeMapper>,
-    tail_len: usize, // #segments to be left at the tail
+struct Cutter {
+    filters: Vec<RangeMapper>,      // filters that both ends are start-anchored
+    tail_filters: Vec<RangeMapper>, // filters that have tail-anchored ends
+    pass_after: usize,              // minimum start offset among {StartAnchored(x)..EndAnchored(y)}
+    tail_margin: usize,             // #segments to be left at the tail
 }
 
-impl FilterStream {
-    pub fn new(src: Box<dyn SegmentStream>, exprs: &str) -> Result<Self> {
-        let mut body_filters = Vec::new();
+impl Cutter {
+    fn from_str(exprs: &str) -> Result<Self> {
+        let mut filters = Vec::new();
         let mut tail_filters = Vec::new();
 
         if !exprs.is_empty() {
@@ -49,25 +36,96 @@ impl FilterStream {
                 if expr.has_right_anchor() {
                     tail_filters.push(expr);
                 } else {
-                    body_filters.push(expr);
+                    filters.push(expr);
                 }
             }
         }
-        body_filters.sort_by_key(|x| Reverse(x.left_anchor_key()));
+        filters.sort_by_key(|x| Reverse(x.left_anchor_key()));
 
-        let body_len = tail_filters.iter().map(|x| x.body_len()).max().unwrap_or(0);
-        let tail_len = tail_filters.iter().map(|x| x.tail_len()).max().unwrap_or(0);
+        let pass_after = tail_filters.iter().map(|x| x.body_len()).min().unwrap_or(usize::MAX);
+        let tail_margin = tail_filters.iter().map(|x| x.tail_len()).max().unwrap_or(0);
 
+        Ok(Cutter {
+            filters,
+            tail_filters,
+            pass_after,
+            tail_margin,
+        })
+    }
+
+    fn max_consume(&self, count: usize) -> usize {
+        // note: maximum #segments that can be consumed on the current segment substream
+        // (not the #bytes on the byte substream)
+        std::cmp::min(self.pass_after, count.saturating_sub(self.tail_margin))
+    }
+
+    fn accumulate(&mut self, offset: usize, is_eof: bool, count: usize, segments: &[Segment], v: &mut Vec<Segment>) -> Result<()> {
+        // first convert all right-anchored and mixed ranges to left-anchored ones,
+        // as the absolute offset finally got known when it reached EOF
+        if is_eof && !self.tail_filters.is_empty() {
+            for filter in &self.tail_filters {
+                self.filters.push(filter.to_left_anchored(offset + count));
+            }
+
+            self.tail_filters.clear();
+            self.filters.sort_by_key(|x| Reverse(x.left_anchor_key()));
+        }
+
+        // patch for overlaps with StartAnchored(x)..EndAnchored(y) ranges
+        let pass_after = if !is_eof {
+            self.pass_after.saturating_sub(offset)
+        } else {
+            usize::MAX
+        };
+
+        let mut last_scanned = 0;
+        while let Some(filter) = self.filters.pop() {
+            // evaluate the filter range into a relative offsets on the current segment array
+            let range = filter.left_anchored_range(offset);
+
+            let start = std::cmp::min(range.start, pass_after);
+            let start = std::cmp::max(start, last_scanned);
+            let start = std::cmp::min(start, count);
+
+            let end = std::cmp::max(range.end, last_scanned);
+            let end = std::cmp::min(end, count);
+
+            v.extend_from_slice(&segments[start..end]);
+            last_scanned = end;
+
+            // if not all consumed, the remainders are postponed to the next call
+            if !is_eof && range.end > count {
+                self.filters.push(filter);
+                break;
+            }
+        }
+
+        let pass_after = std::cmp::max(pass_after, last_scanned);
+        if pass_after < count {
+            v.extend_from_slice(&segments[pass_after..count]);
+        }
+        Ok(())
+    }
+}
+
+pub struct FilterStream {
+    src: Box<dyn SegmentStream>,
+    src_scanned: usize,  // relative count in the next segment array
+    src_consumed: usize, // absolute count from the head
+    max_consume: usize,  // in #bytes
+    segments: Vec<Segment>,
+    cutter: Cutter,
+}
+
+impl FilterStream {
+    pub fn new(src: Box<dyn SegmentStream>, exprs: &str) -> Result<Self> {
         Ok(FilterStream {
             src,
             src_scanned: 0,
             src_consumed: 0,
             max_consume: 0,
             segments: Vec::new(),
-            body_filters,
-            body_len,
-            tail_filters,
-            tail_len,
+            cutter: Cutter::from_str(exprs)?,
         })
     }
 }
@@ -77,58 +135,21 @@ impl SegmentStream for FilterStream {
         let (is_eof, bytes, count, max_consume) = self.src.fill_segment_buf()?;
         let (_, segments) = self.src.as_slices();
 
-        let clamp = |range: &Range<usize>, scanned: usize| -> Range<usize> {
-            // clamped by src_scanned and count
-            let start = std::cmp::max(range.start, scanned);
-            let end = std::cmp::max(range.end, scanned);
-
-            let start = std::cmp::min(start, count);
-            let end = std::cmp::min(end, count);
-
-            start..end
-        };
-
-        let mut last_scanned = self.src_scanned;
-        while let Some(filter) = self.body_filters.pop() {
-            // evaluate the filter range into a relative offsets on the current segment array
-            let range = filter.left_anchored_range(self.src_consumed);
-            let clamped = clamp(&range, last_scanned);
-
-            self.segments.extend_from_slice(&segments[clamped.clone()]);
-            last_scanned = clamped.end;
-
-            // if not all consumed, the remainders are postponed to the next call
-            if !is_eof && clamped.end < range.end {
-                self.body_filters.push(filter);
-                break;
-            }
-        }
-
-        if is_eof {
-            for filter in &self.tail_filters {
-                let range = filter.right_anchored_range(self.src_consumed, count);
-                let clamped = clamp(&range, last_scanned);
-
-                self.segments.extend_from_slice(&segments[clamped]);
-            }
-
-            // for simplicity; I know it's not the optimal
-            self.segments.sort_by_key(|x| (x.pos, x.len));
-            self.segments.dedup();
-        }
+        // scan the range filters
+        self.cutter
+            .accumulate(self.src_consumed, is_eof, count, segments, &mut self.segments)?;
 
         self.src_scanned = count;
         self.max_consume = if is_eof {
             bytes
         } else {
-            let i = std::cmp::min(self.body_len, count - self.tail_len);
+            let i = self.cutter.max_consume(count);
             if i >= segments.len() {
                 max_consume
             } else {
                 std::cmp::min(segments[i].pos, max_consume)
             }
         };
-
         Ok((is_eof, bytes, self.segments.len(), self.max_consume))
     }
 
@@ -142,7 +163,6 @@ impl SegmentStream for FilterStream {
         let (bytes, src_count) = self.src.consume(bytes)?;
         self.src_scanned -= src_count;
         self.src_consumed += src_count;
-        self.body_len = self.body_len.saturating_sub(src_count);
 
         let from = self.segments.partition_point(|x| x.pos < bytes);
         let to = self.segments.len();
