@@ -61,8 +61,8 @@ OPTIONS:
   Manipulating the slices (applied in this order)
 
     -e, --regex PCRE        match PCRE on every slice and leave the match locations
-    -v, --invert S..E[,...] invert slices and map them to S..E
-    -x, --extend S..E[,...] map every slice to S..E
+    -v, --invert S..E[,...] invert slices and map them to S..E range(s)
+    -x, --extend S..E[,...] map every slice to S..E range(s)
     -m, --merge N           iteratively merge slices where distance <= N
     -l, --lines S..E[,...]  leave only slices (lines) in the S..E range(s)
 
