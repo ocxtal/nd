@@ -57,6 +57,8 @@ impl Cutter {
     }
 
     fn accumulate(&mut self, offset: usize, is_eof: bool, bytes: usize, stream: &[u8], v: &mut Vec<u8>) -> Result<()> {
+        // convert all right-anchored and mixed ranges to left-anchored ones,
+        // as the absolute offset finally got known when it reached EOF
         if is_eof && !self.tail_filters.is_empty() {
             for filter in &self.tail_filters {
                 self.filters.push(filter.to_left_anchored(offset + bytes));
