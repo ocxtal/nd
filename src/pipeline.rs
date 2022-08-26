@@ -86,10 +86,10 @@ pub struct PipelineArgs {
     #[clap(short = 'e', long = "regex", value_name = "PCRE")]
     regex: Option<String>,
 
-    #[clap(short = 'x', long = "extend", value_name = "S..E")]
+    #[clap(short = 'x', long = "extend", value_name = "S..E[,...]")]
     extend: Option<String>,
 
-    #[clap(short = 'v', long = "invert", value_name = "S..E")]
+    #[clap(short = 'v', long = "invert", value_name = "S..E[,...]")]
     invert: Option<String>,
 
     #[clap(short = 'm', long = "merge", value_name = "N", value_parser = parse_usize)]
