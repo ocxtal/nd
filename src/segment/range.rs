@@ -16,27 +16,21 @@ use super::tester::*;
 #[cfg(test)]
 use rand::Rng;
 
-pub struct RangeSlicer {
-    src: EofStream<Box<dyn ByteStream>>,
-    src_consumed: usize, // in #bytes
-    max_consume: usize,  // in #bytes
+struct Cutter {
+    filters: Vec<RangeMapper>,      // filters that both ends are start-anchored
+    tail_filters: Vec<RangeMapper>, // filters that have tail-anchored ends
 
-    segments: Vec<Segment>,
+    // left-anchored -> mixed transition offset;
+    // (minimum start offset among {StartAnchored(x)..EndAnchored(y)})
+    trans_offset: usize,
 
-    // range vector
-    // FIXME: we may need to use interval tree (or similar structure) to query
-    // overlapping ranges faster for the case #filter is large...
-    body_filters: Vec<RangeMapper>,
-    body_len: usize, // #bytes consumed before EOF
-
-    // filters that have tail-anchored ends
-    tail_filters: Vec<RangeMapper>,
-    tail_len: usize, // #bytes to be left at the tail
+    // #bytes to be left at the tail
+    tail_margin: usize,
 }
 
-impl RangeSlicer {
-    pub fn new(src: Box<dyn ByteStream>, exprs: &str) -> Result<Self> {
-        let mut body_filters = Vec::new();
+impl Cutter {
+    fn from_str(exprs: &str) -> Result<Self> {
+        let mut filters = Vec::new();
         let mut tail_filters = Vec::new();
 
         if !exprs.is_empty() {
@@ -45,24 +39,86 @@ impl RangeSlicer {
                 if expr.has_right_anchor() {
                     tail_filters.push(expr);
                 } else {
-                    body_filters.push(expr);
+                    filters.push(expr);
                 }
             }
         }
-        body_filters.sort_by_key(|x| Reverse(x.left_anchor_key()));
+        filters.sort_by_key(|x| Reverse(x.sort_key()));
 
-        let body_len = tail_filters.iter().map(|x| x.body_len()).min().unwrap_or(0);
-        let tail_len = tail_filters.iter().map(|x| x.tail_len()).max().unwrap_or(0);
+        let trans_offset = tail_filters.iter().map(|x| x.trans_offset()).min().unwrap_or(usize::MAX);
+        let tail_margin = tail_filters.iter().map(|x| x.tail_margin()).max().unwrap_or(0);
 
+        Ok(Cutter {
+            filters,
+            tail_filters,
+            trans_offset,
+            tail_margin,
+        })
+    }
+
+    fn accumulate(&mut self, offset: usize, is_eof: bool, bytes: usize, v: &mut Vec<Segment>) -> Result<usize> {
+        if is_eof && !self.tail_filters.is_empty() {
+            for filter in &self.tail_filters {
+                self.filters.push(filter.to_left_anchored(offset + bytes));
+            }
+
+            self.tail_filters.clear();
+            self.filters.sort_by_key(|x| Reverse(x.sort_key()));
+        }
+
+        let (clamp, tail, max_consume) = if is_eof {
+            (bytes, usize::MAX, bytes)
+        } else {
+            let trans_offset = self.trans_offset.saturating_sub(offset);
+            let max_consume = bytes.saturating_sub(self.tail_margin);
+            let max_consume = std::cmp::min(max_consume, trans_offset);
+            (usize::MAX, bytes, max_consume)
+        };
+
+        let mut max_consume = max_consume;
+        while let Some(filter) = self.filters.pop() {
+            // evaluate the filter range into a relative offsets on the current segment array
+            let range = filter.to_range(offset);
+
+            let start = std::cmp::min(range.start, clamp);
+            let end = std::cmp::min(range.end, clamp);
+
+            if start >= max_consume || end > tail {
+                max_consume = std::cmp::min(max_consume, start);
+                self.filters.push(filter);
+                break;
+            }
+            if start >= end {
+                continue;
+            }
+
+            v.push(Segment {
+                pos: start,
+                len: end - start,
+            });
+        }
+        v.dedup();
+
+        Ok(max_consume)
+    }
+}
+
+pub struct RangeSlicer {
+    src: EofStream<Box<dyn ByteStream>>,
+    src_consumed: usize, // in #bytes
+    max_consume: usize,  // in #bytes
+    segments: Vec<Segment>,
+    cutter: Cutter,
+}
+
+impl RangeSlicer {
+    pub fn new(src: Box<dyn ByteStream>, exprs: &str) -> Result<Self> {
         Ok(RangeSlicer {
             src: EofStream::new(src),
             src_consumed: 0,
             max_consume: 0,
             segments: Vec::new(),
-            body_filters,
-            body_len,
-            tail_filters,
-            tail_len,
+            cutter: Cutter::from_str(exprs)?,
         })
     }
 }
@@ -70,56 +126,8 @@ impl RangeSlicer {
 impl SegmentStream for RangeSlicer {
     fn fill_segment_buf(&mut self) -> Result<(bool, usize, usize, usize)> {
         let (is_eof, bytes) = self.src.fill_buf()?;
+        self.max_consume = self.cutter.accumulate(self.src_consumed, is_eof, bytes, &mut self.segments)?;
 
-        let (clamp, tail) = if is_eof { (bytes, usize::MAX) } else { (usize::MAX, bytes) };
-        let mut max_consume = if is_eof {
-            bytes
-        } else {
-            std::cmp::min(self.body_len, bytes.saturating_sub(self.tail_len))
-        };
-
-        while let Some(filter) = self.body_filters.pop() {
-            // evaluate the filter range into a relative offsets on the current segment array
-            let range = filter.left_anchored_range(self.src_consumed);
-            let start = std::cmp::min(range.start, clamp);
-            let end = std::cmp::min(range.end, clamp);
-
-            if start >= max_consume || end > tail {
-                max_consume = std::cmp::min(max_consume, start);
-                self.body_filters.push(filter);
-                break;
-            }
-            if start >= end {
-                continue;
-            }
-
-            self.segments.push(Segment {
-                pos: start,
-                len: end - start,
-            });
-        }
-
-        if is_eof {
-            for filter in &self.tail_filters {
-                let range = filter.right_anchored_range(self.src_consumed, bytes);
-                let start = std::cmp::min(range.start, bytes);
-                let end = std::cmp::min(range.end, bytes);
-
-                if start >= end {
-                    continue;
-                }
-
-                self.segments.push(Segment {
-                    pos: start,
-                    len: end - start,
-                });
-            }
-            self.tail_filters.clear();
-            self.segments.sort_by_key(|x| (x.pos, x.len));
-        }
-        self.segments.dedup();
-
-        self.max_consume = max_consume;
         Ok((is_eof, bytes, self.segments.len(), self.max_consume))
     }
 
@@ -143,7 +151,6 @@ impl SegmentStream for RangeSlicer {
         }
         self.src_consumed += bytes;
         self.max_consume -= bytes;
-        self.body_len = self.body_len.saturating_sub(bytes);
 
         Ok((bytes, from))
     }

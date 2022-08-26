@@ -192,17 +192,14 @@ impl RangeMapper {
         Ok(RangeMapper { start, end })
     }
 
-    pub fn body_len(&self) -> usize {
+    pub fn trans_offset(&self) -> usize {
         match (self.start, self.end) {
-            // (StartAnchored(_), StartAnchored(_)) => usize::MAX,
             (StartAnchored(x), EndAnchored(_)) => x,
             _ => usize::MAX,
-            // (EndAnchored(_), StartAnchored(y)) => y,
-            // (EndAnchored(_), EndAnchored(_)) => usize::MAX,
         }
     }
 
-    pub fn tail_len(&self) -> usize {
+    pub fn tail_margin(&self) -> usize {
         match (self.start, self.end) {
             (StartAnchored(_), StartAnchored(_)) => 0,
             (StartAnchored(_), EndAnchored(y)) => y,
@@ -211,7 +208,7 @@ impl RangeMapper {
         }
     }
 
-    pub fn left_anchored_range(&self, base: usize) -> Range<usize> {
+    pub fn to_range(self, base: usize) -> Range<usize> {
         match (self.start, self.end) {
             (StartAnchored(x), StartAnchored(y)) => {
                 let start = x.saturating_sub(base);
@@ -225,7 +222,7 @@ impl RangeMapper {
 
     pub fn to_left_anchored(self, tail: usize) -> Self {
         let flip = |anchor| match anchor {
-            EndAnchored(x) => StartAnchored(tail - x),
+            EndAnchored(x) => StartAnchored(tail.saturating_sub(x)),
             x => x,
         };
 
@@ -235,25 +232,11 @@ impl RangeMapper {
         }
     }
 
-    pub fn right_anchored_range(&self, base: usize, count: usize) -> Range<usize> {
-        let start = match self.start {
-            StartAnchored(x) => x.saturating_sub(base),
-            EndAnchored(x) => count.saturating_sub(x),
-        };
-        let end = match self.end {
-            StartAnchored(x) => x.saturating_sub(base),
-            EndAnchored(x) => count.saturating_sub(x),
-        };
-        let end = std::cmp::max(start, end);
-
-        start..end
-    }
-
     pub fn has_right_anchor(&self) -> bool {
         matches!((self.start, self.end), (EndAnchored(_), _) | (_, EndAnchored(_)))
     }
 
-    pub fn left_anchor_key(&self) -> (usize, usize) {
+    pub fn sort_key(&self) -> (usize, usize) {
         match (self.start, self.end) {
             (StartAnchored(x), StartAnchored(y)) => (x, y),
             _ => (0, 0),
