@@ -40,10 +40,10 @@ impl Cutter {
                 }
             }
         }
-        filters.sort_by_key(|x| Reverse(x.left_anchor_key()));
+        filters.sort_by_key(|x| Reverse(x.sort_key()));
 
-        let pass_after = tail_filters.iter().map(|x| x.body_len()).min().unwrap_or(usize::MAX);
-        let tail_margin = tail_filters.iter().map(|x| x.tail_len()).max().unwrap_or(0);
+        let pass_after = tail_filters.iter().map(|x| x.trans_offset()).min().unwrap_or(usize::MAX);
+        let tail_margin = tail_filters.iter().map(|x| x.tail_margin()).max().unwrap_or(0);
 
         Ok(Cutter {
             filters,
@@ -68,20 +68,20 @@ impl Cutter {
             }
 
             self.tail_filters.clear();
-            self.filters.sort_by_key(|x| Reverse(x.left_anchor_key()));
+            self.filters.sort_by_key(|x| Reverse(x.sort_key()));
         }
 
         // patch for overlaps with StartAnchored(x)..EndAnchored(y) ranges
-        let pass_after = if !is_eof {
-            self.pass_after.saturating_sub(offset)
-        } else {
+        let pass_after = if is_eof {
             usize::MAX
+        } else {
+            self.pass_after.saturating_sub(offset)
         };
 
         let mut last_scanned = 0;
         while let Some(filter) = self.filters.pop() {
             // evaluate the filter range into a relative offsets on the current segment array
-            let range = filter.left_anchored_range(offset);
+            let range = filter.to_range(offset);
 
             let start = std::cmp::min(range.start, pass_after);
             let start = std::cmp::max(start, last_scanned);
