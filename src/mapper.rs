@@ -194,10 +194,11 @@ impl RangeMapper {
 
     pub fn body_len(&self) -> usize {
         match (self.start, self.end) {
-            (StartAnchored(_), StartAnchored(_)) => usize::MAX,
+            // (StartAnchored(_), StartAnchored(_)) => usize::MAX,
             (StartAnchored(x), EndAnchored(_)) => x,
-            (EndAnchored(_), StartAnchored(y)) => y,
-            (EndAnchored(_), EndAnchored(_)) => usize::MAX,
+            _ => usize::MAX,
+            // (EndAnchored(_), StartAnchored(y)) => y,
+            // (EndAnchored(_), EndAnchored(_)) => usize::MAX,
         }
     }
 
@@ -219,6 +220,18 @@ impl RangeMapper {
                 start..end
             }
             _ => 0..0,
+        }
+    }
+
+    pub fn to_left_anchored(self, tail: usize) -> Self {
+        let flip = |anchor| match anchor {
+            EndAnchored(x) => StartAnchored(tail - x),
+            x => x,
+        };
+
+        RangeMapper {
+            start: flip(self.start),
+            end: flip(self.end),
         }
     }
 

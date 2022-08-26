@@ -19,16 +19,6 @@ pub struct ClipperParams {
     pub len: usize,
 }
 
-impl Default for ClipperParams {
-    fn default() -> Self {
-        ClipperParams {
-            pad: (0, 0),
-            clip: (0, 0),
-            len: usize::MAX,
-        }
-    }
-}
-
 impl ClipperParams {
     pub fn from_raw(pad: Option<(usize, usize)>, seek: Option<usize>, range: Option<Range<usize>>) -> Result<Self> {
         let pad = pad.unwrap_or((0, 0));

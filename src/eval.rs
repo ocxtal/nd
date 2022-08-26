@@ -1566,6 +1566,7 @@ fn test_parse_isize_pair() {
     assert!(parse_isize_pair("1,-").is_err());
 }
 
+#[allow(dead_code)]
 pub fn parse_range(s: &str) -> Result<Range<usize>> {
     let vals = parse_delimited(s, "..")?;
     if vals.len() != 2 {

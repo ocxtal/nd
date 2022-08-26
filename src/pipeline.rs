@@ -11,7 +11,6 @@ use anyhow::{anyhow, Result};
 use clap::Parser;
 
 use std::io::Read;
-use std::ops::Range;
 
 use self::Node::*;
 use self::NodeClass::*;
@@ -60,14 +59,11 @@ pub struct PipelineArgs {
     #[clap(short = 'i', long = "inplace")]
     inplace: bool,
 
+    #[clap(short = 'n', long = "bytes", value_name = "S..E[,...]")]
+    bytes: Option<String>,
+
     #[clap(short = 'a', long = "pad", value_name = "N,M", value_parser = parse_usize_pair)]
     pad: Option<(usize, usize)>,
-
-    #[clap(short = 's', long = "seek", value_name = "N", value_parser = parse_usize)]
-    seek: Option<usize>,
-
-    #[clap(short = 'n', long = "bytes", value_name = "N..M", value_parser = parse_range)]
-    bytes: Option<Range<usize>>,
 
     #[clap(short = 'p', long = "patch", value_name = "FILE")]
     patch: Option<String>,
@@ -117,6 +113,7 @@ pub enum Node {
     Zip,
     Inplace,
     // ByteFilters: ByteStream -> ByteStream
+    Cut(String),
     Clipper(ClipperParams), // Pad, Seek, Range
     Patch(String),
     Tee,
@@ -151,6 +148,7 @@ impl Node {
             Cat => Placeholder,
             Zip => Placeholder,
             Inplace => Placeholder,
+            Cut(_) => ByteFilter,
             Clipper(_) => ByteFilter,
             Patch(_) => ByteFilter,
             Tee => ByteFilter,
@@ -211,10 +209,14 @@ impl Pipeline {
         };
         nodes.push(node);
 
-        // stream clipper -> patcher
-        let clipper = ClipperParams::from_raw(m.pad, m.seek, m.bytes.clone())?;
-        if clipper != ClipperParams::default() {
-            nodes.push(Clipper(clipper));
+        // bytes -> pad -> patch
+        if let Some(exprs) = &m.bytes {
+            nodes.push(Cut(exprs.to_string()));
+        }
+        if let Some(pad) = m.pad {
+            if pad != (0, 0) {
+                nodes.push(Clipper(ClipperParams::from_raw(Some(pad), Some(0), Some(0..0))?));
+            }
         }
 
         if let Some(file) = &m.patch {
@@ -333,6 +335,10 @@ impl Pipeline {
         // internal nodes
         for next in &self.nodes[1..] {
             (cache, node) = match (next, node) {
+                (Cut(exprs), NodeInstance::Byte(prev)) => {
+                    let next = Box::new(CutStream::new(prev, exprs)?);
+                    (cache, NodeInstance::Byte(next))
+                }
                 (Clipper(clipper), NodeInstance::Byte(prev)) => {
                     let next = Box::new(ClipStream::new(prev, clipper));
                     (cache, NodeInstance::Byte(next))
