@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
+atty = "0.2"
 clap = { version = "3.2", features = ["derive"] }
 memchr = "2.5"
 rand = { version = "0.8", features = ["small_rng"] }
