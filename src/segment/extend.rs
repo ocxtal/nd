@@ -3,7 +3,7 @@
 
 use super::{Segment, SegmentStream};
 use crate::mapper::SegmentMapper;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 
@@ -69,18 +69,27 @@ pub struct ExtendStream {
     // from the `last_end` so that the next any segment overlaps with the cosumable range
     max_consume: usize,
 
-    mapper: SegmentMapper,
+    mappers: Vec<SegmentMapper>,
 }
 
 impl ExtendStream {
-    pub fn new(src: Box<dyn SegmentStream>, expr: &str) -> Result<Self> {
+    pub fn new(src: Box<dyn SegmentStream>, exprs: &str) -> Result<Self> {
+        if exprs.trim().is_empty() {
+            return Err(anyhow!("empty expression is not allowed"));
+        }
+
+        let mut mappers = Vec::new();
+        for expr in exprs.strip_suffix(',').unwrap_or(exprs).split(',') {
+            mappers.push(SegmentMapper::from_str(expr)?);
+        }
+
         Ok(ExtendStream {
             src,
             segments: Vec::new(),
             sorter: BinaryHeap::new(),
             src_scanned: 0,
             max_consume: 0,
-            mapper: SegmentMapper::from_str(expr)?,
+            mappers,
         })
     }
 
@@ -93,39 +102,47 @@ impl ExtendStream {
         let max_consume = max_consume as isize;
         let phantom = [max_consume, max_consume + 1];
 
-        let (start, end) = self.mapper.evaluate(&phantom, &phantom);
-        self.max_consume = std::cmp::max(0, std::cmp::min(start, end)) as usize;
-    }
+        let eval_phantom = |m: &SegmentMapper| {
+            let (start, end) = m.evaluate(&phantom, &phantom);
+            std::cmp::min(start, end)
+        };
+        let max_consume = self.mappers.iter().map(eval_phantom).min().unwrap_or(0);
+        let max_consume = std::cmp::max(0, max_consume) as usize;
 
-    fn map_segment(&self, segment: &Segment, tail: usize) -> Option<SorterElement> {
-        let s = [segment.pos as isize, segment.tail() as isize];
-        let (start, end) = self.mapper.evaluate(&s, &s);
-
-        let start = (start.max(0) as usize).min(tail);
-        let end = (end.max(0) as usize).min(tail);
-
-        // record the segment
-        if start < end {
-            Some(SorterElement {
-                pos: start,
-                len: end - start,
-                original_end: segment.tail(),
-            })
-        } else {
-            None
-        }
+        self.max_consume = max_consume;
     }
 
     fn extend_segment_buf(&mut self, is_eof: bool, count: usize, bytes: usize) {
         let tail = if is_eof { bytes } else { usize::MAX };
 
+        let map_segment = |m: &SegmentMapper, segment: &Segment| -> Option<SorterElement> {
+            let s = [segment.pos as isize, segment.tail() as isize];
+            let (start, end) = m.evaluate(&s, &s);
+
+            let start = (start.max(0) as usize).min(tail);
+            let end = (end.max(0) as usize).min(tail);
+
+            // record the segment
+            if start < end {
+                Some(SorterElement {
+                    pos: start,
+                    len: end - start,
+                    original_end: segment.tail(),
+                })
+            } else {
+                None
+            }
+        };
+
         let (_, segments) = self.src.as_slices();
 
-        // first map all the source segment pairs with `mapper`
+        // first map all the source segment pairs with `mappers`
         if count > self.src_scanned {
             for next in &segments[self.src_scanned..count] {
-                if let Some(s) = self.map_segment(next, tail) {
-                    self.sorter.push(s);
+                for mapper in &self.mappers {
+                    if let Some(s) = map_segment(mapper, next) {
+                        self.sorter.push(s);
+                    }
                 }
             }
         }
@@ -357,6 +374,36 @@ macro_rules! test {
                 b"abcdefghijklmnopqrstu",
                 &bind_open!(4, 2, "e - 5..e"),
                 &[(0..5).into(), (4..9).into(), (8..13).into(), (16..21).into()],
+            );
+
+            // multiple mappers
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_closed!(4, 2, "s..e - 1, s + 1..e"),
+                &[
+                    (3..4).into(),
+                    (4..5).into(),
+                    (7..8).into(),
+                    (8..9).into(),
+                    (11..12).into(),
+                    (12..13).into(),
+                    (15..16).into(),
+                    (16..17).into(),
+                ],
+            );
+            $inner(
+                b"abcdefghijklmnopqrstu",
+                &bind_open!(4, 2, "s..e - 1, s + 1..e"),
+                &[
+                    (0..4).into(),
+                    (1..5).into(),
+                    (7..8).into(),
+                    (8..9).into(),
+                    (11..12).into(),
+                    (12..13).into(),
+                    (15..20).into(),
+                    (16..21).into(),
+                ],
             );
         }
     };
