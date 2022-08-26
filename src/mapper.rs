@@ -82,7 +82,7 @@ impl SegmentMapper {
 }
 
 #[test]
-fn test_mapper_from_str() {
+fn test_segment_mapper_from_str() {
     macro_rules! test {
         ( $input: expr, $expected: expr ) => {
             let mapper = SegmentMapper::from_str($input).unwrap();
@@ -134,7 +134,7 @@ fn test_mapper_from_str() {
 }
 
 #[test]
-fn test_mapper_evaluate() {
+fn test_segment_mapper_evaluate() {
     macro_rules! test {
         ( $input: expr, $slices: expr, $expected: expr ) => {
             let mapper = SegmentMapper::from_str($input).unwrap();
@@ -242,6 +242,106 @@ impl RangeMapper {
             _ => (0, 0),
         }
     }
+}
+
+#[test]
+fn test_range_mapper_from_str() {
+    assert!(RangeMapper::from_str("").is_err());
+    assert!(RangeMapper::from_str("").is_err());
+    assert!(RangeMapper::from_str("aaa").is_err());
+    assert!(RangeMapper::from_str("a..b").is_err());
+
+    assert!(RangeMapper::from_str("..,").is_err());
+    assert!(RangeMapper::from_str("..-").is_err());
+
+    assert_eq!(
+        RangeMapper::from_str("..").unwrap(),
+        RangeMapper {
+            start: StartAnchored(0),
+            end: EndAnchored(0)
+        }
+    );
+    assert_eq!(
+        RangeMapper::from_str("s..").unwrap(),
+        RangeMapper {
+            start: StartAnchored(0),
+            end: EndAnchored(0)
+        }
+    );
+    assert_eq!(
+        RangeMapper::from_str("s..e").unwrap(),
+        RangeMapper {
+            start: StartAnchored(0),
+            end: EndAnchored(0)
+        }
+    );
+
+    assert_eq!(
+        RangeMapper::from_str("1..3").unwrap(),
+        RangeMapper {
+            start: StartAnchored(1),
+            end: StartAnchored(3)
+        }
+    );
+    assert_eq!(
+        RangeMapper::from_str("-10..-1").unwrap(),
+        RangeMapper {
+            start: StartAnchored(0),
+            end: StartAnchored(0)
+        }
+    );
+    assert_eq!(
+        RangeMapper::from_str("100..10").unwrap(),
+        RangeMapper {
+            start: StartAnchored(100),
+            end: StartAnchored(10)
+        }
+    );
+
+    assert_eq!(
+        RangeMapper::from_str("s+100..e-10").unwrap(),
+        RangeMapper {
+            start: StartAnchored(100),
+            end: EndAnchored(10)
+        }
+    );
+    assert_eq!(
+        RangeMapper::from_str("s+100..e+10").unwrap(),
+        RangeMapper {
+            start: StartAnchored(100),
+            end: EndAnchored(0)
+        }
+    );
+    assert_eq!(
+        RangeMapper::from_str("e+100..e-10").unwrap(),
+        RangeMapper {
+            start: EndAnchored(0),
+            end: EndAnchored(10)
+        }
+    );
+    assert_eq!(
+        RangeMapper::from_str("e-100..e-10").unwrap(),
+        RangeMapper {
+            start: EndAnchored(100),
+            end: EndAnchored(10)
+        }
+    );
+
+    assert!(RangeMapper::from_str("2 * s..e").is_err());
+    assert_eq!(
+        RangeMapper::from_str("2 * s - s..e + e - e").unwrap(),
+        RangeMapper {
+            start: StartAnchored(0),
+            end: EndAnchored(0)
+        }
+    );
+    assert_eq!(
+        RangeMapper::from_str("s + 1ki..e - 3M").unwrap(),
+        RangeMapper {
+            start: StartAnchored(1024),
+            end: EndAnchored(3000000)
+        }
+    );
 }
 
 // end of mapper.rs
