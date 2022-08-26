@@ -117,11 +117,11 @@ impl SegmentStream for FilterStream {
             self.segments.dedup();
         }
 
-        self.src_scanned = count;
+        self.src_scanned = count; // it's already clamped by `bytes`
         self.max_consume = if is_eof {
             bytes
         } else {
-            let i = std::cmp::min(self.body_len, count - self.tail_len);
+            let i = std::cmp::min(self.body_len, count.saturating_sub(self.tail_len));
             if i >= segments.len() {
                 max_consume
             } else {

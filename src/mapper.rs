@@ -222,6 +222,18 @@ impl RangeMapper {
         }
     }
 
+    pub fn to_left_anchored(self, tail: usize) -> Self {
+        let flip = |anchor| match anchor {
+            EndAnchored(x) => StartAnchored(tail - x),
+            x => x,
+        };
+
+        RangeMapper {
+            start: flip(self.start),
+            end: flip(self.end),
+        }
+    }
+
     pub fn right_anchored_range(&self, base: usize, count: usize) -> Range<usize> {
         let start = match self.start {
             StartAnchored(x) => x.saturating_sub(base),
