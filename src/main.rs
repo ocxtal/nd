@@ -22,7 +22,7 @@ use std::process::{Child, Stdio};
 use byte::ByteStream;
 use pipeline::*;
 
-static USAGE: &str = "zd [options] FILE ...";
+static USAGE: &str = "nd [options] FILE ...";
 
 static HELP_TEMPLATE: &str = "
 {bin} {version} -- {about}
@@ -92,7 +92,7 @@ struct Args {
 
 fn main() -> Result<()> {
     let mut command = Args::command()
-        .name("zd")
+        .name("nd")
         .version("0.0.1")
         .about("streamed blob manipulator")
         .help_template(HELP_TEMPLATE)
