@@ -194,10 +194,11 @@ impl RangeMapper {
 
     pub fn body_len(&self) -> usize {
         match (self.start, self.end) {
-            (StartAnchored(_), StartAnchored(_)) => usize::MAX,
+            // (StartAnchored(_), StartAnchored(_)) => usize::MAX,
             (StartAnchored(x), EndAnchored(_)) => x,
-            (EndAnchored(_), StartAnchored(y)) => y,
-            (EndAnchored(_), EndAnchored(_)) => usize::MAX,
+            _ => usize::MAX,
+            // (EndAnchored(_), StartAnchored(y)) => y,
+            // (EndAnchored(_), EndAnchored(_)) => usize::MAX,
         }
     }
 

@@ -14,20 +14,15 @@ use super::tester::*;
 use rand::Rng;
 
 struct Cutter {
-    // range vector
-    // FIXME: we may need to use interval tree (or similar structure) to query
-    // overlapping ranges faster for the case #filter is large...
-    body_filters: Vec<RangeMapper>,
-    body_len: usize,
-
-    // filters that have tail-anchored ends
-    tail_filters: Vec<RangeMapper>,
-    tail_len: usize, // #segments to be left at the tail
+    filters: Vec<RangeMapper>,      // filters that both ends are start-anchored
+    tail_filters: Vec<RangeMapper>, // filters that have tail-anchored ends
+    pass_after: usize,              // minimum start offset among {StartAnchored(x)..EndAnchored(y)}
+    tail_margin: usize,             // #segments to be left at the tail
 }
 
 impl Cutter {
     fn from_str(exprs: &str) -> Result<Self> {
-        let mut body_filters = Vec::new();
+        let mut filters = Vec::new();
         let mut tail_filters = Vec::new();
 
         if !exprs.is_empty() {
@@ -36,20 +31,20 @@ impl Cutter {
                 if expr.has_right_anchor() {
                     tail_filters.push(expr);
                 } else {
-                    body_filters.push(expr);
+                    filters.push(expr);
                 }
             }
         }
-        body_filters.sort_by_key(|x| Reverse(x.left_anchor_key()));
+        filters.sort_by_key(|x| Reverse(x.left_anchor_key()));
 
-        let body_len = tail_filters.iter().map(|x| x.body_len()).min().unwrap_or(usize::MAX);
-        let tail_len = tail_filters.iter().map(|x| x.tail_len()).max().unwrap_or(0);
+        let pass_after = tail_filters.iter().map(|x| x.body_len()).min().unwrap_or(usize::MAX);
+        let tail_margin = tail_filters.iter().map(|x| x.tail_len()).max().unwrap_or(0);
 
         Ok(Cutter {
-            body_filters,
-            body_len,
+            filters,
             tail_filters,
-            tail_len,
+            pass_after,
+            tail_margin,
         })
     }
 
@@ -57,29 +52,37 @@ impl Cutter {
         if is_eof {
             bytes
         } else {
-            std::cmp::min(self.body_len, bytes.saturating_sub(self.tail_len))
+            bytes.saturating_sub(self.tail_margin)
         }
     }
 
     fn accumulate(&mut self, offset: usize, is_eof: bool, bytes: usize, stream: &[u8], v: &mut Vec<u8>) -> Result<()> {
         if is_eof && !self.tail_filters.is_empty() {
             for filter in &self.tail_filters {
-                self.body_filters.push(filter.to_left_anchored(offset + bytes));
+                self.filters.push(filter.to_left_anchored(offset + bytes));
             }
 
             self.tail_filters.clear();
-            self.body_filters.sort_by_key(|x| Reverse(x.left_anchor_key()));
+            self.filters.sort_by_key(|x| Reverse(x.left_anchor_key()));
         }
 
+        // patch for overlaps with StartAnchored(x)..EndAnchored(y) ranges
+        let pass_after = if !is_eof {
+            self.pass_after.saturating_sub(offset)
+        } else {
+            usize::MAX
+        };
+
         let mut last_scanned = 0;
-        while let Some(filter) = self.body_filters.pop() {
+        while let Some(filter) = self.filters.pop() {
             // evaluate the filter range into a relative offsets on the current segment array
             let range = filter.left_anchored_range(offset);
 
-            let start = std::cmp::max(range.start, last_scanned);
-            let end = std::cmp::max(range.end, last_scanned);
-
+            let start = std::cmp::min(range.start, pass_after);
+            let start = std::cmp::max(start, last_scanned);
             let start = std::cmp::min(start, bytes);
+
+            let end = std::cmp::max(range.end, last_scanned);
             let end = std::cmp::min(end, bytes);
 
             v.extend_from_slice(&stream[start..end]);
@@ -87,12 +90,15 @@ impl Cutter {
 
             // if not all consumed, the remainders are postponed to the next call
             if !is_eof && range.end > bytes {
-                self.body_filters.push(filter);
+                self.filters.push(filter);
                 break;
             }
         }
 
-        self.body_len = self.body_len.saturating_sub(bytes);
+        let pass_after = std::cmp::max(pass_after, last_scanned);
+        if pass_after < bytes {
+            v.extend_from_slice(&stream[pass_after..bytes]);
+        }
         Ok(())
     }
 }
