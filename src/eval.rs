@@ -1250,6 +1250,7 @@ pub struct Rpn {
 
 impl Rpn {
     pub fn new(input: &str, vars: Option<&HashMap<&[u8], VarAttr>>) -> Result<Self> {
+        let input = input.trim();
         if input.is_empty() {
             return Err(anyhow!("empty input expression"));
         }
