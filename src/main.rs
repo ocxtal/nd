@@ -47,7 +47,7 @@ OPTIONS:
 
   Manipulating the stream (applied in this order)
 
-    -n, --bytes S..E[,...]  leave only bytes within the S..E range(s)
+    -n, --cut S..E[,...]    leave only bytes within the S..E range(s)
     -a, --pad N,M           add N and M bytes of zeros at the head and tail
     -p, --patch FILE        patch the input stream with the patchfile
 
@@ -55,9 +55,9 @@ OPTIONS:
 
     -w, --width N[,S..E]    slice into N bytes and map them to S..E (default) [16,s..e]
     -d, --find PATTERN      slice out every PATTERN location
+    -k, --walk EXPR[,...]   split the stream into eval(EXPR)-byte chunk(s), repeat it until the end
     -r, --slice S..E[,...]  slice out S..E range(s)
     -g, --guide FILE        slice out [pos, pos + len) ranges loaded from the file
-    -k, --walk EXPR[,...]   split the stream into eval(EXPR)-byte chunk(s), repeat it until the end
 
   Manipulating the slices (applied in this order)
 
