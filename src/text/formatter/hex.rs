@@ -345,13 +345,14 @@ fn test_format_mosaic() {
 
 pub unsafe fn format_line(dst: &mut [u8], src: &[u8], offset: usize, width: usize) -> usize {
     let mut dst = dst;
+    let len_width = 8 - ((src.len() | 0xffff).leading_zeros() as usize) / 8;
 
     // header; p is the current offset in the dst buffer
-    let (header, rem) = dst.split_at_mut_unchecked(18);
+    let (header, rem) = dst.split_at_mut_unchecked(16 + 2 * len_width);
     format_hex_single(header, offset, 6);
-    format_hex_single(&mut header[13..], src.len(), 1);
-    header[16] = b'|';
-    header[17] = b' ';
+    format_hex_single(&mut header[13..], src.len(), len_width);
+    header[14 + 2 * len_width] = b'|';
+    header[15 + 2 * len_width] = b' ';
     dst = rem;
 
     // body
@@ -380,7 +381,7 @@ pub unsafe fn format_line(dst: &mut [u8], src: &[u8], offset: usize, width: usiz
         }
     }
 
-    21 + 4 * width
+    19 + 2 * len_width + 4 * width
 }
 
 // end of hex.rs
