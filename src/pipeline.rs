@@ -46,8 +46,8 @@ pub struct PipelineArgs {
     #[clap(short = 'i', long = "inplace")]
     inplace: bool,
 
-    #[clap(short = 'n', long = "bytes", value_name = "S..E[,...]")]
-    bytes: Option<String>,
+    #[clap(short = 'n', long = "cut", value_name = "S..E[,...]")]
+    cut: Option<String>,
 
     #[clap(short = 'a', long = "pad", value_name = "N,M", value_parser = parse_usize_pair)]
     pad: Option<(usize, usize)>,
@@ -196,8 +196,8 @@ impl Pipeline {
         };
         nodes.push(node);
 
-        // bytes -> pad -> patch
-        if let Some(exprs) = &m.bytes {
+        // cut -> pad -> patch
+        if let Some(exprs) = &m.cut {
             nodes.push(Cut(exprs.to_string()));
         }
         if let Some(pad) = m.pad {

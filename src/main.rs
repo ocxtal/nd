@@ -47,7 +47,7 @@ OPTIONS:
 
   Manipulating the stream (applied in this order)
 
-    -n, --bytes S..E[,...]  leave only bytes within the S..E range(s)
+    -n, --cut S..E[,...]    leave only bytes within the S..E range(s)
     -a, --pad N,M           add N and M bytes of zeros at the head and tail
     -p, --patch FILE        patch the input stream with the patchfile
 
