@@ -61,14 +61,14 @@ pub struct PipelineArgs {
     #[clap(short = 'd', long = "find", value_name = "PAT")]
     find: Option<String>,
 
+    #[clap(short = 'k', long = "walk", value_name = "EXPR[,...]")]
+    walk: Option<String>,
+
     #[clap(short = 'r', long = "slice", value_name = "S..E[,...]")]
     slice: Option<String>,
 
     #[clap(short = 'g', long = "guide", value_name = "FILE")]
     guide: Option<String>,
-
-    #[clap(short = 'k', long = "walk", value_name = "EXPR[,...]")]
-    walk: Option<String>,
 
     #[clap(short = 'e', long = "regex", value_name = "PCRE")]
     regex: Option<String>,
@@ -107,8 +107,8 @@ pub enum Node {
     // Slicers: ByteStream -> SegmentStream
     Width(ConstSlicerParams),
     Find(String),
-    SliceRange(String),
-    SliceBy(String),
+    Slice(String),
+    Guide(String),
     Walk(Vec<String>),
     // SegmentFilters: SegmentStream -> SegmentStream
     Regex(String),
@@ -141,8 +141,8 @@ impl Node {
             Tee => ByteFilter,
             Width(_) => Slicer,
             Find(_) => Slicer,
-            SliceRange(_) => Slicer,
-            SliceBy(_) => Slicer,
+            Slice(_) => Slicer,
+            Guide(_) => Slicer,
             Walk(_) => Slicer,
             Regex(_) => SegmentFilter,
             Bridge(_) => SegmentFilter,
@@ -214,14 +214,14 @@ impl Pipeline {
         }
 
         // slicers are exclusive as well
-        let (cols, node) = match (m.width, &m.find, &m.slice, &m.guide, &m.walk) {
+        let (cols, node) = match (m.width, &m.find, &m.walk, &m.slice, &m.guide) {
             (Some(width), None, None, None, None) => (width.columns(), Width(width)),
             (None, Some(pattern), None, None, None) => (0, Find(pattern.to_string())),
-            (None, None, Some(exprs), None, None) => (0, SliceRange(exprs.to_string())),
-            (None, None, None, Some(file), None) => (0, SliceBy(file.to_string())),
-            (None, None, None, None, Some(exprs)) => (0, Walk(exprs.split(',').map(|x| x.to_string()).collect::<Vec<_>>())),
+            (None, None, Some(exprs), None, None) => (0, Walk(exprs.split(',').map(|x| x.to_string()).collect::<Vec<_>>())),
+            (None, None, None, Some(exprs), None) => (0, Slice(exprs.to_string())),
+            (None, None, None, None, Some(file)) => (0, Guide(file.to_string())),
             (None, None, None, None, None) => (16, Width(ConstSlicerParams::from_raw(16, None)?)),
-            _ => return Err(anyhow!("--width, --find, --slice, --guide, and --walk are exclusive.")),
+            _ => return Err(anyhow!("--width, --find, --walk, --slice, and --guide are exclusive.")),
         };
         nodes.push(node);
 
@@ -351,11 +351,11 @@ impl Pipeline {
                     let next = Box::new(ExactMatchSlicer::new(prev, pattern));
                     (cache, NodeInstance::Segment(next))
                 }
-                (SliceRange(exprs), NodeInstance::Byte(prev)) => {
+                (Slice(exprs), NodeInstance::Byte(prev)) => {
                     let next = Box::new(RangeSlicer::new(prev, exprs)?);
                     (cache, NodeInstance::Segment(next))
                 }
-                (SliceBy(file), NodeInstance::Byte(prev)) => {
+                (Guide(file), NodeInstance::Byte(prev)) => {
                     let next = Box::new(GuidedSlicer::new(prev, self.open_file(file)?));
                     (cache, NodeInstance::Segment(next))
                 }
