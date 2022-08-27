@@ -64,8 +64,8 @@ pub struct PipelineArgs {
     #[clap(short = 'r', long = "slice", value_name = "S..E[,...]")]
     slice: Option<String>,
 
-    #[clap(short = 'g', long = "slice-by", value_name = "FILE")]
-    slice_by: Option<String>,
+    #[clap(short = 'g', long = "guide", value_name = "FILE")]
+    guide: Option<String>,
 
     #[clap(short = 'k', long = "walk", value_name = "EXPR[,...]")]
     walk: Option<String>,
@@ -214,14 +214,14 @@ impl Pipeline {
         }
 
         // slicers are exclusive as well
-        let (cols, node) = match (m.width, &m.find, &m.slice, &m.slice_by, &m.walk) {
+        let (cols, node) = match (m.width, &m.find, &m.slice, &m.guide, &m.walk) {
             (Some(width), None, None, None, None) => (width.columns(), Width(width)),
             (None, Some(pattern), None, None, None) => (0, Find(pattern.to_string())),
             (None, None, Some(exprs), None, None) => (0, SliceRange(exprs.to_string())),
             (None, None, None, Some(file), None) => (0, SliceBy(file.to_string())),
             (None, None, None, None, Some(exprs)) => (0, Walk(exprs.split(',').map(|x| x.to_string()).collect::<Vec<_>>())),
             (None, None, None, None, None) => (16, Width(ConstSlicerParams::from_raw(16, None)?)),
-            _ => return Err(anyhow!("--width, --find, --slice-by, and --walk are exclusive.")),
+            _ => return Err(anyhow!("--width, --find, --slice, --guide, and --walk are exclusive.")),
         };
         nodes.push(node);
 
