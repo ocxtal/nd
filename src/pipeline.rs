@@ -348,7 +348,7 @@ impl Pipeline {
                     (cache, NodeInstance::Segment(next))
                 }
                 (Find(pattern), NodeInstance::Byte(prev)) => {
-                    let next = Box::new(ExactMatchSlicer::new(prev, pattern));
+                    let next = Box::new(ExactMatchSlicer::new(prev, pattern)?);
                     (cache, NodeInstance::Segment(next))
                 }
                 (Slice(exprs), NodeInstance::Byte(prev)) => {
