@@ -20,7 +20,7 @@ pub fn parse_hex_single_naive(src: &[u8]) -> Option<(u64, usize)> {
 
     let mut hex = 0;
     for (i, &x) in src[..16].iter().enumerate() {
-        if x == b' ' {
+        if x == b' ' || x == b'\n' {
             return Some((hex, i));
         }
 

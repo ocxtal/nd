@@ -21,7 +21,7 @@ use super::InoutFormat;
 use crate::byte::{ByteStream, EofStream};
 use crate::filluninit::FillUninit;
 use crate::params::MARGIN_SIZE;
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 
 #[cfg(test)]
 use crate::byte::tester::*;
@@ -62,6 +62,14 @@ fn test_parse_hex_single_impl(f: &dyn Fn(&[u8]) -> Option<(u64, usize)>) {
     test!("E         |                     ", Some((0xe, 1)));
     test!("012                |            ", Some((0x012, 3)));
     test!("abcdef01           |            ", Some((0xabcdef01, 8)));
+
+    test!("\n                               ", Some((0, 0)));
+    test!("4\n                              ", Some((4, 1)));
+    test!("4\n|                             ", Some((4, 1)));
+    test!("4\n |                            ", Some((4, 1)));
+    test!("4\n  |                           ", Some((4, 1)));
+    test!("abcdef01\n                       ", Some((0xabcdef01, 8)));
+    test!("abcdef01 \n                      ", Some((0xabcdef01, 8)));
 
     test!("/bcdef01                        ", None);
     test!("abcde:01                        ", None);
@@ -255,20 +263,14 @@ impl TextParser {
     }
 
     fn read_head(&self, stream: &[u8]) -> Option<(usize, usize, usize)> {
-        let mut acc = 0;
-
-        let (offset, fwd) = (self.parse_offset)(&stream[acc..])?;
-        acc += fwd + 1;
-
-        let (span, fwd) = (self.parse_span)(&stream[acc..])?;
-        acc += fwd + 1;
-
-        if stream[acc] != b'|' || stream[acc + 1] != b' ' {
+        let (offset, fwd1) = (self.parse_offset)(stream)?;
+        if stream[fwd1] != b' ' {
             return None;
         }
-        acc += 2;
 
-        Some((acc, offset as usize, span as usize))
+        let (span, fwd2) = (self.parse_span)(&stream[fwd1 + 1..])?;
+
+        Some((fwd1 + fwd2 + 1, offset as usize, span as usize))
     }
 
     fn read_body(&self, stream: &[u8], len: usize, is_in_tail: bool, buf: &mut Vec<u8>) -> Option<(usize, bool, bool, bool)> {
@@ -372,11 +374,31 @@ impl TextParser {
         let stream = self.src.as_slice();
         debug_assert!(stream.len() >= MARGIN_SIZE);
 
-        let (fwd, offset, span) = self.read_head(stream).with_context(|| "failed to read head".to_string())?;
+        let (fwd, offset, span) = self.read_head(stream).with_context(|| {
+            format!("failed to read the header: {:?}", unsafe {
+                std::str::from_utf8_unchecked(&stream[..std::cmp::min(16, stream.len())])
+            })
+        })?;
 
-        let (_, rem_stream) = stream.split_at(fwd);
-        let mut stream = rem_stream;
-        let mut rem_len = len - fwd;
+        // match the delimiters after the second field of the head
+        let mut delims = [0u8; 4];
+        delims.copy_from_slice(&stream[fwd..fwd + 4]);
+        let delims = u32::from_le_bytes(delims);
+
+        if (delims & 0xff) == b'\n' as u32 {
+            let fwd = std::cmp::min(fwd + 1, len);
+            self.src.consume(fwd);
+            return Ok((fwd, offset, span));
+        }
+        // 0x207c20 == " | "
+        if (delims & 0xffffff) != 0x00207c20 {
+            return Err(anyhow!("invalid delimiter found after the header: {:?}", unsafe {
+                std::str::from_utf8_unchecked(&stream[..fwd])
+            }));
+        }
+
+        let mut stream = stream.split_at(fwd + 3).1;
+        let mut rem_len = len - fwd - 3;
         let mut is_in_tail = false;
         while rem_len > 0 {
             let (fwd, delim_found, eol_found, refeed) = self
@@ -418,6 +440,10 @@ fn test_text_parser_hex() {
             assert_eq!(&buf, $ex_arr);
         }};
     }
+
+    test!(b"0000 00\n", 8, 0, 0, &[]);
+    test!(b"0010 00\n", 8, 0x10, 0, &[]);
+    test!(b"0000 fe\n", 8, 0, 0xfe, &[]);
 
     test!(b"0000 00 | \n", 11, 0, 0, &[]);
     test!(b"0010 00 | \n", 11, 0x10, 0, &[]);
@@ -635,6 +661,46 @@ fn test_text_parser_hex() {
         1,
         2,
         &rep!(&[0x10u8, 0x11, 0x12], 64)
+    );
+}
+
+#[test]
+fn test_text_parser_hex_multiline() {
+    macro_rules! test {
+        ( $input: expr, $ex_offset_and_spans: expr, $ex_arr: expr ) => {{
+            let input = Box::new(MockSource::new($input));
+            let mut parser = TextParser::new(input, &InoutFormat::from_str("xxx").unwrap());
+
+            let mut offset_and_spans = Vec::new();
+            let mut buf = Vec::new();
+            loop {
+                let (fwd, offset, span) = parser.read_line(&mut buf).unwrap();
+                if fwd == 0 {
+                    break;
+                }
+                offset_and_spans.push((offset, span));
+            }
+            assert_eq!(&offset_and_spans, $ex_offset_and_spans);
+            assert_eq!(&buf, $ex_arr);
+        }};
+    }
+
+    test!(
+        b"0001 02 | 01 02 03\n\
+          0012 003\n\
+          0023 00004 | \n\
+          0034 5 | 11 12 13 |\n\
+          0045 000006 | 21 22 23    |\n\
+          0056 07",
+        &[
+            (0x01, 0x02),
+            (0x12, 0x03),
+            (0x23, 0x04),
+            (0x34, 0x05),
+            (0x45, 0x06),
+            (0x56, 0x07),
+        ],
+        &[0x01u8, 0x02, 0x03, 0x11, 0x12, 0x13, 0x21, 0x22, 0x23]
     );
 }
 

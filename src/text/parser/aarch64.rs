@@ -74,10 +74,13 @@ unsafe fn to_hex(x: uint8x16_t) -> (uint8x16_t, uint8x16_t, uint8x16_t) {
     // parsing with validation;
     // the original algorithm obtained from http://0x80.pl/notesen/2022-01-17-validating-hex-parse.html
     // with a small modification on ' ' handling
-    let lb = [0u8, 0, 0x21, 0x30, 0x41, 0, 0x61, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    //
+    // note: this implementation recognizes '\n' (0x0a) and ' ' (0x20) as spaces
+    //
+    let lb = [0x0bu8, 0, 0x21, 0x30, 0x41, 0, 0x61, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let lb = vld1q_u8(lb.as_ptr());
 
-    let ub = [0u8, 0, 0x20, 0x3a, 0x47, 0, 0x67, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let ub = [0x0au8, 0, 0x20, 0x3a, 0x47, 0, 0x67, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let ub = vld1q_u8(ub.as_ptr());
 
     let base = [
