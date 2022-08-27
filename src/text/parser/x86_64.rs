@@ -8,10 +8,13 @@ unsafe fn to_hex(x: __m128i) -> (__m128i, u64, u64) {
     // parsing with validation;
     // the original algorithm obtained from http://0x80.pl/notesen/2022-01-17-validating-hex-parse.html
     // with a small modification on ' ' handling
-    let lb = [0u8, 0, 0x21, 0x30, 0x41, 0, 0x61, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    //
+    // note: this implementation recognizes '\n' (0x0a) and ' ' (0x20) as spaces
+    //
+    let lb = [0x0bu8, 0, 0x21, 0x30, 0x41, 0, 0x61, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let lb = _mm_loadu_si128(lb.as_ptr() as *const __m128i);
 
-    let ub = [0u8, 0, 0x20, 0x3a, 0x47, 0, 0x67, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let ub = [0x0au8, 0, 0x20, 0x3a, 0x47, 0, 0x67, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let ub = _mm_loadu_si128(ub.as_ptr() as *const __m128i);
 
     let base = [
