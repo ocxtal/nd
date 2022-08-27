@@ -15,19 +15,6 @@ use std::io::Read;
 use self::Node::*;
 use self::NodeClass::*;
 
-fn parse_wordsize(s: &str) -> Result<usize> {
-    let parsed = parse_usize(s)?;
-
-    if !matches!(parsed, 1 | 2 | 4 | 8 | 16) {
-        return Err(anyhow!(
-            "{:?}, parsed from {:?}, is not allowed as a word size. possible values are 1, 2, 4, 8, and 16.",
-            parsed,
-            s
-        ));
-    }
-    Ok(parsed)
-}
-
 fn parse_const_slicer_params(s: &str) -> Result<ConstSlicerParams> {
     let v = s.split(',').map(|x| x.to_string()).collect::<Vec<_>>();
     assert!(!v.is_empty());
@@ -50,10 +37,10 @@ pub struct PipelineArgs {
     #[clap(short = 'f', long = "out-format", value_name = "FORMAT", value_parser = InoutFormat::from_str)]
     out_format: Option<InoutFormat>,
 
-    #[clap(short = 'c', long = "cat", value_name = "W", value_parser = parse_wordsize)]
+    #[clap(short = 'c', long = "cat", value_name = "N", value_parser = parse_usize)]
     cat: Option<usize>,
 
-    #[clap(short = 'z', long = "zip", value_name = "W", value_parser = parse_wordsize)]
+    #[clap(short = 'z', long = "zip", value_name = "N", value_parser = parse_usize)]
     zip: Option<usize>,
 
     #[clap(short = 'i', long = "inplace")]
@@ -327,7 +314,7 @@ impl Pipeline {
         let mut cache = None;
         let mut node = match &self.nodes[0] {
             Cat => NodeInstance::Byte(Box::new(CatStream::new(sources))),
-            Zip => NodeInstance::Byte(Box::new(ZipStream::new(sources, self.word_size))),
+            Zip => NodeInstance::Byte(Box::new(ZipStream::new(sources, self.word_size)?)),
             Inplace => NodeInstance::Byte(sources.pop().unwrap()),
             next => return Err(anyhow!("unallowed node {:?} found (internal error)", next)),
         };
