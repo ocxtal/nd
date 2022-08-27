@@ -3,7 +3,8 @@
 
 use super::{Segment, SegmentStream};
 use crate::byte::{ByteStream, EofStream};
-use anyhow::Result;
+use crate::text::parser::parse_hex_body;
+use anyhow::{anyhow, Context, Result};
 
 #[cfg(test)]
 use crate::byte::tester::*;
@@ -24,13 +25,24 @@ pub struct ExactMatchSlicer {
 impl ExactMatchSlicer {
     // TODO: support escaped representation for non-printable characters
     // TODO: we may support some value representation?? (then strings must be escaped)
-    pub fn new(src: Box<dyn ByteStream>, pattern: &str) -> Self {
-        ExactMatchSlicer {
+    pub fn new(src: Box<dyn ByteStream>, pattern: &str) -> Result<Self> {
+        let mut pattern = pattern.as_bytes().to_vec();
+        pattern.resize(256, b'\n');
+
+        let mut buf = vec![0u8; 64];
+        let ((_, parsed), filled) =
+            parse_hex_body(false, &pattern, &mut buf).with_context(|| format!("failed to parse {:?} into bytes", pattern))?;
+        if parsed >= 4 * 48 {
+            return Err(anyhow!("ARRAY must not be longer than 64 bytes"));
+        }
+        buf.truncate(filled);
+
+        Ok(ExactMatchSlicer {
             src: EofStream::new(src),
             segments: Vec::new(),
             scanned: 0,
-            pattern: pattern.as_bytes().to_vec(),
-        }
+            pattern: buf,
+        })
     }
 }
 
@@ -87,7 +99,7 @@ macro_rules! bind {
     ( $pattern: expr ) => {
         |input: &[u8]| -> Box<dyn SegmentStream> {
             let src = Box::new(MockSource::new(input));
-            Box::new(ExactMatchSlicer::new(src, $pattern))
+            Box::new(ExactMatchSlicer::new(src, $pattern).unwrap())
         }
     };
 }
@@ -101,26 +113,26 @@ macro_rules! test {
             $inner(b"abcdefghijklmnopqrstu", &bind!(""), &[]);
 
             // single-char
-            $inner(b"abcdefghijklmnopqrstu", &bind!("a"), &[(0..1).into()]);
-            $inner(b"abcdefghijklmnopqrstu", &bind!("p"), &[(15..16).into()]);
+            $inner(b"abcdefghijklmnopqrstu", &bind!("61"), &[(0..1).into()]);
+            $inner(b"abcdefghijklmnopqrstu", &bind!("70"), &[(15..16).into()]);
 
             // string
-            $inner(b"abcdefghijklmnopqrstu", &bind!("abcde"), &[(0..5).into()]);
-            $inner(b"abcdefghijklmnopqrstu", &bind!("pqr"), &[(15..18).into()]);
+            $inner(b"abcdefghijklmnopqrstu", &bind!("61 62 63 64 65"), &[(0..5).into()]);
+            $inner(b"abcdefghijklmnopqrstu", &bind!("70 71 72"), &[(15..18).into()]);
 
             // string not found
-            $inner(b"abcdefghijklmnopqrstu", &bind!("abced"), &[]);
-            $inner(b"abcdefghijklmnopqrstu", &bind!("pqR"), &[]);
+            $inner(b"abcdefghijklmnopqrstu", &bind!("61 62 63 65 64"), &[]);
+            $inner(b"abcdefghijklmnopqrstu", &bind!("70 71 52"), &[]);
 
             // multi occurrences
             $inner(
                 b"mississippi, mississippi, and mississippi",
-                &bind!("ppi"),
+                &bind!("70 70 69"),
                 &[(8..11).into(), (21..24).into(), (38..41).into()],
             );
             $inner(
                 b"mississippi, mississippi, and mississippi",
-                &bind!("ssi"),
+                &bind!("73 73 69"),
                 &[
                     (2..5).into(),
                     (5..8).into(),
@@ -164,13 +176,31 @@ fn gen_pattern(pattern: &[u8], offset: usize, len: usize, rep: usize) -> (Vec<u8
 }
 
 #[cfg(test)]
+fn format_pattern(pattern: &[u8]) -> String {
+    let table = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'];
+
+    let mut s = String::new();
+    for x in pattern {
+        s.push(table[(*x >> 4) as usize]);
+        s.push(table[(*x & 0x0f) as usize]);
+        s.push(' ');
+    }
+    if !s.is_empty() {
+        s.pop().unwrap();
+    }
+
+    s
+}
+
+#[cfg(test)]
 macro_rules! test_impl {
     ( $inner: ident, $pattern: expr, $offset: expr, $len: expr, $rep: expr ) => {
         let (v, s) = gen_pattern($pattern.as_bytes(), $offset, $len, $rep);
+        let pattern = format_pattern($pattern.as_bytes());
 
         let bind = |x: &[u8]| -> Box<dyn SegmentStream> {
             let stream = Box::new(MockSource::new(x));
-            Box::new(ExactMatchSlicer::new(stream, $pattern))
+            Box::new(ExactMatchSlicer::new(stream, &pattern).unwrap())
         };
         $inner(&v, &bind, &s);
     };
