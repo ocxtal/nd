@@ -5,7 +5,7 @@
 use super::{ByteStream, EofStream};
 use crate::filluninit::FillUninit;
 use crate::streambuf::StreamBuf;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 
 #[cfg(test)]
 use super::tester::*;
@@ -148,15 +148,11 @@ pub struct ZipStream {
 }
 
 impl ZipStream {
-    pub fn new(srcs: Vec<Box<dyn ByteStream>>, word_size: usize) -> Result<Self> {
-        if word_size == 0 {
-            return Err(anyhow!("N == 0 is not allowed."));
-        }
-
-        Ok(ZipStream {
+    pub fn new(srcs: Vec<Box<dyn ByteStream>>, word_size: usize) -> Self {
+        ZipStream {
             src: Zipper::new(srcs, word_size),
             buf: StreamBuf::new(),
-        })
+        }
     }
 }
 
@@ -192,7 +188,7 @@ macro_rules! test_impl {
         };
 
         let srcs = $inputs.iter().map(|x| wrap(*x)).collect::<Vec<Box<dyn ByteStream>>>();
-        let src = ZipStream::new(srcs, $word_size).unwrap();
+        let src = ZipStream::new(srcs, $word_size);
         $inner(src, $expected);
     }};
 }
@@ -206,7 +202,7 @@ macro_rules! test_clamped_impl {
         };
 
         let srcs = $inputs.iter().map(|x| wrap(*x)).collect::<Vec<Box<dyn ByteStream>>>();
-        let src = ZipStream::new(srcs, $word_size).unwrap();
+        let src = ZipStream::new(srcs, $word_size);
         $inner(src, $expected);
     }};
 }

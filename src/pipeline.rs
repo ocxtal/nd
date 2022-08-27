@@ -275,6 +275,10 @@ impl Pipeline {
     }
 
     fn validate(&self) -> Result<()> {
+        if self.word_size == 0 {
+            return Err(anyhow!("N == 0 is not allowed for --cat and --zip"));
+        }
+
         // validate the node order
         for x in self.nodes.windows(2) {
             if !x[0].precedes(&x[1]) {
@@ -314,7 +318,7 @@ impl Pipeline {
         let mut cache = None;
         let mut node = match &self.nodes[0] {
             Cat => NodeInstance::Byte(Box::new(CatStream::new(sources))),
-            Zip => NodeInstance::Byte(Box::new(ZipStream::new(sources, self.word_size)?)),
+            Zip => NodeInstance::Byte(Box::new(ZipStream::new(sources, self.word_size))),
             Inplace => NodeInstance::Byte(sources.pop().unwrap()),
             next => return Err(anyhow!("unallowed node {:?} found (internal error)", next)),
         };
