@@ -41,8 +41,8 @@ OPTIONS:
 
   Constructing input stream (exclusive)
 
-    -c, --cat W             concat all input streams into one with W-byte alignment (default) [1]
-    -z, --zip W             zip all input streams into one with W-byte words
+    -c, --cat N             concat all input streams into one with N-byte alignment (default) [1]
+    -z, --zip N             zip all input streams into one with N-byte words
     -i, --inplace           edit each input file in-place
 
   Manipulating the stream (applied in this order)
