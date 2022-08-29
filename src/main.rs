@@ -153,11 +153,11 @@ fn build_sources(files: &[String]) -> Result<Vec<Box<dyn Read + Send>>> {
 
 fn build_drain(pager: &Option<String>) -> Result<(Option<Child>, Box<dyn Write>)> {
     let pager = pager.clone().or_else(|| std::env::var("PAGER").ok());
-    if pager.is_none() && !(atty::is(Stream::Stdout) || atty::is(Stream::Stderr)) {
+    if pager.is_none() && !atty::is(Stream::Stdout) {
         return Ok((None, Box::new(std::io::stdout())));
     }
 
-    let pager = pager.unwrap_or_else(|| "less -F".to_string());
+    let pager = pager.unwrap_or_else(|| "less -S -F".to_string());
     let args: Vec<_> = pager.as_str().split_whitespace().collect();
     let mut child = std::process::Command::new(args[0]).args(&args[1..]).stdin(Stdio::piped()).spawn()?;
 
