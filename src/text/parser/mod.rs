@@ -309,7 +309,10 @@ fn test_line_cache() {
 
     cache.append(b"abcdefghijklmnopqrstuvwxyz012345\n");
     assert_eq!(cache.format(false), "\"abcdefghijklmnopqrstuvwxyz01234...\"");
-    assert_eq!(cache.format(true), "\"abcdefghijklmnopqrstuvwxyz01234\" and \"abcdefghijklmnopqrstuvwxyz01234...\"");
+    assert_eq!(
+        cache.format(true),
+        "\"abcdefghijklmnopqrstuvwxyz01234\" and \"abcdefghijklmnopqrstuvwxyz01234...\""
+    );
 }
 
 pub struct TextParser {
@@ -475,9 +478,9 @@ impl TextParser {
         // save the head of the current line for formatting error messages
         self.cache.append(stream);
 
-        let (fwd, offset, span) = self.read_head(stream).with_context(|| {
-            format!("failed to parse the header at record {}", &self.cache.format(false))
-        })?;
+        let (fwd, offset, span) = self
+            .read_head(stream)
+            .with_context(|| format!("failed to parse the header at record {}", &self.cache.format(false)))?;
 
         // match the delimiters after the second field of the head
         let mut delims = [0u8; 4];

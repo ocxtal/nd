@@ -190,7 +190,8 @@ impl ByteStream for TextStream {
             if self.offset > next_offset {
                 return Err(anyhow!(
                     "hex records must not overlap each other (offset = {}, between {})",
-                    self.offset, &self.line.src.format_cache(true)
+                    self.offset,
+                    &self.line.src.format_cache(true)
                 ));
             }
 

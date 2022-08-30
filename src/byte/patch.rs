@@ -59,7 +59,8 @@ impl PatchFeeder {
         if offset + span > next_offset {
             return Err(anyhow!(
                 "patch records must not overlap each other (offset = {}, between {})",
-                offset + span, &self.src.format_cache(true)
+                offset + span,
+                &self.src.format_cache(true)
             ));
         }
         Ok(span)
