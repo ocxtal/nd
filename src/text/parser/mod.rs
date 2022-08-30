@@ -221,6 +221,97 @@ fn test_parse_hex_body() {
 type ParseSingle = fn(&[u8]) -> Option<(u64, usize)>;
 type ParseBody = fn(bool, &[u8], &mut [u8]) -> Option<((usize, usize), usize)>;
 
+struct LineCache {
+    // cache for error messages
+    cache: [[u8; 32]; 2],
+    curr: usize,
+}
+
+impl LineCache {
+    fn new() -> Self {
+        LineCache {
+            cache: [[b'\n'; 32]; 2],
+            curr: 0,
+        }
+    }
+
+    fn append(&mut self, stream: &[u8]) {
+        let src = stream.as_ptr();
+        let dst = self.cache[self.curr].as_mut_ptr();
+
+        unsafe { std::ptr::copy_nonoverlapping(src, dst, 32) };
+        self.curr ^= 1;
+    }
+
+    fn format(&self, include_prev: bool) -> String {
+        let (curr, prev) = if self.curr == 1 {
+            (&self.cache[0], &self.cache[1])
+        } else {
+            (&self.cache[1], &self.cache[0])
+        };
+
+        let append = |input: &[u8], v: &mut String| {
+            assert!(input.len() == 32);
+
+            let len = input.iter().position(|x| *x == b'\n').unwrap_or(32);
+            if len == 0 {
+                v.push_str("(none)");
+                return;
+            }
+
+            v.push('"');
+            v.push_str(unsafe { std::str::from_utf8_unchecked(&input[..len]) });
+            if len == 32 {
+                v.pop();
+                v.push_str("...");
+            }
+            v.push('"');
+        };
+
+        let mut s = String::new();
+
+        if include_prev {
+            append(prev, &mut s);
+            s.push_str(" and ")
+        }
+        append(curr, &mut s);
+
+        s
+    }
+}
+
+#[test]
+fn test_line_cache() {
+    let mut cache = LineCache::new();
+
+    assert_eq!(cache.format(false), "(none)");
+    assert_eq!(cache.format(true), "(none) and (none)");
+
+    cache.append(b"abcde\n                          ");
+    assert_eq!(cache.format(false), "\"abcde\"");
+    assert_eq!(cache.format(true), "(none) and \"abcde\"");
+
+    cache.append(b"fghij\n                          ");
+    assert_eq!(cache.format(false), "\"fghij\"");
+    assert_eq!(cache.format(true), "\"abcde\" and \"fghij\"");
+
+    cache.append(b"abcde\n                          ");
+    assert_eq!(cache.format(false), "\"abcde\"");
+    assert_eq!(cache.format(true), "\"fghij\" and \"abcde\"");
+
+    cache.append(b"fghij\n                          ");
+    assert_eq!(cache.format(false), "\"fghij\"");
+    assert_eq!(cache.format(true), "\"abcde\" and \"fghij\"");
+
+    cache.append(b"abcdefghijklmnopqrstuvwxyz01234\n");
+    assert_eq!(cache.format(false), "\"abcdefghijklmnopqrstuvwxyz01234\"");
+    assert_eq!(cache.format(true), "\"fghij\" and \"abcdefghijklmnopqrstuvwxyz01234\"");
+
+    cache.append(b"abcdefghijklmnopqrstuvwxyz012345\n");
+    assert_eq!(cache.format(false), "\"abcdefghijklmnopqrstuvwxyz01234...\"");
+    assert_eq!(cache.format(true), "\"abcdefghijklmnopqrstuvwxyz01234\" and \"abcdefghijklmnopqrstuvwxyz01234...\"");
+}
+
 pub struct TextParser {
     src: EofStream<Box<dyn ByteStream>>,
 
@@ -228,6 +319,8 @@ pub struct TextParser {
     parse_offset: ParseSingle,
     parse_span: ParseSingle,
     parse_body: ParseBody,
+
+    cache: LineCache,
 }
 
 impl TextParser {
@@ -259,7 +352,12 @@ impl TextParser {
             parse_offset: header_parsers[offset].expect("unrecognized parser key for header.offset"),
             parse_span: header_parsers[span].expect("unrecognized parser key for header.span"),
             parse_body: body_parsers[body].expect("unrecognized parser key for body"),
+            cache: LineCache::new(),
         }
+    }
+
+    pub fn format_cache(&self, include_prev: bool) -> String {
+        self.cache.format(include_prev)
     }
 
     fn read_head(&self, stream: &[u8]) -> Option<(usize, usize, usize)> {
@@ -338,7 +436,7 @@ impl TextParser {
         while rem_len > 0 {
             let (fwd, delim_found, eol_found, refeed) = self
                 .read_body(stream, rem_len, is_in_tail, buf)
-                .with_context(|| "failed to read body (cont'd)".to_string())?;
+                .with_context(|| format!("failed to parse array at {}", &self.cache.format(false)))?;
             rem_len -= fwd;
             is_in_tail = delim_found;
 
@@ -374,10 +472,11 @@ impl TextParser {
         let stream = self.src.as_slice();
         debug_assert!(stream.len() >= MARGIN_SIZE);
 
+        // save the head of the current line for formatting error messages
+        self.cache.append(stream);
+
         let (fwd, offset, span) = self.read_head(stream).with_context(|| {
-            format!("failed to read the header: {:?}", unsafe {
-                std::str::from_utf8_unchecked(&stream[..std::cmp::min(16, stream.len())])
-            })
+            format!("failed to parse the header at record {}", &self.cache.format(false))
         })?;
 
         // match the delimiters after the second field of the head
@@ -392,9 +491,10 @@ impl TextParser {
         }
         // 0x207c20 == " | "
         if (delims & 0xffffff) != 0x00207c20 {
-            return Err(anyhow!("invalid delimiter found after the header: {:?}", unsafe {
-                std::str::from_utf8_unchecked(&stream[..fwd])
-            }));
+            return Err(anyhow!(
+                "invalid delimiter found after the header at record {}",
+                &self.cache.format(false)
+            ));
         }
 
         let mut stream = stream.split_at(fwd + 3).1;
@@ -403,7 +503,7 @@ impl TextParser {
         while rem_len > 0 {
             let (fwd, delim_found, eol_found, refeed) = self
                 .read_body(stream, rem_len, is_in_tail, buf)
-                .with_context(|| "failed to read body (first)".to_string())?;
+                .with_context(|| format!("failed to parse array at {}", &self.cache.format(false)))?;
 
             rem_len -= fwd;
             is_in_tail = delim_found;

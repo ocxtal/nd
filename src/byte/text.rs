@@ -7,7 +7,7 @@ use crate::params::BLOCK_SIZE;
 use crate::streambuf::StreamBuf;
 use crate::text::parser::TextParser;
 use crate::text::InoutFormat;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 
 #[cfg(test)]
 use super::tester::*;
@@ -187,10 +187,12 @@ impl ByteStream for TextStream {
             if fwd == 0 {
                 return Ok(false);
             }
-
-            let overlap = std::cmp::max(self.offset, next_offset) - next_offset;
-            buf.truncate(buf.len() - overlap);
-            self.offset -= overlap;
+            if self.offset > next_offset {
+                return Err(anyhow!(
+                    "hex records must not overlap each other (offset = {}, between {})",
+                    self.offset, &self.line.src.format_cache(true)
+                ));
+            }
 
             // the buffer may not grow even if the input stream has not reached EOF,
             // so try the next patch forcibly

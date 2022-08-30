@@ -6,7 +6,7 @@ use super::ByteStream;
 use crate::streambuf::StreamBuf;
 use crate::text::parser::TextParser;
 use crate::text::InoutFormat;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 
 #[cfg(test)]
 use super::tester::*;
@@ -49,24 +49,20 @@ impl PatchFeeder {
         Ok((self.offset, self.span))
     }
 
-    fn feed_until(&mut self, offset: usize, rem_len: usize, buf: &mut Vec<u8>) -> Result<usize> {
-        let mut acc = 0;
-        while acc < rem_len {
-            buf.extend_from_slice(&self.buf);
-            acc += self.span;
+    fn feed(&mut self, offset: usize, buf: &mut Vec<u8>) -> Result<usize> {
+        let span = self.span;
+        buf.extend_from_slice(&self.buf);
 
-            // read the next patch, compute the overlap between two patches
-            let (next_offset, _) = self.fill_buf()?;
+        // read the next patch, compute the overlap between two patches
+        let (next_offset, _) = self.fill_buf()?;
 
-            let overlap = std::cmp::max(offset + acc, next_offset) - next_offset;
-            if overlap == 0 {
-                break;
-            }
-
-            acc -= overlap;
-            buf.truncate(buf.len() - overlap);
+        if offset + span > next_offset {
+            return Err(anyhow!(
+                "patch records must not overlap each other (offset = {}, between {})",
+                offset + span, &self.src.format_cache(true)
+            ));
         }
-        Ok(acc)
+        Ok(span)
     }
 }
 
@@ -131,7 +127,7 @@ impl ByteStream for PatchStream {
                 }
 
                 // region that is overwritten by patch
-                let patch_span = self.patch.feed_until(self.offset, rem_len, buf)?;
+                let patch_span = self.patch.feed(self.offset, buf)?;
 
                 // if the patched stream becomes longer than the remainder of the original stream,
                 // set the skip for the next fill_buf
