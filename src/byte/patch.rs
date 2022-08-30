@@ -160,6 +160,14 @@ impl ByteStream for PatchStream {
     }
 }
 
+#[test]
+fn test_patch_overlap() {
+    let input = Box::new(MockSource::new([0u8; 256].as_slice()));
+    let patch = Box::new(MockSource::new(b"0000 03 | 01 02 03 \n0001 03 | 01 02 03"));
+    let mut src = PatchStream::new(input, patch, &InoutFormat::from_str("xxx").unwrap());
+    assert!(src.fill_buf().is_err());
+}
+
 #[allow(unused_macros)]
 macro_rules! test_impl {
     ( $inner: ident, $input: expr, $patch: expr, $expected: expr ) => {{
@@ -201,23 +209,22 @@ macro_rules! test {
                 (0xc0..0xf0).collect::<Vec<u8>>(),
                 b"000 05 | 00 01 02 03 04\n\
                   005 07 | 10 11 12 13 14 15 16\n\
-                  010 05 | 20 21 22 23 24\n\
+                  010 03 | 20 21 22 23 24\n\
                   013 00 | 30 31 32 33 34 35 36 37 38 39\n\
                   014 06 | 50 51 52 53 54\n\
-                  01b 05 | 60 61 62 63 64\n\
-                  01c 03 | 70 71 72 73 74\n\
-                  01d 05 | 80 81 82 83 84\n\
-                  01d 05 | 90 91 92 93 94\n",
+                  01b 01 | 60 61 62 63 64 \n\
+                  01c 03\n\
+                  020 08 | 80 81 82 83 84\n\
+                  02a 01 | \n",
                 &[
                     0x00u8, 0x01, 0x02, 0x03, 0x04,
                     0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0xcc, 0xcd, 0xce, 0xcf,
-                    0x20, 0x21, 0x22,
+                    0x20, 0x21, 0x22, 0x23, 0x24,
                     0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0xd3,
                     0x50, 0x51, 0x52, 0x53, 0x54, 0xda,
-                    0x60,
-                    0x70, 0x71, 0x72,
-                    0x90, 0x91, 0x92, 0x93, 0x94,
-                    0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef,
+                    0x60, 0x61, 0x62, 0x63, 0x64, 0xdf,
+                    0x80, 0x81, 0x82, 0x83, 0x84,
+                    0xe8, 0xe9, 0xeb, 0xec, 0xed, 0xee, 0xef,
                 ]
             );
 
