@@ -423,12 +423,18 @@ impl Pipeline {
 #[test]
 fn test_pipeline() {
     macro_rules! test {
-        ( $args: expr, $input: expr, $expected: expr ) => {
+        ( $args: expr, $inputs: expr, $expected: expr ) => {
             let args = PipelineArgs::parse_from($args.split_whitespace());
             let pipeline = Pipeline::from_args(&args).unwrap();
 
-            let input: Vec<Box<dyn Read + Send>> = vec![Box::new(MockSource::new($input))];
-            let mut stream = Pipeline::spawn_stream(&pipeline, input).unwrap();
+            let inputs: Vec<Box<dyn Read + Send>> = $inputs
+                .iter()
+                .map(|x| {
+                    let x: Box<dyn Read + Send> = Box::new(MockSource::new(x));
+                    x
+                })
+                .collect();
+            let mut stream = Pipeline::spawn_stream(&pipeline, inputs).unwrap();
 
             let mut buf = StreamBuf::new();
             buf.fill_buf(|buf| {
@@ -454,15 +460,52 @@ fn test_pipeline() {
         };
     }
 
-    test!("nd", b"", b"");
-    test!("nd --out-format=b", b"", b"");
-    test!("nd --out-format=b", b"0123456789", b"0123456789");
+    test!("nd", [b"".as_slice()], b"");
+    test!("nd --out-format=b", [b"".as_slice()], b"");
+    test!("nd --out-format=b", [b"0123456789".as_slice()], b"0123456789");
 
-    test!("nd --out-format=b --pad=3,5", b"0123456789", b"\0\0\00123456789\0\0\0\0\0");
+    test!(
+        "nd --out-format=b --pad=3,5",
+        [b"0123456789".as_slice()],
+        b"\0\0\00123456789\0\0\0\0\0"
+    );
     test!(
         "nd --out-format=b --pad=3,5 --filler=0x0a",
-        b"0123456789",
+        [b"0123456789".as_slice()],
         b"\n\n\n0123456789\n\n\n\n\n"
+    );
+
+    test!(
+        "nd --out-format=b --cat=4",
+        [b"0123456789".as_slice(), b"0123456789".as_slice()],
+        b"0123456789\0\00123456789\0\0"
+    );
+    test!(
+        "nd --out-format=b --cat=4 --filler=0x0a",
+        [b"0123456789".as_slice(), b"0123456789".as_slice()],
+        b"0123456789\n\n0123456789\n\n"
+    );
+
+    test!(
+        "nd --out-format=b --zip=4",
+        [b"0123456789".as_slice(), b"0123456789".as_slice()],
+        b"012301234567456789\0\089\0\0"
+    );
+    test!(
+        "nd --out-format=b --zip=4 --filler=0x0a",
+        [b"0123456789".as_slice(), b"0123456789".as_slice()],
+        b"012301234567456789\n\n89\n\n"
+    );
+
+    test!(
+        "nd --out-format=b --in-format=x",
+        [b"0004 0004 | 31 32 33 34\n000a 0000 | 61 62 63".as_slice()],
+        b"\0\0\0\01234\0\0abc"
+    );
+    test!(
+        "nd --out-format=b --in-format=x --filler=0x0a",
+        [b"0004 0004 | 31 32 33 34\n000a 0000 | 61 62 63".as_slice()],
+        b"\n\n\n\n1234\n\nabc"
     );
 }
 
