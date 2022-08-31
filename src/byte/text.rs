@@ -18,13 +18,13 @@ pub struct GaplessTextStream {
 }
 
 impl GaplessTextStream {
-    pub fn new(src: Box<dyn ByteStream>, align: usize, format: &InoutFormat) -> Self {
+    pub fn new(src: Box<dyn ByteStream>, align: usize, filler: u8, format: &InoutFormat) -> Self {
         assert!(!format.is_binary());
         assert!(format.is_gapless());
 
         GaplessTextStream {
             inner: TextParser::new(src, format),
-            buf: StreamBuf::new_with_align(align),
+            buf: StreamBuf::new_with_align(align, filler),
         }
     }
 }
@@ -50,7 +50,7 @@ impl ByteStream for GaplessTextStream {
 macro_rules! test_gapless_impl {
     ( $inner: ident, $input: expr, $expected: expr ) => {{
         let src = Box::new(MockSource::new($input.as_slice()));
-        let src = GaplessTextStream::new(src, 1, &InoutFormat::from_str("nnx").unwrap());
+        let src = GaplessTextStream::new(src, 1, 0, &InoutFormat::from_str("nnx").unwrap());
         $inner(src, $expected);
     }};
 }
@@ -150,14 +150,14 @@ pub struct TextStream {
 }
 
 impl TextStream {
-    pub fn new(src: Box<dyn ByteStream>, align: usize, format: &InoutFormat) -> Self {
+    pub fn new(src: Box<dyn ByteStream>, align: usize, filler: u8, format: &InoutFormat) -> Self {
         // read the first line
         let mut line = TextFeeder::new(src, format);
         line.fill_buf().unwrap();
 
         TextStream {
             line,
-            buf: StreamBuf::new_with_align(align),
+            buf: StreamBuf::new_with_align(align, filler),
             offset: 0,
         }
     }
@@ -165,6 +165,7 @@ impl TextStream {
 
 impl ByteStream for TextStream {
     fn fill_buf(&mut self) -> Result<usize> {
+        let filler = self.buf.filler();
         self.buf.fill_buf(|buf| {
             if self.line.offset == usize::MAX {
                 return Ok(false);
@@ -174,7 +175,7 @@ impl ByteStream for TextStream {
             let fwd_len = next_offset - self.offset;
             self.offset += fwd_len;
 
-            buf.resize(buf.len() + fwd_len, 0);
+            buf.resize(buf.len() + fwd_len, filler);
             if fwd_len == BLOCK_SIZE {
                 return Ok(false);
             }
@@ -213,7 +214,7 @@ impl ByteStream for TextStream {
 #[test]
 fn test_text_overlap() {
     let src = Box::new(MockSource::new(b"0000 03 | 01 02 03 \n0001 03 | 01 02 03"));
-    let mut src = TextStream::new(src, 1, &InoutFormat::from_str("xxx").unwrap());
+    let mut src = TextStream::new(src, 1, 0, &InoutFormat::from_str("xxx").unwrap());
     assert!(src.fill_buf().is_err());
 }
 
@@ -221,7 +222,7 @@ fn test_text_overlap() {
 macro_rules! test_text_impl {
     ( $inner: ident, $input: expr, $expected: expr ) => {{
         let src = Box::new(MockSource::new($input.as_slice()));
-        let src = TextStream::new(src, 1, &InoutFormat::from_str("xxx").unwrap());
+        let src = TextStream::new(src, 1, 0, &InoutFormat::from_str("xxx").unwrap());
         $inner(src, $expected);
     }};
 }

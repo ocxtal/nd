@@ -14,18 +14,20 @@ pub struct ZeroStream {
     len: usize,
     next_len: usize,
     buf: Vec<u8>,
+    filler: u8,
 }
 
 impl ZeroStream {
-    pub fn new(len: usize) -> Self {
+    pub fn new(len: usize, filler: u8) -> Self {
         let mut buf = Vec::new();
-        buf.resize(BLOCK_SIZE + MARGIN_SIZE, 0);
+        buf.resize(BLOCK_SIZE + MARGIN_SIZE, filler);
 
         ZeroStream {
             offset: 0,
             len,
             next_len: std::cmp::min(len, BLOCK_SIZE),
             buf,
+            filler,
         }
     }
 }
@@ -37,7 +39,7 @@ impl ByteStream for ZeroStream {
             return Ok(0);
         }
 
-        self.buf.resize(self.next_len + MARGIN_SIZE, 0);
+        self.buf.resize(self.next_len + MARGIN_SIZE, self.filler);
         Ok(self.next_len)
     }
 
@@ -62,7 +64,7 @@ macro_rules! test_impl {
     ( $inner: ident, $len: expr ) => {{
         let mut v = Vec::new();
         v.resize($len, 0);
-        $inner(ZeroStream::new($len), &v);
+        $inner(ZeroStream::new($len, 0), &v);
     }};
 }
 

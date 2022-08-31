@@ -15,6 +15,12 @@ use std::io::Read;
 use self::Node::*;
 use self::NodeClass::*;
 
+#[cfg(test)]
+use crate::byte::tester::*;
+
+#[cfg(test)]
+use crate::streambuf::StreamBuf;
+
 fn parse_const_slicer_params(s: &str) -> Result<ConstSlicerParams> {
     let v = s.split(',').map(|x| x.to_string()).collect::<Vec<_>>();
     assert!(!v.is_empty());
@@ -36,6 +42,9 @@ pub struct PipelineArgs {
 
     #[clap(short = 'f', long = "out-format", value_name = "FORMAT", value_parser = InoutFormat::from_str)]
     out_format: Option<InoutFormat>,
+
+    #[clap(long = "filler", value_name = "N", value_parser = parse_usize)]
+    filler: Option<usize>,
 
     #[clap(short = 'c', long = "cat", value_name = "N", value_parser = parse_usize)]
     cat: Option<usize>,
@@ -176,6 +185,7 @@ enum NodeInstance {
 
 pub struct Pipeline {
     word_size: usize,
+    filler: u8,
     in_format: InoutFormat,
     out_format: InoutFormat,
     patch_format: InoutFormat,
@@ -262,8 +272,16 @@ impl Pipeline {
             .unwrap_or_else(|| InoutFormat::from_str_with_columns(default_out_signature, cols).unwrap());
         let patch_format = InoutFormat::from_str_with_columns("xxx", cols).unwrap();
 
+        // background byte
+        let filler = match m.filler {
+            Some(filler) if filler <= 255 => filler as u8,
+            Some(filler) => return Err(anyhow!("filler must be within [0, 256) (got: {})", filler)),
+            _ => 0,
+        };
+
         let pipeline = Pipeline {
             word_size,
+            filler,
             in_format,
             out_format,
             patch_format,
@@ -294,17 +312,17 @@ impl Pipeline {
 
     fn open_file(&self, file: &str) -> Result<Box<dyn ByteStream>> {
         let file = std::fs::File::open(file)?;
-        Ok(Box::new(RawStream::new(Box::new(file), 1)))
+        Ok(Box::new(RawStream::new(Box::new(file), 1, self.filler)))
     }
 
     fn build_parser(&self, source: Box<dyn Read + Send>) -> Box<dyn ByteStream> {
-        let source = Box::new(RawStream::new(source, self.word_size));
+        let source = Box::new(RawStream::new(source, self.word_size, self.filler));
         if self.in_format.is_binary() {
             source
         } else if self.in_format.is_gapless() {
-            Box::new(GaplessTextStream::new(source, self.word_size, &self.in_format))
+            Box::new(GaplessTextStream::new(source, self.word_size, self.filler, &self.in_format))
         } else {
-            Box::new(TextStream::new(source, self.word_size, &self.in_format))
+            Box::new(TextStream::new(source, self.word_size, self.filler, &self.in_format))
         }
     }
 
@@ -331,7 +349,7 @@ impl Pipeline {
                     (cache, NodeInstance::Byte(next))
                 }
                 (Clipper(clipper), NodeInstance::Byte(prev)) => {
-                    let next = Box::new(ClipStream::new(prev, clipper));
+                    let next = Box::new(ClipStream::new(prev, clipper, self.filler));
                     (cache, NodeInstance::Byte(next))
                 }
                 (Patch(file), NodeInstance::Byte(prev)) => {
@@ -400,6 +418,57 @@ impl Pipeline {
             _ => Err(anyhow!("the last node of the stream must be a ByteStream (internal error)")),
         }
     }
+}
+
+#[test]
+fn test_pipeline() {
+    macro_rules! test {
+        ( $args: expr, $input: expr, $expected: expr ) => {
+            let args = PipelineArgs::parse_from($args.split_whitespace());
+            let pipeline = Pipeline::from_args(&args).unwrap();
+
+            let input: Vec<Box<dyn Read + Send>> = vec![Box::new(MockSource::new($input))];
+            let mut stream = Pipeline::spawn_stream(&pipeline, input).unwrap();
+
+            let mut buf = StreamBuf::new();
+            buf.fill_buf(|buf| {
+                let bytes = stream.fill_buf()?;
+
+                if bytes == 0 {
+                    return Ok(false);
+                }
+
+                let slice = stream.as_slice();
+                buf.extend_from_slice(&slice[..bytes]);
+                stream.consume(bytes);
+
+                Ok(true)
+            }).unwrap();
+
+            let len = buf.len();
+            let slice = buf.as_slice();
+
+            eprintln!("{:?}", unsafe { std::str::from_utf8_unchecked(&slice[..len]) });
+
+            assert_eq!(len, $expected.len());
+            assert_eq!(&slice[..len], $expected);
+        };
+    }
+
+    test!("nd", b"", b"");
+    test!("nd --out-format=b", b"", b"");
+    test!("nd --out-format=b", b"0123456789", b"0123456789");
+
+    test!(
+        "nd --out-format=b --pad=3,5",
+        b"0123456789",
+        b"\0\0\00123456789\0\0\0\0\0"
+    );
+    test!(
+        "nd --out-format=b --pad=3,5 --filler=0x0a",
+        b"0123456789",
+        b"\n\n\n0123456789\n\n\n\n\n"
+    );
 }
 
 // end of pipeline.rs

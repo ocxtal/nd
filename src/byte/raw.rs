@@ -18,11 +18,11 @@ pub struct RawStream {
 }
 
 impl RawStream {
-    pub fn new(src: Box<dyn Read + Send>, align: usize) -> Self {
+    pub fn new(src: Box<dyn Read + Send>, align: usize, filler: u8) -> Self {
         assert!(align > 0);
         RawStream {
             src,
-            buf: StreamBuf::new_with_align(align),
+            buf: StreamBuf::new_with_align(align, filler),
         }
     }
 }
@@ -49,7 +49,7 @@ macro_rules! test_impl {
     ( $inner: ident, $pattern: expr ) => {{
         let pattern = $pattern;
         let src = Box::new(MockSource::new(&pattern));
-        let src = RawStream::new(src, 1);
+        let src = RawStream::new(src, 1, 0);
         $inner(src, &pattern);
     }};
 }
