@@ -31,7 +31,7 @@ impl BashPipe {
 
     fn spawn_reader(&mut self) -> RawStream {
         let output = self.child.stdout.take().unwrap();
-        RawStream::new(Box::new(output), 1)
+        RawStream::new(Box::new(output), 1, 0)
     }
 
     fn spawn_writer(&mut self) -> BashPipeWriter {

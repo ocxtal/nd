@@ -19,14 +19,15 @@ pub struct StreamBuf {
     offset: usize,
     align: usize,
     is_eof: bool,
+    filler: u8,
 }
 
 impl StreamBuf {
     pub fn new() -> Self {
-        Self::new_with_align(1)
+        Self::new_with_align(1, 0)
     }
 
-    pub fn new_with_align(align: usize) -> Self {
+    pub fn new_with_align(align: usize, filler: u8) -> Self {
         // we always have a margin at the tail of the buffer
         let mut buf = vec![0; MARGIN_SIZE];
         buf.reserve(BLOCK_SIZE);
@@ -39,7 +40,12 @@ impl StreamBuf {
             offset: 0,
             align,
             is_eof: false,
+            filler,
         }
+    }
+
+    pub fn filler(&self) -> u8 {
+        self.filler
     }
 
     pub fn len(&self) -> usize {
@@ -69,7 +75,7 @@ impl StreamBuf {
         // make the buffer aligned (without tail margin)
         let tail = self.offset + self.buf.len();
         let rounded = (tail + self.align - 1) / self.align * self.align;
-        self.buf.resize(rounded - self.offset, 0);
+        self.buf.resize(rounded - self.offset, self.filler);
     }
 
     pub fn clear_eof(&mut self) {

@@ -98,16 +98,16 @@ pub struct ClipStream {
 }
 
 impl ClipStream {
-    pub fn new(src: Box<dyn ByteStream>, params: &ClipperParams) -> Self {
+    pub fn new(src: Box<dyn ByteStream>, params: &ClipperParams, filler: u8) -> Self {
         // if padding(s) exist, concat ZeroStream(s)
         let src = match params.pad {
             (0, 0) => src,
-            (0, tail) => Box::new(CatStream::new(vec![src, Box::new(ZeroStream::new(tail))])),
-            (head, 0) => Box::new(CatStream::new(vec![Box::new(ZeroStream::new(head)), src])),
+            (0, tail) => Box::new(CatStream::new(vec![src, Box::new(ZeroStream::new(tail, filler))])),
+            (head, 0) => Box::new(CatStream::new(vec![Box::new(ZeroStream::new(head, filler)), src])),
             (head, tail) => Box::new(CatStream::new(vec![
-                Box::new(ZeroStream::new(head)),
+                Box::new(ZeroStream::new(head, filler)),
                 src,
-                Box::new(ZeroStream::new(tail)),
+                Box::new(ZeroStream::new(tail, filler)),
             ])),
         };
 
@@ -165,7 +165,7 @@ macro_rules! test_impl {
             len: $len,
         };
 
-        $inner(ClipStream::new(Box::new(MockSource::new($input)), &params), $expected);
+        $inner(ClipStream::new(Box::new(MockSource::new($input)), &params, 0), $expected);
     }};
 }
 

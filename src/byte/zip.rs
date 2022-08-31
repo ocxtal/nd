@@ -184,7 +184,7 @@ macro_rules! test_impl {
     ( $inner: ident, $word_size: expr, $inputs: expr, $expected: expr ) => {{
         let wrap = |x: &[u8]| -> Box<dyn ByteStream> {
             // make the source aligned to word_size
-            Box::new(RawStream::new(Box::new(MockSource::new(x)), $word_size))
+            Box::new(RawStream::new(Box::new(MockSource::new(x)), $word_size, 0))
         };
 
         let srcs = $inputs.iter().map(|x| wrap(*x)).collect::<Vec<Box<dyn ByteStream>>>();
