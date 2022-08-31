@@ -54,10 +54,10 @@ OPTIONS:
   Slicing the stream (exclusive)
 
     -w, --width N[,S..E]    slice into N bytes and map them to S..E (default) [16,s..e]
-    -d, --find PATTERN      slice out every PATTERN location
+    -d, --find ARRAY        slice out every ARRAY location
     -k, --walk EXPR[,...]   split the stream into eval(EXPR)-byte chunk(s), repeat it until the end
     -r, --slice S..E[,...]  slice out S..E range(s)
-    -g, --guide FILE        slice out [pos, pos + len) ranges loaded from the file
+    -g, --guide FILE        slice out [offset, offset + length) ranges loaded from the file
 
   Manipulating the slices (applied in this order)
 
