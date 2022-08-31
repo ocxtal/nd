@@ -449,8 +449,6 @@ fn test_pipeline() {
             let len = buf.len();
             let slice = buf.as_slice();
 
-            eprintln!("{:?}", unsafe { std::str::from_utf8_unchecked(&slice[..len]) });
-
             assert_eq!(len, $expected.len());
             assert_eq!(&slice[..len], $expected);
         };
