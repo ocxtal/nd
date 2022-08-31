@@ -202,7 +202,7 @@ impl Pipeline {
         }
         if let Some(pad) = m.pad {
             if pad != (0, 0) {
-                nodes.push(Clipper(ClipperParams::from_raw(Some(pad), Some(0), Some(0..0))?));
+                nodes.push(Clipper(ClipperParams::from_raw(Some(pad), Some(0), Some(0..usize::MAX))?));
             }
         }
 
