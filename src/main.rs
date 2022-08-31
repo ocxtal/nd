@@ -111,7 +111,7 @@ fn main() -> Result<()> {
         for input in args.inputs.windows(1) {
             let sources = build_sources(input)?;
 
-            let tmpfile = format!("{:?}.tmp", &input[0]);
+            let tmpfile = format!("{}.tmp", &input[0]);
             let drain = Box::new(File::create(&tmpfile)?);
 
             let stream = pipeline.spawn_stream(sources)?;
