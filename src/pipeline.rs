@@ -443,7 +443,8 @@ fn test_pipeline() {
                 stream.consume(bytes);
 
                 Ok(true)
-            }).unwrap();
+            })
+            .unwrap();
 
             let len = buf.len();
             let slice = buf.as_slice();
@@ -459,11 +460,7 @@ fn test_pipeline() {
     test!("nd --out-format=b", b"", b"");
     test!("nd --out-format=b", b"0123456789", b"0123456789");
 
-    test!(
-        "nd --out-format=b --pad=3,5",
-        b"0123456789",
-        b"\0\0\00123456789\0\0\0\0\0"
-    );
+    test!("nd --out-format=b --pad=3,5", b"0123456789", b"\0\0\00123456789\0\0\0\0\0");
     test!(
         "nd --out-format=b --pad=3,5 --filler=0x0a",
         b"0123456789",
