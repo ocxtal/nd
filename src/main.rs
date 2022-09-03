@@ -54,10 +54,10 @@ OPTIONS:
   Slicing the stream (exclusive)
 
     -w, --width N[,S..E]    slice into N bytes and map them to S..E (default) [16,s..e]
-    -d, --find PATTERN      slice out every PATTERN location
+    -d, --find ARRAY        slice out every ARRAY location
     -k, --walk EXPR[,...]   split the stream into eval(EXPR)-byte chunk(s), repeat it until the end
     -r, --slice S..E[,...]  slice out S..E range(s)
-    -g, --guide FILE        slice out [pos, pos + len) ranges loaded from the file
+    -g, --guide FILE        slice out [offset, offset + length) ranges loaded from the file
 
   Manipulating the slices (applied in this order)
 
@@ -111,7 +111,7 @@ fn main() -> Result<()> {
         for input in args.inputs.windows(1) {
             let sources = build_sources(input)?;
 
-            let tmpfile = format!("{:?}.tmp", &input[0]);
+            let tmpfile = format!("{}.tmp", &input[0]);
             let drain = Box::new(File::create(&tmpfile)?);
 
             let stream = pipeline.spawn_stream(sources)?;
@@ -145,7 +145,7 @@ fn build_sources(files: &[String]) -> Result<Vec<Box<dyn Read + Send>>> {
             v.push(Box::new(std::io::stdin()));
         } else {
             let path = std::path::Path::new(file);
-            let file = std::fs::File::open(&path)?;
+            let file = std::fs::File::open(path)?;
             v.push(Box::new(file));
         }
     }

@@ -242,6 +242,7 @@ where
     }
 }
 
+#[allow(clippy::unused_peekable)]
 fn tokenize(input: &str, vars: Option<&HashMap<&[u8], VarAttr>>) -> Result<Vec<Token>> {
     let mut tokens = vec![Paren('(')];
 

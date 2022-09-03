@@ -21,7 +21,7 @@ struct BashPipeWriter {
 impl BashPipe {
     fn new(command: &str) -> Self {
         let child = Command::new("bash")
-            .args(&["-c", command])
+            .args(["-c", command])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
