@@ -9,6 +9,7 @@ use crate::template::Template;
 use crate::text::{InoutFormat, TextFormatter};
 use anyhow::Result;
 use std::collections::HashMap;
+use std::fs::{File, OpenOptions};
 use std::io::Write;
 
 #[cfg(test)]
@@ -16,6 +17,46 @@ use crate::byte::tester::*;
 
 #[cfg(test)]
 use crate::segment::ConstSlicer;
+
+enum ScatterContext {
+    File(File),
+    Template(Template),
+}
+
+impl ScatterContext {
+    fn new(file: &str) -> Result<ScatterContext> {
+        let vars = [
+            (b"n", VarAttr { is_array: false, id: 0 }), // byte offset
+            (b"l", VarAttr { is_array: false, id: 1 }), // line
+        ];
+        let vars: HashMap<&[u8], VarAttr> = vars.iter().map(|(x, y)| (x.as_slice(), *y)).collect();
+        let template = Template::from_str(file, Some(&vars))?;
+
+        if template.has_variable() {
+            return Ok(ScatterContext::Template(template));
+        }
+
+        let file = template.render(|_, _| 0)?;
+        let file = OpenOptions::new().read(false).write(true).create(true).open(file)?;
+        Ok(ScatterContext::File(file))
+    }
+
+    fn dump_segment(&mut self, buf: &[u8], offset: usize, line: usize) -> Result<()> {
+        match self {
+            ScatterContext::File(file) => file.write_all(buf)?,
+            ScatterContext::Template(template) => {
+                let file = template.render(|id, _| match id {
+                    0 => offset as i64,
+                    1 => line as i64,
+                    _ => 0,
+                })?;
+                let mut file = OpenOptions::new().read(false).write(true).create(true).open(file)?;
+                file.write_all(buf)?
+            }
+        }
+        Ok(())
+    }
+}
 
 pub struct ScatterDrain {
     src: Box<dyn SegmentStream>,
@@ -29,7 +70,7 @@ pub struct ScatterDrain {
     formatter: TextFormatter,
 
     // drain for the scatter mode
-    file: Option<Template>,
+    file: Option<ScatterContext>,
     buf: Vec<u8>,
 
     // output buffer for the transparent mode
@@ -44,13 +85,7 @@ impl ScatterDrain {
         let file = if file.is_empty() || file == "-" {
             None
         } else {
-            let vars = [
-                (b"n", VarAttr { is_array: false, id: 0 }), // byte offset
-                (b"l", VarAttr { is_array: false, id: 1 }), // line
-            ];
-            let vars: HashMap<&[u8], VarAttr> = vars.iter().map(|(x, y)| (x.as_slice(), *y)).collect();
-
-            Some(Template::from_str(file, Some(&vars))?)
+            Some(ScatterContext::new(file)?)
         };
 
         Ok(ScatterDrain {
@@ -96,16 +131,12 @@ impl ScatterDrain {
 
             let (stream, segments) = self.src.as_slices();
             for (i, s) in segments[self.src_consumed..count].windows(1).enumerate() {
-                let file = self.file.as_ref().unwrap().render(|id, _| match id {
-                    0 => (self.offset + s[0].pos) as i64,
-                    1 => (self.lines + i) as i64,
-                    _ => 0,
-                })?;
-                let mut file = std::fs::OpenOptions::new().read(false).write(true).create(true).open(file)?;
-
-                self.formatter.format_segments(self.offset, stream, s, &mut self.buf);
-                file.write_all(&self.buf)?;
                 self.buf.clear();
+                self.formatter.format_segments(self.offset, stream, s, &mut self.buf);
+                self.file
+                    .as_mut()
+                    .unwrap()
+                    .dump_segment(&self.buf, self.offset + s[0].pos, self.lines + i)?;
             }
             self.src_consumed += count;
 
