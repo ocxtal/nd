@@ -145,7 +145,7 @@ fn build_sources(files: &[String]) -> Result<Vec<Box<dyn Read + Send>>> {
             v.push(Box::new(std::io::stdin()));
         } else {
             let path = std::path::Path::new(file);
-            let file = std::fs::File::open(&path)?;
+            let file = std::fs::File::open(path)?;
             v.push(Box::new(file));
         }
     }
