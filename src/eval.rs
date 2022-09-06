@@ -138,11 +138,12 @@ where
         return Some(Op(first));
     }
 
-    // "**"
-    if first == '*' && *it.peek()? == '*' {
-        it.next()?;
-        return Some(Op('@'));
-    }
+    // temporarily disabled
+    // // "**"
+    // if first == '*' && *it.peek()? == '*' {
+    //     it.next()?;
+    //     return Some(Op('@'));
+    // }
     Some(Op(first))
 }
 
@@ -199,7 +200,7 @@ where
             Some(&x) if tolower(x) == 'o' => { it.next()?; (it.next()?, 8) }
             Some(&x) if tolower(x) == 'd' => { it.next()?; (it.next()?, 10) }
             Some(&x) if tolower(x) == 'x' => { it.next()?; (it.next()?, 16) }
-            _ => (first, 10),
+            _ => (first, 8),
         }
     };
 
@@ -255,7 +256,7 @@ fn tokenize(input: &str, vars: Option<&HashMap<&[u8], VarAttr>>) -> Result<Vec<T
             '(' | ')' | '[' | ']' => {
                 tokens.push(Paren(x));
             }
-            '+' | '-' | '~' | '!' | '*' | '/' | '%' | '&' | '|' | '^' | '<' | '>' => {
+            '+' | '-' | '~' | '!' | '*' | '/' | '%' | '&' | '|' | '^' | '<' | '>' | '@' => {
                 tokens.push(parse_op(x, &mut it).with_context(|| format!("parsing failed at an operator in {:?}", input))?);
             }
             '0'..='9' => {
@@ -1377,14 +1378,14 @@ fn test_parse_int() {
     assert_eq!(parse_int("3 << 2 - 1").unwrap(), 6);
     assert_eq!(parse_int("3 - 2 << 1").unwrap(), 2);
 
-    assert_eq!(parse_int("4 - 2 ** 3").unwrap(), 8);
-    assert_eq!(parse_int("3 ** 2 - 1").unwrap(), 3);
-    assert_eq!(parse_int("2 ** 3 ** 2").unwrap(), 512);
+    assert_eq!(parse_int("4 - 2 @ 3").unwrap(), 8);
+    assert_eq!(parse_int("3 @ 2 - 1").unwrap(), 3);
+    assert_eq!(parse_int("2 @ 3 @ 2").unwrap(), 512);
 
-    assert_eq!(parse_int("3 ** (0 - 2)").unwrap(), 0);
-    assert_eq!(parse_int("3**-2").unwrap(), 0);
-    assert_eq!(parse_int("-12**2").unwrap(), -144);
-    assert_eq!(parse_int("(-12)**2").unwrap(), 144);
+    assert_eq!(parse_int("3 @ (0 - 2)").unwrap(), 0);
+    assert_eq!(parse_int("3@-2").unwrap(), 0);
+    assert_eq!(parse_int("-12@2").unwrap(), -144);
+    assert_eq!(parse_int("(-12)@2").unwrap(), 144);
 
     assert!(parse_int("4 : 3").is_err());
     assert!(parse_int("4 + 3;").is_err());

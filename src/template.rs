@@ -195,7 +195,7 @@ fn test_template_render() {
 
     // expressions
     test!("{(2 * a + 1):}", "1");
-    test!("{(2 * a + 1):} {(b | 0x02):} {(c ** c):}", "1 3 4");
+    test!("{(2 * a + 1):} {(b | 0x02):} {(c @ c):}", "1 3 4");
 }
 
 // end of template.rs
