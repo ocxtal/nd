@@ -9,6 +9,9 @@ Every record (line) of the output of nd is in the `offset length | array` form (
 
 ```console
 $ nd quick.txt
+000000000000 0010 | 54 68 65 20 71 75 69 63 6b 20 62 72 6f 77 6e 20 | The quick brown 
+000000000010 0010 | 66 6f 78 20 6a 75 6d 70 73 20 6f 76 65 72 20 74 | fox jumps over t
+000000000020 000d | 68 65 20 6c 61 7a 79 20 64 6f 67 2e 0a          | he lazy dog..   
 ```
 
 *Example 1. Dumping the contents of `quick.txt` in the hex format. After the second `|` is supplementary information called "mosaic."*
@@ -17,6 +20,9 @@ The `offset length | array` format can also be interpreted as a patch to the ori
 
 ```console
 $ nd --patch=<(echo "000000000010 0003 | 66 72 6f 67") quick.txt
+000000000000 0010 | 54 68 65 20 71 75 69 63 6b 20 62 72 6f 77 6e 20 | The quick brown 
+000000000010 0010 | 66 72 6f 67 20 6a 75 6d 70 73 20 6f 76 65 72 20 | frog jumps over 
+000000000020 000e | 74 68 65 20 6c 61 7a 79 20 64 6f 67 2e 0a       | the lazy dog..  
 ```
 
 *Example 2. Replacing the 3-byte "fox" from the offset 16 to 19 in the 45-byte `quick.txt` to 4-byte "frog." The total length increased by one to 46 bytes.*
@@ -42,6 +48,7 @@ $ EDITOR=vim nd --inplace --patch-back=vipe quick.txt
   # ```
   #
 $ cat quick.txt
+The quick brown frog jumps over the lazy dog.
 ```
 
 *Example 3. Editing the file using `nd` and `vipe` with the `--patch-back` option. The `--inplace` option tells nd to write back the patched stream to the original file. The mosaics after the second `|` are ignored when interpreting patches.*
@@ -93,6 +100,13 @@ It creates an input stream by serially concatenating the input files. `--filler`
 
 ```console
 $ nd --cat 7 quick.txt quick.txt
+000000000000 0010 | 54 68 65 20 71 75 69 63 6b 20 62 72 6f 77 6e 20 | The quick brown 
+000000000010 0010 | 66 6f 78 20 6a 75 6d 70 73 20 6f 76 65 72 20 74 | fox jumps over t
+000000000020 0010 | 68 65 20 6c 61 7a 79 20 64 6f 67 2e 0a 00 00 00 | he lazy dog.....
+000000000030 0010 | 00 54 68 65 20 71 75 69 63 6b 20 62 72 6f 77 6e | .The quick brown
+000000000040 0010 | 20 66 6f 78 20 6a 75 6d 70 73 20 6f 76 65 72 20 |  fox jumps over 
+000000000050 0010 | 74 68 65 20 6c 61 7a 79 20 64 6f 67 2e 0a 00 00 | the lazy dog....
+000000000060 0002 | 00 00                                           | ..              
 ```
 
 #### -z, --zip N
@@ -101,12 +115,20 @@ It creates an input stream by taking `N` bytes in the round-robin manner from th
 
 ```console
 $ nd --zip 7 quick.txt quick.txt
+000000000000 0010 | 54 68 65 20 71 75 69 54 68 65 20 71 75 69 63 6b | The quiThe quick
+000000000010 0010 | 20 62 72 6f 77 63 6b 20 62 72 6f 77 6e 20 66 6f |  browck brown fo
+000000000020 0010 | 78 20 6a 6e 20 66 6f 78 20 6a 75 6d 70 73 20 6f | x jn fox jumps o
+000000000030 0010 | 76 75 6d 70 73 20 6f 76 65 72 20 74 68 65 20 65 | vumps over the e
+000000000040 0010 | 72 20 74 68 65 20 6c 61 7a 79 20 64 6f 6c 61 7a | r the lazy dolaz
+000000000050 0010 | 79 20 64 6f 67 2e 0a 00 00 00 00 67 2e 0a 00 00 | y dog......g....
+000000000060 0002 | 00 00                                           | ..              
 ```
 
 Also, the `--width` option with the size of the position and range reverses this operation.
 
 ```console
 $ nd --zip 1 quick.txt quick.txt | nd --in-format x --width 2,0..1 --out-format b
+The quick brown fox jumps over the lazy dog.
 ```
 
 #### -i, --inplace
@@ -117,8 +139,10 @@ Please be aware of disk I/O and disk vacancy when handling a large file with ` -
 
 ```console
 $ cat lazy.txt
+000000000023 00 | 6c 61 7a 79 20
 $ nd --inplace --patch lazy.txt quick.txt
 $ cat quick.txt
+The quick brown fox jumps over the lazy lazy dog.
 ```
 
 ### Stage 2: Editing the stream in the byte granularity
@@ -131,7 +155,9 @@ It creates a new stream by slicing and concatenating spans obtained by evaluatin
 
 ```console
 $ nd --cut 4..9 quick.txt
+000000000000 0005 | 71 75 69 63 6b                                  | quick           
 $ nd --cut 4..9,10..15,10..19 quick.txt
+000000000000 000e | 71 75 69 63 6b 62 72 6f 77 6e 20 66 6f 78       | quickbrown fox  
 ```
 
 #### -a, --pad N,M
@@ -140,6 +166,10 @@ It adds `N` and `M` bytes of `--filler`s before and after the stream.
 
 ```console
 $ nd --pad 4,6 quick.txt
+000000000000 0010 | 00 00 00 00 54 68 65 20 71 75 69 63 6b 20 62 72 | ....The quick br
+000000000010 0010 | 6f 77 6e 20 66 6f 78 20 6a 75 6d 70 73 20 6f 76 | own fox jumps ov
+000000000020 0010 | 65 72 20 74 68 65 20 6c 61 7a 79 20 64 6f 67 2e | er the lazy dog.
+000000000030 0007 | 0a 00 00 00 00 00 00                            | .......         
 ```
 
 #### -p, --patch FILE
@@ -154,7 +184,11 @@ It applies a patch file to the stream. A patch file must contain one patch recor
 
 ```console
 $ cat patch.txt
+000000000010 0003 | 66 72 6f 67
 $ nd --patch patch.txt quick.txt
+000000000000 0010 | 54 68 65 20 71 75 69 63 6b 20 62 72 6f 77 6e 20 | The quick brown 
+000000000010 0010 | 66 72 6f 67 20 6a 75 6d 70 73 20 6f 76 65 72 20 | frog jumps over 
+000000000020 000e | 74 68 65 20 6c 61 7a 79 20 64 6f 67 2e 0a       | the lazy dog..  
 ```
 
 ### Stage 3: Slicing the stream
@@ -167,6 +201,12 @@ It cuts the stream into length-`N` non-overlapping slices and extends the slices
 
 ```console
 $ nd --width 8,s-2..e+2 quick.txt
+000000000000 000a | 54 68 65 20 71 75 69 63 6b 20       | The quick   
+000000000006 000c | 69 63 6b 20 62 72 6f 77 6e 20 66 6f | ick brown fo
+00000000000e 000c | 6e 20 66 6f 78 20 6a 75 6d 70 73 20 | n fox jumps 
+000000000016 000c | 6d 70 73 20 6f 76 65 72 20 74 68 65 | mps over the
+00000000001e 000c | 20 74 68 65 20 6c 61 7a 79 20 64 6f |  the lazy do
+000000000026 0007 | 79 20 64 6f 67 2e 0a                | y dog..     
 ```
 
 When using the output as a patch, note that overlapping slices are not allowed for patch inputs. The `--merge` option help you make them a valid patch by merging overlapping slices into a single one.
@@ -177,7 +217,12 @@ It cuts match locations of `ARRAY` from the stream. `ARRAY` is in the same forma
 
 ```console
 $ nd --find "6f" quick.txt
+00000000000c 0001 | 6f | o
+000000000011 0001 | 6f | o
+00000000001a 0001 | 6f | o
+000000000029 0001 | 6f | o
 $ nd --find "66 6f 78" quick.txt
+000000000010 0003 | 66 6f 78 | fox
 ```
 
 #### -k, --walk EXPR[,EXPR,...]
@@ -193,8 +238,16 @@ The elements are accessed in little endian for the `h`, `i`, and `l` variables. 
 
 ```console
 $ nd walk.bin
+000000000000 0010 | 0b 61 20 70 61 79 6c 6f 61 64 00 11 61 6e 6f 74 | .a payload..anot
+000000000010 000c | 68 65 72 20 70 61 79 6c 6f 61 64 00             | her payload.    
 $ nd --walk "b[0]" walk.bin
+000000000000 000b | 0b 61 20 70 61 79 6c 6f 61 64 00 | .a payload.
+00000000000b 0011 | 11 61 6e 6f 74 68 65 72 20 70 61 79 6c 6f 61 64 00 | .another payload.
 $ nd --walk "1,b[0]-1" walk.bin
+000000000000 0001 | 0b | .
+000000000001 000a | 61 20 70 61 79 6c 6f 61 64 00 | a payload.
+00000000000b 0001 | 11 | .
+00000000000c 0010 | 61 6e 6f 74 68 65 72 20 70 61 79 6c 6f 61 64 00 | another payload.
 ```
 
 #### -r, --slice S..E[,S..E,...]
@@ -203,7 +256,11 @@ It slices the stream with intervals obtained by evaluating range expressions in 
 
 ```console
 $ nd --slice 4..9 quick.txt
+000000000004 0005 | 71 75 69 63 6b | quick
 $ nd --slice 4..9,10..15,10..19 quick.txt
+000000000004 0005 | 71 75 69 63 6b | quick
+00000000000a 0005 | 62 72 6f 77 6e | brown
+00000000000a 0009 | 62 72 6f 77 6e 20 66 6f 78 | brown fox
 ```
 
 #### -g, --guide FILE
@@ -212,7 +269,11 @@ It reads the records of the `offset length | array | mosaic` format from `FILE` 
 
 ```console
 $ cat guide.txt
+000000000010 0003
+000000000028 0003
 $ nd --guide guide.txt quick.txt
+000000000010 0003 | 66 6f 78 | fox
+000000000028 0003 | 64 6f 67 | dog
 ```
 
 ### Stage 4: Manipulating slices
@@ -225,6 +286,8 @@ It matches a regular expression (`PCRE`) on each slice and leaves the hits as ne
 
 ```console
 $ nd --regex "[fd]o[xg]" quick.txt
+000000000010 0003 | 66 6f 78                                        | fox             
+000000000028 0003 | 64 6f 67                                        | dog             
 ```
 
 #### -v, --invert S..E,[S..E,...]
@@ -233,8 +296,19 @@ It creates new slices from spans not covered by the input slices and then applie
 
 ```console
 $ nd --find "6f" quick.txt
+00000000000c 0001 | 6f | o
+000000000011 0001 | 6f | o
+00000000001a 0001 | 6f | o
+000000000029 0001 | 6f | o
 $ nd --find "6f" --invert s..e quick.txt
+000000000000 000c | 54 68 65 20 71 75 69 63 6b 20 62 72 | The quick br
+00000000000d 0004 | 77 6e 20 66 | wn f
+000000000012 0008 | 78 20 6a 75 6d 70 73 20 | x jumps 
+00000000001b 000e | 76 65 72 20 74 68 65 20 6c 61 7a 79 20 64 | ver the lazy d
+00000000002a 0003 | 67 2e 0a | g..
 $ nd --find "6f" --invert s+4..e-4 quick.txt
+000000000004 0004 | 71 75 69 63 | quic
+00000000001f 0006 | 74 68 65 20 6c 61 | the la
 ```
 
 #### -x, --extend S..E,[S..E,...]
@@ -243,7 +317,15 @@ It applies S..E range expressions to each slice to get new slices. The resulting
 
 ```console
 $ nd --find "6f" quick.txt
+00000000000c 0001 | 6f | o
+000000000011 0001 | 6f | o
+00000000001a 0001 | 6f | o
+000000000029 0001 | 6f | o
 $ nd --find "6f" --extend s-4..e+4 quick.txt
+000000000008 0009 | 6b 20 62 72 6f 77 6e 20 66 | k brown f
+00000000000d 0009 | 77 6e 20 66 6f 78 20 6a 75 | wn fox ju
+000000000016 0009 | 6d 70 73 20 6f 76 65 72 20 | mps over 
+000000000025 0008 | 7a 79 20 64 6f 67 2e 0a | zy dog..
 ```
 
 When using the output as a patch, note that overlapping slices are not allowed for patch inputs. The `--merge` option help you make them a valid patch by merging overlapping slices into a single one.
@@ -263,8 +345,17 @@ for slice in slices[1..] {
 
 ```console
 $ nd --find "6f" quick.txt
+00000000000c 0001 | 6f | o
+000000000011 0001 | 6f | o
+00000000001a 0001 | 6f | o
+000000000029 0001 | 6f | o
 $ nd --find "6f" --merge 4 quick.txt
+00000000000c 0006 | 6f 77 6e 20 66 6f | own fo
+00000000001a 0001 | 6f | o
+000000000029 0001 | 6f | o
 $ nd --find "6f" --merge 8 quick.txt
+00000000000c 000f | 6f 77 6e 20 66 6f 78 20 6a 75 6d 70 73 20 6f | own fox jumps o
+000000000029 0001 | 6f | o
 ```
 
 #### -l, --lines S..E[,S..E,...]
@@ -273,7 +364,16 @@ It evaluates the S..E range expression and keeps slices within the half-open ran
 
 ```console
 $ nd --width 4 --lines 0..3 quick.txt
+000000000000 0004 | 54 68 65 20 | The 
+000000000004 0004 | 71 75 69 63 | quic
+000000000008 0004 | 6b 20 62 72 | k br
 $ nd --width 4 --lines 0..3,2..4,10.. quick.txt
+000000000000 0004 | 54 68 65 20 | The 
+000000000004 0004 | 71 75 69 63 | quic
+000000000008 0004 | 6b 20 62 72 | k br
+00000000000c 0004 | 6f 77 6e 20 | own 
+000000000028 0004 | 64 6f 67 2e | dog.
+00000000002c 0001 | 0a          | .   
 ```
 
 
@@ -304,13 +404,25 @@ The rendered filename is treated as follows:
 ```console
 $ nd --output "dump_{n:02x}.txt" quick.txt
 $ ls dump_*
+dump_00.txt
+dump_10.txt
+dump_20.txt
 $ cat dump_00.txt
+000000000000 0010 | 54 68 65 20 71 75 69 63 6b 20 62 72 6f 77 6e 20 | The quick brown 
 ```
 
 ```console
 $ nd --width=4 --output "dump_{(l & 1)}.txt" quick.txt
 $ ls dump_*
+dump_0.txt
+dump_1.txt
 $ cat dump_0.txt
+000000000000 0004 | 54 68 65 20 | The 
+000000000008 0004 | 6b 20 62 72 | k br
+000000000010 0004 | 66 6f 78 20 | fox 
+000000000018 0004 | 73 20 6f 76 | s ov
+000000000020 0004 | 68 65 20 6c | he l
+000000000028 0004 | 64 6f 67 2e | dog.
 ```
 
 #### -P, --patch-back CMD
@@ -319,7 +431,12 @@ It formats slices sorted by their (start position, end position) to the `--out-f
 
 ```console
 $ nd --find "6f" quick.txt | awk '{ printf "%s %s | 4f 4f\n", $1, $2 }'
+00000000000c 0001 | 4f 4f
+000000000011 0001 | 4f 4f
+00000000001a 0001 | 4f 4f
+000000000029 0001 | 4f 4f
 $ nd --find "6f" --patch-back "awk '{ printf \"%s %s | 4f 4f\n\", \$1, \$2 }'" quick.txt
+The quick brOOwn fOOx jumps OOver the lazy dOOg.
 ```
 
 ### Other options
@@ -336,8 +453,28 @@ It specifies how to parse the input file(s).
 
 ```console
 $ nd --width 8,s+2..e-2 quick.txt | nd --in-format x
+000000000000 0010 | 00 00 65 20 71 75 00 00 00 00 62 72 6f 77 00 00 | ..e qu....brow..
+000000000010 0010 | 00 00 78 20 6a 75 00 00 00 00 6f 76 65 72 00 00 | ..x ju....over..
+000000000020 000d | 00 00 20 6c 61 7a 00 00 00 00 67 2e 0a          | .. laz....g..   
 $ nd --width 8,s+2..e-2 quick.txt | nd --in-format nnx
+000000000000 0010 | 65 20 71 75 62 72 6f 77 78 20 6a 75 6f 76 65 72 | e qubrowx juover
+000000000010 0007 | 20 6c 61 7a 67 2e 0a                            |  lazg..         
 $ nd --width 8,s+2..e-2 quick.txt | nd --in-format b
+000000000000 0010 | 30 30 30 30 30 30 30 30 30 30 30 32 20 30 30 30 | 000000000002 000
+000000000010 0010 | 34 20 7c 20 36 35 20 32 30 20 37 31 20 37 35 20 | 4 | 65 20 71 75 
+000000000020 0010 | 7c 20 65 20 71 75 0a 30 30 30 30 30 30 30 30 30 | | e qu.000000000
+000000000030 0010 | 30 30 61 20 30 30 30 34 20 7c 20 36 32 20 37 32 | 00a 0004 | 62 72
+000000000040 0010 | 20 36 66 20 37 37 20 7c 20 62 72 6f 77 0a 30 30 |  6f 77 | brow.00
+000000000050 0010 | 30 30 30 30 30 30 30 30 31 32 20 30 30 30 34 20 | 0000000012 0004 
+000000000060 0010 | 7c 20 37 38 20 32 30 20 36 61 20 37 35 20 7c 20 | | 78 20 6a 75 | 
+000000000070 0010 | 78 20 6a 75 0a 30 30 30 30 30 30 30 30 30 30 31 | x ju.00000000001
+000000000080 0010 | 61 20 30 30 30 34 20 7c 20 36 66 20 37 36 20 36 | a 0004 | 6f 76 6
+000000000090 0010 | 35 20 37 32 20 7c 20 6f 76 65 72 0a 30 30 30 30 | 5 72 | over.0000
+0000000000a0 0010 | 30 30 30 30 30 30 32 32 20 30 30 30 34 20 7c 20 | 00000022 0004 | 
+0000000000b0 0010 | 32 30 20 36 63 20 36 31 20 37 61 20 7c 20 20 6c | 20 6c 61 7a |  l
+0000000000c0 0010 | 61 7a 0a 30 30 30 30 30 30 30 30 30 30 32 61 20 | az.00000000002a 
+0000000000d0 0010 | 30 30 30 33 20 7c 20 36 37 20 32 65 20 30 61 20 | 0003 | 67 2e 0a 
+0000000000e0 000a | 20 20 20 7c 20 67 2e 2e 20 0a                   |    | g.. .      
 ```
 
 #### -f, --out-format FORMAT
@@ -349,7 +486,14 @@ It specifies how to format the slices. Note that this option applies to the patc
 
 ```console
 $ nd --width 8,s+2..e-2 quick.txt --out-format x
+000000000002 0004 | 65 20 71 75                                     | e qu            
+00000000000a 0004 | 62 72 6f 77                                     | brow            
+000000000012 0004 | 78 20 6a 75                                     | x ju            
+00000000001a 0004 | 6f 76 65 72                                     | over            
+000000000022 0004 | 20 6c 61 7a                                     |  laz            
+00000000002a 0003 | 67 2e 0a                                        | g..             
 $ nd --width 8,s+2..e-2 quick.txt --out-format b
+e qubrowx juover lazg.
 ```
 
 #### --filler N
@@ -358,7 +502,14 @@ It overwrites the padding values to `N` from the default value of zero. It can b
 
 ```console
 $ nd --filler 0xff --pad 4,4 quick.txt
+000000000000 0010 | ff ff ff ff 54 68 65 20 71 75 69 63 6b 20 62 72 | ....The quick br
+000000000010 0010 | 6f 77 6e 20 66 6f 78 20 6a 75 6d 70 73 20 6f 76 | own fox jumps ov
+000000000020 0010 | 65 72 20 74 68 65 20 6c 61 7a 79 20 64 6f 67 2e | er the lazy dog.
+000000000030 0005 | 0a ff ff ff ff                                  | .....           
 $ nd --width 8,s+2..e-2 quick.txt | nd --filler 0xff --in-format x
+000000000000 0010 | ff ff 65 20 71 75 ff ff ff ff 62 72 6f 77 ff ff | ..e qu....brow..
+000000000010 0010 | ff ff 78 20 6a 75 ff ff ff ff 6f 76 65 72 ff ff | ..x ju....over..
+000000000020 000d | ff ff 20 6c 61 7a ff ff ff ff 67 2e 0a          | .. laz....g..   
 ```
 
 #### --pager CMD
@@ -388,7 +539,11 @@ Options like `--cut` and `--slice` take range expression arguments in the `S..E`
 
 ```console
 $ nd --cut "s+4*5.." quick.txt
+000000000000 0010 | 6a 75 6d 70 73 20 6f 76 65 72 20 74 68 65 20 6c | jumps over the l
+000000000010 0009 | 61 7a 79 20 64 6f 67 2e 0a                      | azy dog..       
 $ nd --cut "4..e - 20" quick.txt
+000000000000 0010 | 71 75 69 63 6b 20 62 72 6f 77 6e 20 66 6f 78 20 | quick brown fox 
+000000000010 0005 | 6a 75 6d 70 73                                  | jumps           
 ```
 
 ## Background
