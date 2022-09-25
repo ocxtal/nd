@@ -8,7 +8,7 @@ use crate::streambuf::StreamBuf;
 use crate::template::Template;
 use crate::text::{InoutFormat, TextFormatter};
 use anyhow::Result;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 
@@ -18,13 +18,13 @@ use crate::byte::tester::*;
 #[cfg(test)]
 use crate::segment::ConstSlicer;
 
-enum ScatterContext {
+enum Drain {
     File(File),
     Template(Template),
 }
 
-impl ScatterContext {
-    fn new(file: &str) -> Result<ScatterContext> {
+impl Drain {
+    fn new(file: &str) -> Result<Self> {
         let vars = [
             (b"n", VarAttr { is_array: false, id: 0 }), // byte offset
             (b"l", VarAttr { is_array: false, id: 1 }), // line
@@ -33,24 +33,44 @@ impl ScatterContext {
         let template = Template::from_str(file, Some(&vars))?;
 
         if template.has_variable() {
-            return Ok(ScatterContext::Template(template));
+            return Ok(Drain::Template(template));
         }
 
         let file = template.render(|_, _| 0)?;
         let file = OpenOptions::new().read(false).write(true).create(true).open(file)?;
-        Ok(ScatterContext::File(file))
+        Ok(Drain::File(file))
+    }
+}
+
+struct ScatterContext {
+    drain: Drain,
+    files: HashSet<String>,
+}
+
+impl ScatterContext {
+    fn new(file: &str) -> Result<Self> {
+        Ok(ScatterContext {
+            drain: Drain::new(file)?,
+            files: HashSet::new(),
+        })
     }
 
     fn dump_segment(&mut self, buf: &[u8], offset: usize, line: usize) -> Result<()> {
-        match self {
-            ScatterContext::File(file) => file.write_all(buf)?,
-            ScatterContext::Template(template) => {
+        match &mut self.drain {
+            Drain::File(file) => file.write_all(buf)?,
+            Drain::Template(template) => {
                 let file = template.render(|id, _| match id {
                     0 => offset as i64,
                     1 => line as i64,
                     _ => 0,
                 })?;
-                let mut file = OpenOptions::new().read(false).write(true).create(true).open(file)?;
+
+                let mut file = if self.files.get(&file).is_some() {
+                    OpenOptions::new().read(false).write(true).append(true).open(file)?
+                } else {
+                    self.files.insert(file.to_string());
+                    OpenOptions::new().read(false).write(true).create(true).truncate(true).open(file)?
+                };
                 file.write_all(buf)?
             }
         }
