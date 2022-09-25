@@ -415,13 +415,7 @@ fn apply_prefix(c: char, x: i64) -> i64 {
         '+' => x,
         '-' => -x,
         '!' => !x,
-        'G' => {
-            if x >= 0 {
-                1
-            } else {
-                0
-            }
-        }
+        'G' => (x >= 0) as i64,
         _ => panic!("unknown op: {:?}", c),
     }
 }
