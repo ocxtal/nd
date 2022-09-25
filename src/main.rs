@@ -69,7 +69,8 @@ OPTIONS:
 
   Post-processing the slices (exclusive)
 
-    -o, --output FILE       dump formatted slices to FILE (\"-\" is treated as stdout; default) [-]
+    -o, --output TEMPLATE   render filename from TEMPLATE for each slice, and dump formatted slices to the files
+                            (\"-\" for stdout; default) [-]
     -P, --patch-back CMD    pipe formatted slices to CMD, then feed its output onto the cached stream as patches
 
   Miscellaneous
