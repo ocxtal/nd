@@ -1,6 +1,3 @@
-#![feature(stdsimd)]
-#![feature(slice_split_at_unchecked)]
-
 mod byte;
 mod drain;
 mod eval;
