@@ -348,7 +348,7 @@ pub unsafe fn format_line(dst: &mut [u8], src: &[u8], offset: usize, width: usiz
     let len_width = 8 - ((src.len() | 0xffff).leading_zeros() as usize) / 8;
 
     // header; p is the current offset in the dst buffer
-    let (header, rem) = dst.split_at_mut_unchecked(16 + 2 * len_width);
+    let (header, rem) = dst.split_at_mut(16 + 2 * len_width);
     format_hex_single(header, offset, 6);
     format_hex_single(&mut header[13..], src.len(), len_width);
     header[14 + 2 * len_width] = b'|';
@@ -356,17 +356,17 @@ pub unsafe fn format_line(dst: &mut [u8], src: &[u8], offset: usize, width: usiz
     dst = rem;
 
     // body
-    let (body, rem) = dst.split_at_mut_unchecked(3 * width);
+    let (body, rem) = dst.split_at_mut(3 * width);
     format_hex_body(body, src);
     dst = rem;
 
-    let (delim, rem) = dst.split_at_mut_unchecked(2);
+    let (delim, rem) = dst.split_at_mut(2);
     delim[0] = b'|';
     delim[1] = b' ';
     dst = rem;
 
     // mosaic
-    let (mosaic, rem) = dst.split_at_mut_unchecked(width);
+    let (mosaic, rem) = dst.split_at_mut(width);
     format_mosaic(mosaic, src);
     dst = rem;
     dst[0] = b'\n';
