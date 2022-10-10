@@ -1,6 +1,8 @@
 on:
   pull_request:
     types: [opened, synchronize]
+  schedule:
+    - cron: "0 0 * * 0"
 jobs:
   amd64-linux-nightly:
     name: amd64-linux-nightly
