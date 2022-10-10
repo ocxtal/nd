@@ -539,6 +539,23 @@ $ nd --cut "4..e - 20" quick.txt
 000000000010 0005 | 6a 75 6d 70 73                                  | jumps           
 ```
 
+## Installation
+
+nd is yet in the early stage of development, so it's not published in crates.io. Please install it directly from this repository if you want to try it.
+
+```console
+$ cargo install --git https://github.com/ocxtal/nd.git
+```
+
+### Supported platforms
+
+It's tested with the latest Ubuntu Linux for {x86\_64, aarch64} x {stable, nightly} for now. The minimum supported Rust version for the stable toolchain is:
+
+```console
+$ cargo msrv --output-format=minimal
+1.60.0
+```
+
 ## Background
 
 The initial idea of nd was obtained when I worked with the bam format, a widely used file format in bioinformatics next-generation sequencing (NGS) analyses. The bam format is a concatenation of multiple gzip blocks, each containing a small number of "sequence alignments" that represent a correspondence between two DNA sequences. As a single NGS sample (e.g., a sufficient amount to reconstruct a human genome) consists of several hundred or thousand million DNA fragments and their alignments, the entire bam file sometimes gets hundreds of gigabytes.
