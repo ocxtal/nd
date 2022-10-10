@@ -27,7 +27,7 @@ $ nd --patch=<(echo "000000000010 0003 | 66 72 6f 67") quick.txt
 
 *Example 2. Replacing the 3-byte "fox" from the offset 16 to 19 in the 45-byte `quick.txt` to 4-byte "frog." The total length increased by one to 46 bytes.*
 
-Since hexdump and patch are in the same format, you can edit binary files by modifying the output of nd and feeding it to the original file via the `--patch` option. nd also has an option to do it at once, `--patch-back`, that passes the output to the stdin of an external command and receives its stdout as a patch to the original file. This option turns any text editor into a hex editor in combination with the `vipe` command (a thin wrapper provided in [moreutils](https://joeyh.name/code/moreutils/) that inserts a command-line editor like vim into the stream; Example 3).
+Since hexdump and patch are in the same format, you can edit binary files by modifying the output of nd and feeding it to the original file via the `--patch` option. nd also has an option to do it at once, `--patch-back`, that passes the output to the stdin of an external command and receives its stdout as a patch to the original file. This option turns any text editor into a hex editor in combination with the `vipe` command (a thin wrapper provided in [moreutils](https://joeyh.name/code/moreutils/) that inserts a command-line editor like vim into a stream; Example 3).
 
 ```console
 $ EDITOR=vim nd --inplace --patch-back=vipe quick.txt
@@ -227,14 +227,7 @@ $ nd --find "66 6f 78" quick.txt
 
 #### -k, --walk EXPR[,EXPR,...]
 
-It evaluates `EXPR ` to obtain a length and cuts the stream at that length into a slice and the stream remainder. When it receives multiple expressions, it evaluates them first and then repeats cutting for the number of expressions. It aborts the operation when the evaluated length is less than or equal to 0. The expressions are evaluated by the expression evaluation engine with the following variables supplied:
-
-* `b`: an `i8`-casted array view over the stream.
-* `h`: an `i16`-casted array view over the stream.
-* `i`: an `i32`-casted array view over the stream.
-* `l`: an `i64`-casted array view over the stream.
-
-The elements are accessed in little endian for the `h`, `i`, and `l` variables. If you need an unsigned value, use a broader type and extract the lower unsigned part with shift and bitwise AND operations.
+It evaluates `EXPR ` to obtain a length and cuts the stream at that length into a slice and the stream remainder. When it receives multiple expressions, it evaluates them first and then repeats cutting for the number of expressions. It aborts the operation when the evaluated length is less than or equal to 0. The expressions are evaluated by the expression evaluation engine with four variables, `b`, `h`, `i`, and `l`, supplied. These variables are array views over the stream, with the original byte array being cast to `i8`, `i16`, `i32`, and `i64`, respectively. The elements are accessed in little endian for the `h`, `i`, and `l` variables. If you need an unsigned value, use a broader type and extract the lower unsigned part with shift and bitwise AND operations.
 
 ```console
 $ nd walk.bin
@@ -521,7 +514,7 @@ It feeds the stdout of nd to `CMD`.
 
 ## Expression evaluation engine
 
-nd has an engine that evaluates an expression with variables to a 64-bit signed integer. It is used to evaluate expressions supplied as arguments of an option, denoted by a placeholder such as `N`, `M`, `S..E`, and `EXPR`.
+nd has an engine that evaluates an expression with variables to a 64-bit signed integer. It is used to evaluate expressions supplied as arguments of an option, denoted by placeholders such as `N`, `M`, `S..E`, and `EXPR`.
 
 * All evaluated values of constants, variables, and expressions are in the signed 64bit integer type.
 * It supports C-language-style unary and binary operators. The precedence of the operators and parentheses are the same as the C.
@@ -548,9 +541,9 @@ $ nd --cut "4..e - 20" quick.txt
 
 ## Background
 
-The initial idea of nd was obtained when I worked with the bam format, a widely used file format in bioinformatics next-generation sequencing (NGS) analyses. The bam format is a concatenation of multiple gzip blocks, each containing a small number of "sequence alignments" that represent a correspondence between two DNA sequences. As a single NGS sample (e.g., a sufficient amount to reconstruct a human genome) consists of several hundred or thousand million DNA fragments, the entire bam file sometimes gets hundreds of gigabytes.
+The initial idea of nd was obtained when I worked with the bam format, a widely used file format in bioinformatics next-generation sequencing (NGS) analyses. The bam format is a concatenation of multiple gzip blocks, each containing a small number of "sequence alignments" that represent a correspondence between two DNA sequences. As a single NGS sample (e.g., a sufficient amount to reconstruct a human genome) consists of several hundred or thousand million DNA fragments and their alignments, the entire bam file sometimes gets hundreds of gigabytes.
 
-Working with large bam files is quite a job, especially when it involves debugging programs or repairing broken bam files. For example, it's not rare to see a segmentation fault in an alignment processing routine caused by a weird sequence pattern or an unexpected file corruption due to a bit-flipping error during transfer. As the program takes over hours or days to process such a large file, it will inevitably take a long time to locate the error by running the same program with the same input (whether using gdb or relying on printf).
+Working with large bam files is quite a job, especially when it involves debugging programs or repairing broken bam files. For example, it's not rare to see a segmentation fault in an alignment processing routine caused by a weird sequence pattern or unexpected file corruption due to a bit-flipping error during transfer. As the program takes over hours or days to process such a large file, it will inevitably take a long time to locate the error by running the same program with the same input (whether using gdb or relying on printf).
 
 In most of these cases, it was practical to infer the location that caused the error from the evidence around and strip the "bad" gzip blocks away before re-running the program. Since a bam file is a concatenation of independent gzip blocks, a re-concatenation of the blocks without specific blocks is also a valid bam file. Once I removed the blocks that caused the error, I could run the analysis pipeline to the end to see roughly if the script is sane and will produce an expected result. Also, the extracted blocks helped debug the program as they can be used as a small input to reproduce the segmentation fault in a few seconds.
 
