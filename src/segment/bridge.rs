@@ -62,8 +62,7 @@ impl BridgeStream {
             return;
         }
 
-        let last_end = self.last_end as isize;
-        let phantom = [last_end, last_end + 1];
+        let phantom = [self.last_end, self.last_end + 1];
 
         let eval_phantom = |m: &SegmentMapper| {
             let (start, end) = m.evaluate(&phantom, &phantom);

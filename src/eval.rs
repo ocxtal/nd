@@ -630,7 +630,7 @@ fn sort_tokens(tokens: &mut [(Token, usize)]) -> Option<(bool, usize)> {
         let rank = |t: &Token| -> usize {
             match t {
                 Op(x) => *x as usize,
-                Var(x, _) => (*x as usize + 1) << 8,
+                Var(x, _) => (*x + 1) << 8,
                 Prefix(x) => (*x as usize) << 24,
                 Val(_) => 0xffffffff,
                 _ => 0,
