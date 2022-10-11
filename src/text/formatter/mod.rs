@@ -24,7 +24,9 @@ fn format_hex(offset: usize, min_width: usize, stream: &[u8], segments: &[Segmen
     // TODO: unroll the loop
     for s in segments {
         let src = &stream[s.as_range()];
-        let reserve = 8 * ((s.len + 15) & !15) + 8 * 32;
+
+        let len = std::cmp::max(min_width, s.len);
+        let reserve = 4 * ((len + 15) & !15) + 8 * 32;
 
         buf.fill_uninit(reserve, |dst: &mut [u8]| {
             let offset = offset + s.pos;
