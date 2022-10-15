@@ -80,6 +80,23 @@ I'll compare several aspects of nd with existing tools, such as hex dumps, hex e
 * nd doesn't parse executables or disassemble instructions, unlike [Binary Ninja](https://binary.ninja/), [Hextor](https://github.com/digitalw0lf/hextor), [Hiew](https://www.hiew.ru/), [ImHex](https://github.com/WerWolv/ImHex), [JDisassembly](https://github.com/Recoskie/JDisassembly), [PE Tools](https://github.com/petoolse/petools), [Radare2](https://github.com/radareorg/radare2), and [Rizin](https://rizin.re/).
 * nd is equivalent to [VCDIFF](https://datatracker.ietf.org/doc/html/rfc3284) processors like [xdelta](https://github.com/jmacd/xdelta) and other diff-and-patch tools like [bspatch](http://www.daemonology.net/bsdiff/), [rdiff](https://github.com/librsync/librsync), and [UNIX cmp](https://en.wikipedia.org/wiki/Cmp_(Unix)) in that it patches binary files. nd processes a human-readable patch format, while these tools handle diffs and patches only in binary forms.
 
+## Installation
+
+nd is yet in the early stage of development, so it's not published anywhere. Please install it directly from this repository if you want to try it.
+
+```console
+$ cargo install --git https://github.com/ocxtal/nd.git
+```
+
+### Supported platforms
+
+It's tested with the latest Ubuntu Linux for {x86\_64, aarch64} x {stable, nightly} for now. The minimum supported Rust version for the stable toolchain is:
+
+```console
+$ cargo msrv --output-format=minimal
+1.60.0
+```
+
 ## Options and pipeline structure
 
 nd is implemented as a pipeline that processes binary streams. Options of nd control what path the binary stream goes through and how it is processed in the nodes in the pipeline (Figure 1).
@@ -539,22 +556,22 @@ $ nd --cut "4..e - 20" quick.txt
 000000000010 0005 | 6a 75 6d 70 73                                  | jumps           
 ```
 
-## Installation
+## Benchmarks
 
-nd is yet in the early stage of development, so it's not published in crates.io. Please install it directly from this repository if you want to try it.
+I measured the throughput of hexdump and its reverse for nd and several existing programs. The left and right panes show the results on Ryzen 3700X running Arch Linux (1-core load; 4.2GHz) and Apple M1 running Arch Linux ARM (1-core load; 3.2GHz) for each benchmark, respectively. nd was compiled with rustc 1.64.0 (a55dd71d5 2022-09-19) with `--release` to enable basic optimization and `RUSTFLAGS="-C target-cpu=native"` to enable vectorized formatting and parsing routines. The other programs are installed the latest build as of 2022/10/13 with pacman.
 
-```console
-$ cargo install --git https://github.com/ocxtal/nd.git
-```
+<p align="center">
+	<img src = "./results/ryzen_3700x/format.png" width="45%">
+	<img src = "./results/apple_m1/format.png" width="45%">
+</p>
+*Figure 2. The throughput of formatting binary to hex in input MB/s for the different number of elements per line between 2 and 65536. I used a 256MB blob created from `/dev/urandom` for all points (left: Ryzen 3700X 4.2GHz; right: Apple M1 3.2GHz).*
 
-### Supported platforms
+<p align="center">
+  <img src = "./results/ryzen_3700x/parse.png" width="45%">
+  <img src = "./results/apple_m1/parse.png" width="45%">
+</p>
+*Figure 3. The throughput of parsing hex to binary in output MB/s for the different number of elements per line between 2 and 65536. I used a hexdump created from a 256MB stream sampled from `/dev/urandom` for all points (left: Ryzen 3700X 4.2GHz; right: Apple M1 3.2GHz).*
 
-It's tested with the latest Ubuntu Linux for {x86\_64, aarch64} x {stable, nightly} for now. The minimum supported Rust version for the stable toolchain is:
-
-```console
-$ cargo msrv --output-format=minimal
-1.60.0
-```
 
 ## Background
 
