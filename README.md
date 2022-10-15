@@ -565,14 +565,14 @@ I measured the throughput of hexdump and its reverse for nd and several existing
 	<img src = "./results/apple_m1/format.png" width="45%">
 </p>
 
-*Figure 2. The throughput of formatting binary to hex in input MB/s for the different number of elements per line between 2 and 65536. I used a 256MB blob created from `/dev/urandom` for all points (left: Ryzen 3700X 4.2GHz; right: Apple M1 3.2GHz).*
+*Figure 2. The throughput of formatting binary to hex in input MB/s for the different number of elements per line between 2 and 65536 (left: Ryzen 3700X 4.2GHz; right: Apple M1 3.2GHz). I used a 256MB blob created from `/dev/urandom` for all points.*
 
 <p align="center">
   <img src = "./results/ryzen_3700x/parse.png" width="45%">
   <img src = "./results/apple_m1/parse.png" width="45%">
 </p>
 
-*Figure 3. The throughput of parsing hex to binary in output MB/s for the different number of elements per line between 2 and 65536. I used a hexdump created from a 256MB stream sampled from `/dev/urandom` for all points (left: Ryzen 3700X 4.2GHz; right: Apple M1 3.2GHz).*
+*Figure 3. The throughput of parsing hex to binary in output MB/s for the different number of elements per line between 2 and 65536 (left: Ryzen 3700X 4.2GHz; right: Apple M1 3.2GHz). I used a hexdump created from a 256MB stream sampled from `/dev/urandom` for all points.*
 
 
 ## Background
