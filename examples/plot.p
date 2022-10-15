@@ -21,4 +21,4 @@ set output "results/parse.png"
 set logscale x; set xrange [1:100000]; set xlabel "width (B/line)"
 set logscale y; set yrange [1:10000]; set ylabel "throughput (MB/s)"
 
-plot for [i = 2:5] "results/parse.tsv" using 1:i with linespoint
+plot for [i = 2:3] "results/parse.tsv" using 1:i with linespoint
