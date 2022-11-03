@@ -188,7 +188,7 @@ impl SegmentStream for FilterStream {
         };
 
         eprintln!("{:?}", &self.segments);
-        let is_eof = is_eof || self.cutter.is_empty();
+        // let is_eof = is_eof || self.cutter.is_empty();
         Ok((is_eof, bytes, self.segments.len(), self.max_consume))
     }
 
@@ -439,21 +439,21 @@ test_long2!(test_filter_long2_random_len, test_segment_random_len);
 test_long2!(test_filter_long2_occasional_consume, test_segment_occasional_consume);
 
 #[cfg(test)]
-fn format_segments(segments: &[Segment], tail: usize, anchors: impl FnMut(usize) -> (usize, usize)) -> String {
+fn format_segments(spans: &[(usize, usize)], tail: usize, anchors: impl FnMut(usize) -> (usize, usize)) -> String {
     let mut anchors = anchors;
 
     let mut exprs = String::new();
-    for &s in segments {
+    for &(pos, len) in spans {
         // gen anchors and format string
         let mut push = |anchor: usize| match anchor {
-            0 => exprs.push_str(&format!("s+{}..s+{},", s.pos, s.tail())),
-            1 => exprs.push_str(&format!("s+{}..e-{},", s.pos, tail - s.tail())),
-            2 => exprs.push_str(&format!("e-{}..s+{},", tail - s.pos, s.tail())),
-            3 => exprs.push_str(&format!("e-{}..e-{},", tail - s.pos, tail - s.tail())),
+            0 => exprs.push_str(&format!("s+{}..s+{},", pos, pos + len)),
+            1 => exprs.push_str(&format!("s+{}..e-{},", pos, tail - pos - len)),
+            2 => exprs.push_str(&format!("e-{}..s+{},", tail - pos, pos + len)),
+            3 => exprs.push_str(&format!("e-{}..e-{},", tail - pos, tail - pos - len)),
             _ => {},
         };
 
-        let (a1, a2) = anchors(s.pos);
+        let (a1, a2) = anchors(pos);
         push(a1);
         push(a2);
     }
@@ -479,18 +479,7 @@ fn gen_range(pitch: usize, len: usize, count: usize) -> (String, Vec<Segment>) {
     spans.sort();
     spans.dedup();
 
-    // convert spans to segments
-    let mut segments = Vec::new();
-    for &(pos, len) in &spans {
-        for i in pos..pos + len {
-            segments.push(Segment {
-                pos: i * pitch,
-                len: pitch,
-            });
-        }
-    }
-
-    // format segments to expressions
+    // format spans to expressions
     let gen_anchors = |pos: usize| -> (usize, usize) {
         let anchor_range = if pos < tail / 2 { 1 } else { 4 };
         let a1 = rng.gen_range(0..anchor_range);
@@ -502,9 +491,18 @@ fn gen_range(pitch: usize, len: usize, count: usize) -> (String, Vec<Segment>) {
         let a2 = rng.gen_range(0..anchor_range);
         (a1, a2)
     };
-    let exprs = format_segments(&segments, tail, gen_anchors);
+    let exprs = format_segments(&spans, tail, gen_anchors);
 
-    // sort and dedup segments *after* formatting expressions, to test the stream can dedup them
+    // convert spans to segments
+    let mut segments = Vec::new();
+    for &(pos, len) in &spans {
+        for i in pos..pos + len {
+            segments.push(Segment {
+                pos: i * pitch,
+                len: pitch,
+            });
+        }
+    }
     segments.sort_by_key(|x| (x.pos, x.len));
     segments.dedup();
 
