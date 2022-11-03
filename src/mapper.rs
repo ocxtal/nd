@@ -195,6 +195,7 @@ impl RangeMapper {
     pub fn trans_offset(&self) -> usize {
         match (self.start, self.end) {
             (StartAnchored(x), EndAnchored(_)) => x,
+            (EndAnchored(_), StartAnchored(x)) => x - 1,
             _ => usize::MAX,
         }
     }
