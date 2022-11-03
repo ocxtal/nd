@@ -40,8 +40,6 @@ impl Cutter {
         let pass_after = tail_filters.iter().map(|x| x.trans_offset()).min().unwrap_or(usize::MAX);
         let tail_margin = tail_filters.iter().map(|x| x.tail_margin()).max().unwrap_or(0);
 
-        eprintln!("pass_after({}), tail_margin({})", pass_after, tail_margin);
-
         Ok(Cutter {
             filters,
             tail_filters,
@@ -137,15 +135,14 @@ impl ByteStream for CutStream {
                 return Ok(true);
             }
 
-            // let prev_len = buf.len();
+            let prev_len = buf.len();
             let stream = self.src.as_slice();
             self.cutter.accumulate(self.src_consumed, is_eof, bytes, stream, buf)?;
 
             self.src.consume(bytes);
             self.src_consumed += bytes;
 
-            // Ok(!is_eof && buf.len() == prev_len)
-            Ok(false)
+            Ok(!is_eof && buf.len() == prev_len)
         })
     }
 
