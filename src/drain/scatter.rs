@@ -138,7 +138,7 @@ impl ScatterDrain {
             self.offset += bytes;
             self.lines += count;
 
-            Ok(false)
+            Ok(!is_eof && count == 0)
         })
     }
 

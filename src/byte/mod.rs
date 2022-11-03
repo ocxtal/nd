@@ -205,6 +205,7 @@ pub mod tester {
 
     // re-exported
     pub use super::mock::MockSource;
+    pub use super::raw::RawStream;
     pub use super::{test_stream_all_at_once, test_stream_random_consume, test_stream_random_len, ByteStream};
 }
 
