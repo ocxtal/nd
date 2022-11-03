@@ -158,12 +158,10 @@ impl SegmentStream for FilterStream {
         self.src_scanned = scanned;
         self.max_consume = if is_eof {
             bytes
+        } else if scanned >= segments.len() {
+            max_consume
         } else {
-            if scanned >= segments.len() {
-                max_consume
-            } else {
-                std::cmp::min(segments[scanned].pos, max_consume)
-            }
+            std::cmp::min(segments[scanned].pos, max_consume)
         };
 
         let is_eof = is_eof || self.cutter.is_empty();
