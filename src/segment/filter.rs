@@ -424,31 +424,42 @@ test_long!(test_filter_long_occasional_consume, test_segment_occasional_consume)
 
 #[cfg(test)]
 macro_rules! test_inf_impl {
-    ( $inner: ident, $pitch: expr, $len: expr, $span: expr ) => {
+    ( $pitch: expr, $span: expr, $expected: expr ) => {
         let exprs = format_spans($span, usize::MAX, |_| (0, 4));
-        let segments = spans_to_segments($span, $pitch);
 
-        let v = vec![0; $len];
+        let src = Box::new(std::fs::File::open("/dev/zero").unwrap());
+        let src = Box::new(RawStream::new(src, 1, 0));
+        let src = Box::new(ConstSlicer::from_raw(src, (0, 0), (false, false), $pitch, $pitch));
+        let mut src = Box::new(FilterStream::new(src, &exprs).unwrap());
 
-        let bind = |x: &[u8]| -> Box<dyn SegmentStream> {
-            let stream = Box::new(MockSource::new(x));
-            let stream = Box::new(ConstSlicer::from_raw(stream, (0, 0), (false, false), $pitch, $pitch));
-            Box::new(FilterStream::new(stream, &exprs).unwrap())
-        };
-        $inner(&v, &bind, &segments);
-    };
-}
+        let mut scanned = 0;
+        let mut v = Vec::new();
+        loop {
+            let (is_eof, bytes, count, _) = src.fill_segment_buf().unwrap();
+            if is_eof && count == 0 {
+                break;
+            }
 
-macro_rules! test_inf {
-    ( $name: ident, $inner: ident ) => {
-        #[test]
-        fn $name() {
-            test_inf_impl!($inner, 4, 10000000, &[(100, 104)]);
-            test_inf_impl!($inner, 4, 10000000, &[(1000000, 1000004)]);
+            let (stream, segments) = src.as_slices();
+            for s in &segments[scanned..count] {
+                v.extend_from_slice(&stream[s.as_range()]);
+            }
+            scanned = count;
+
+            let (_, count) = src.consume(bytes).unwrap();
+            scanned -= count;
         }
+
+        assert_eq!(v.len(), $expected);
     };
 }
 
-test_inf!(test_filter_inf_all_at_once, test_segment_all_at_once);
+#[test]
+fn test_filter_inf() {
+    test_inf_impl!(4, &[(0, 4)], 16);
+    test_inf_impl!(4, &[(100, 4)], 16);
+    test_inf_impl!(4, &[(10000, 4)], 16);
+    test_inf_impl!(4, &[(1000000, 4)], 16);
+}
 
 // end of filter.rs
