@@ -13,7 +13,7 @@ use crate::byte::tester::*;
 use super::tester::*;
 
 #[cfg(test)]
-use super::{ConstSlicer, GuidedSlicer};
+use super::ConstSlicer;
 
 #[cfg(test)]
 use rand::Rng;
@@ -45,20 +45,12 @@ impl Cutter {
         let trans_offset = tail_filters.iter().map(|x| x.trans_offset()).min().unwrap_or(usize::MAX);
         let tail_margin = tail_filters.iter().map(|x| x.tail_margin()).max().unwrap_or(0);
 
-        eprintln!("trans_offset({}), tail_margin({})", trans_offset, tail_margin);
-
         Ok(Cutter {
             filters,
             tail_filters,
             trans_offset,
             tail_margin,
         })
-    }
-
-    fn max_consume(&self, count: usize) -> usize {
-        // note: maximum #segments that can be consumed on the current segment substream
-        // (not the #bytes on the byte substream)
-        std::cmp::min(self.trans_offset, count.saturating_sub(self.tail_margin))
     }
 
     fn is_empty(&self) -> bool {
@@ -95,10 +87,6 @@ impl Cutter {
             let clip = self.trans_offset.saturating_sub(offset);
             std::cmp::min(count, clip)
         };
-        eprintln!(
-            "trans_offset({}), count({}), scan_upto({}), offset({})",
-            self.trans_offset, count, scan_upto, offset
-        );
 
         let mut last_scanned = scanned;
         while let Some(filter) = self.filters.pop() {
@@ -125,16 +113,13 @@ impl Cutter {
             }
         }
 
-        // let trans_offset = std::cmp::max(trans_offset, last_scanned);
-        // if trans_offset < count {
-        //     v.extend_from_slice(&segments[trans_offset..count]);
-        // }
         if is_eof {
             v.sort_by_key(|x| (x.pos, x.len));
             v.dedup();
         }
 
-        Ok(scan_upto)
+        let scanned = std::cmp::max(scan_upto, scanned);
+        Ok(scanned)
     }
 }
 
@@ -163,17 +148,11 @@ impl FilterStream {
 impl SegmentStream for FilterStream {
     fn fill_segment_buf(&mut self) -> Result<(bool, usize, usize, usize)> {
         let (is_eof, bytes, count, max_consume) = self.src.fill_segment_buf()?;
-        eprintln!(
-            "is_eof({}), bytes({}), count({}), max_consume({}), scanned({}), consumed({})",
-            is_eof, bytes, count, max_consume, self.src_scanned, self.src_consumed
-        );
-
         let (_, segments) = self.src.as_slices();
 
-        eprintln!("{:?}", &self.segments);
-
         // scan the range filters
-        let scanned = self.cutter
+        let scanned = self
+            .cutter
             .accumulate(self.src_scanned, self.src_consumed, is_eof, count, segments, &mut self.segments)?;
 
         self.src_scanned = scanned;
@@ -187,8 +166,7 @@ impl SegmentStream for FilterStream {
             }
         };
 
-        eprintln!("{:?}", &self.segments);
-        // let is_eof = is_eof || self.cutter.is_empty();
+        let is_eof = is_eof || self.cutter.is_empty();
         Ok((is_eof, bytes, self.segments.len(), self.max_consume))
     }
 
@@ -203,8 +181,6 @@ impl SegmentStream for FilterStream {
         self.src_scanned -= src_count;
         self.src_consumed += src_count;
 
-        eprintln!("bytes({}), max_consume({}), src_count({})", bytes, self.max_consume, src_count);
-
         let from = self.segments.partition_point(|x| x.pos < bytes);
         let to = self.segments.len();
 
@@ -215,8 +191,6 @@ impl SegmentStream for FilterStream {
             s.pos -= bytes;
         }
         self.max_consume -= bytes;
-
-        eprintln!("bytes({}), from({}), to({})", bytes, from, to);
 
         Ok((bytes, from))
     }
@@ -326,120 +300,7 @@ test!(test_filter_random_len, test_segment_random_len);
 test!(test_filter_occasional_consume, test_segment_occasional_consume);
 
 #[cfg(test)]
-fn gen_range2(len: usize, count: usize) -> (Vec<u8>, String, Vec<Segment>) {
-    let mut rng = rand::thread_rng();
-
-    // first generate random slices
-    let mut offset = 0;
-    let mut v = Vec::new();
-
-    while v.len() < count {
-        let fwd = rng.gen_range(0..std::cmp::min(1024, (len + 1) / 2));
-        let len = rng.gen_range(0..std::cmp::min(1024, (len + 1) / 2));
-
-        offset += fwd;
-        if offset >= len {
-            break;
-        }
-
-        v.push(Segment {
-            pos: offset,
-            len: std::cmp::min(len, len - offset),
-        });
-    }
-
-    v.sort_by_key(|x| (x.pos, x.len));
-    v.dedup();
-
-    let mut s = Vec::new();
-    for x in &v {
-        s.extend_from_slice(format!("{:x} {:x} | \n", x.pos, x.len).as_bytes());
-    }
-
-    // pick up slices
-    let mut t = String::new();
-    let mut w = Vec::new();
-
-    if v.is_empty() {
-        return (s, t, w);
-    }
-
-    for _ in 0..v.len() / 10 {
-        let pos1 = rng.gen_range(0..v.len());
-        let pos2 = rng.gen_range(0..v.len());
-        if pos1 == pos2 {
-            continue;
-        }
-
-        let (start, end) = if pos1 < pos2 { (pos1, pos2) } else { (pos2, pos1) };
-        w.extend_from_slice(&v[start..end]);
-        let anchor_range = if start < v.len() / 2 { 1 } else { 4 };
-
-        // gen anchors and format string
-        let dup = rng.gen_range(0..10) == 0;
-        let mut push = || match rng.gen_range(0..anchor_range) {
-            0 => t.push_str(&format!("s+{}..s+{},", start, end)),
-            1 => t.push_str(&format!("s+{}..e-{},", start, v.len() - end)),
-            2 => t.push_str(&format!("e-{}..s+{},", v.len() - start, end)),
-            _ => t.push_str(&format!("e-{}..e-{},", v.len() - start, v.len() - end)),
-        };
-
-        push();
-        if dup {
-            push();
-        }
-    }
-
-    w.sort_by_key(|x| (x.pos, x.len));
-    w.dedup();
-
-    (s, t, w)
-}
-
-#[cfg(test)]
-macro_rules! test_long_impl2 {
-    ( $inner: ident, $len: expr, $count: expr ) => {
-        let mut rng = rand::thread_rng();
-        let v = (0..$len).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
-        let (guide, exprs, segments) = gen_range2($len, $count);
-
-        let bind = |x: &[u8]| -> Box<dyn SegmentStream> {
-            let stream = Box::new(MockSource::new(x));
-            let guide = Box::new(MockSource::new(&guide));
-            let stream = Box::new(GuidedSlicer::new(stream, guide));
-            Box::new(FilterStream::new(stream, &exprs).unwrap())
-        };
-        $inner(&v, &bind, &segments);
-    };
-}
-
-macro_rules! test_long2 {
-    ( $name: ident, $inner: ident ) => {
-        #[test]
-        fn $name() {
-            test_long_impl2!($inner, 0, 0);
-            test_long_impl2!($inner, 10, 0);
-            test_long_impl2!($inner, 10, 1);
-
-            test_long_impl2!($inner, 1000, 0);
-            test_long_impl2!($inner, 1000, 100);
-
-            // try longer, multiple times
-            test_long_impl2!($inner, 100000, 1000);
-            test_long_impl2!($inner, 100000, 1000);
-            test_long_impl2!($inner, 100000, 1000);
-            test_long_impl2!($inner, 100000, 1000);
-            test_long_impl2!($inner, 100000, 1000);
-        }
-    };
-}
-
-test_long2!(test_filter_long2_all_at_once, test_segment_all_at_once);
-test_long2!(test_filter_long2_random_len, test_segment_random_len);
-test_long2!(test_filter_long2_occasional_consume, test_segment_occasional_consume);
-
-#[cfg(test)]
-fn format_segments(spans: &[(usize, usize)], tail: usize, anchors: impl FnMut(usize) -> (usize, usize)) -> String {
+fn format_spans(spans: &[(usize, usize)], tail: usize, anchors: impl FnMut(usize) -> (usize, usize)) -> String {
     let mut anchors = anchors;
 
     let mut exprs = String::new();
@@ -450,7 +311,7 @@ fn format_segments(spans: &[(usize, usize)], tail: usize, anchors: impl FnMut(us
             1 => exprs.push_str(&format!("s+{}..e-{},", pos, tail - pos - len)),
             2 => exprs.push_str(&format!("e-{}..s+{},", tail - pos, pos + len)),
             3 => exprs.push_str(&format!("e-{}..e-{},", tail - pos, tail - pos - len)),
-            _ => {},
+            _ => {}
         };
 
         let (a1, a2) = anchors(pos);
@@ -459,6 +320,24 @@ fn format_segments(spans: &[(usize, usize)], tail: usize, anchors: impl FnMut(us
     }
 
     exprs
+}
+
+#[cfg(test)]
+fn spans_to_segments(spans: &[(usize, usize)], pitch: usize) -> Vec<Segment> {
+    let mut segments = Vec::new();
+    for &(pos, len) in spans {
+        for i in pos..pos + len {
+            segments.push(Segment {
+                pos: i * pitch,
+                len: pitch,
+            });
+        }
+    }
+
+    segments.sort_by_key(|x| (x.pos, x.len));
+    segments.dedup();
+
+    segments
 }
 
 #[cfg(test)]
@@ -476,6 +355,10 @@ fn gen_range(pitch: usize, len: usize, count: usize) -> (String, Vec<Segment>) {
         let len = std::cmp::min(pos + len, tail) - pos;
         spans.push((pos, len));
     }
+    if tail > 0 {
+        spans.push((tail - 1, 1));
+    }
+
     spans.sort();
     spans.dedup();
 
@@ -491,23 +374,10 @@ fn gen_range(pitch: usize, len: usize, count: usize) -> (String, Vec<Segment>) {
         let a2 = rng.gen_range(0..anchor_range);
         (a1, a2)
     };
-    let exprs = format_segments(&spans, tail, gen_anchors);
+    let exprs = format_spans(&spans, tail, gen_anchors);
 
     // convert spans to segments
-    let mut segments = Vec::new();
-    for &(pos, len) in &spans {
-        for i in pos..pos + len {
-            segments.push(Segment {
-                pos: i * pitch,
-                len: pitch,
-            });
-        }
-    }
-    segments.sort_by_key(|x| (x.pos, x.len));
-    segments.dedup();
-
-    eprintln!("{:?}", exprs);
-    eprintln!("{:?}", segments);
+    let segments = spans_to_segments(&spans, pitch);
 
     (exprs, segments)
 }
@@ -552,13 +422,16 @@ test_long!(test_filter_long_all_at_once, test_segment_all_at_once);
 test_long!(test_filter_long_random_len, test_segment_random_len);
 test_long!(test_filter_long_occasional_consume, test_segment_occasional_consume);
 
-
 #[cfg(test)]
 macro_rules! test_inf_impl {
-    ( $inner: ident, $pitch: expr, $span: expr ) => {
+    ( $inner: ident, $pitch: expr, $len: expr, $span: expr ) => {
+        let exprs = format_spans($span, usize::MAX, |_| (0, 4));
+        let segments = spans_to_segments($span, $pitch);
+
+        let v = vec![0; $len];
+
         let bind = |x: &[u8]| -> Box<dyn SegmentStream> {
-            let stream = Box::new(std::fs::File::open(path).unwrap());
-            let stream = Box::new(RawStream::new(stream, 1, 0));
+            let stream = Box::new(MockSource::new(x));
             let stream = Box::new(ConstSlicer::from_raw(stream, (0, 0), (false, false), $pitch, $pitch));
             Box::new(FilterStream::new(stream, &exprs).unwrap())
         };
@@ -566,5 +439,16 @@ macro_rules! test_inf_impl {
     };
 }
 
+macro_rules! test_inf {
+    ( $name: ident, $inner: ident ) => {
+        #[test]
+        fn $name() {
+            test_inf_impl!($inner, 4, 10000000, &[(100, 104)]);
+            test_inf_impl!($inner, 4, 10000000, &[(1000000, 1000004)]);
+        }
+    };
+}
+
+test_inf!(test_filter_inf_all_at_once, test_segment_all_at_once);
 
 // end of filter.rs
