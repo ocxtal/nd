@@ -439,10 +439,33 @@ test_long2!(test_filter_long2_random_len, test_segment_random_len);
 test_long2!(test_filter_long2_occasional_consume, test_segment_occasional_consume);
 
 #[cfg(test)]
+fn format_segments(segments: &[Segment], tail: usize, anchors: impl FnMut(usize) -> (usize, usize)) -> String {
+    let mut anchors = anchors;
+
+    let mut exprs = String::new();
+    for &s in segments {
+        // gen anchors and format string
+        let mut push = |anchor: usize| match anchor {
+            0 => exprs.push_str(&format!("s+{}..s+{},", s.pos, s.tail())),
+            1 => exprs.push_str(&format!("s+{}..e-{},", s.pos, tail - s.tail())),
+            2 => exprs.push_str(&format!("e-{}..s+{},", tail - s.pos, s.tail())),
+            3 => exprs.push_str(&format!("e-{}..e-{},", tail - s.pos, tail - s.tail())),
+            _ => {},
+        };
+
+        let (a1, a2) = anchors(s.pos);
+        push(a1);
+        push(a2);
+    }
+
+    exprs
+}
+
+#[cfg(test)]
 fn gen_range(pitch: usize, len: usize, count: usize) -> (String, Vec<Segment>) {
     let mut rng = rand::thread_rng();
 
-    // pick up segments
+    // generate spans
     let tail = len / pitch;
     let mut spans: Vec<(usize, usize)> = Vec::new();
 
@@ -456,8 +479,8 @@ fn gen_range(pitch: usize, len: usize, count: usize) -> (String, Vec<Segment>) {
     spans.sort();
     spans.dedup();
 
+    // convert spans to segments
     let mut segments = Vec::new();
-    let mut exprs = String::new();
     for &(pos, len) in &spans {
         for i in pos..pos + len {
             segments.push(Segment {
@@ -465,24 +488,23 @@ fn gen_range(pitch: usize, len: usize, count: usize) -> (String, Vec<Segment>) {
                 len: pitch,
             });
         }
-
-        // gen anchors and format string
-        let dup = rng.gen_range(0..10) == 0;
-        let anchor_range = if pos < tail / 2 { 1 } else { 4 };
-
-        let mut push = || match rng.gen_range(0..anchor_range) {
-            0 => exprs.push_str(&format!("s+{}..s+{},", pos, pos + len)),
-            1 => exprs.push_str(&format!("s+{}..e-{},", pos, tail - pos - len)),
-            2 => exprs.push_str(&format!("e-{}..s+{},", tail - pos, pos + len)),
-            _ => exprs.push_str(&format!("e-{}..e-{},", tail - pos, tail - pos - len)),
-        };
-
-        push();
-        if dup {
-            push();
-        }
     }
 
+    // format segments to expressions
+    let gen_anchors = |pos: usize| -> (usize, usize) {
+        let anchor_range = if pos < tail / 2 { 1 } else { 4 };
+        let a1 = rng.gen_range(0..anchor_range);
+
+        if rng.gen_range(0..10) != 0 {
+            return (a1, 4);
+        }
+
+        let a2 = rng.gen_range(0..anchor_range);
+        (a1, a2)
+    };
+    let exprs = format_segments(&segments, tail, gen_anchors);
+
+    // sort and dedup segments *after* formatting expressions, to test the stream can dedup them
     segments.sort_by_key(|x| (x.pos, x.len));
     segments.dedup();
 
@@ -531,5 +553,20 @@ macro_rules! test_long {
 test_long!(test_filter_long_all_at_once, test_segment_all_at_once);
 test_long!(test_filter_long_random_len, test_segment_random_len);
 test_long!(test_filter_long_occasional_consume, test_segment_occasional_consume);
+
+
+#[cfg(test)]
+macro_rules! test_inf_impl {
+    ( $inner: ident, $pitch: expr, $span: expr ) => {
+        let bind = |x: &[u8]| -> Box<dyn SegmentStream> {
+            let stream = Box::new(std::fs::File::open(path).unwrap());
+            let stream = Box::new(RawStream::new(stream, 1, 0));
+            let stream = Box::new(ConstSlicer::from_raw(stream, (0, 0), (false, false), $pitch, $pitch));
+            Box::new(FilterStream::new(stream, &exprs).unwrap())
+        };
+        $inner(&v, &bind, &segments);
+    };
+}
+
 
 // end of filter.rs
