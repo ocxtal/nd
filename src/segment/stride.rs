@@ -3,7 +3,7 @@
 // @brief constant-stride slicer
 
 use super::{Segment, SegmentStream};
-use crate::byte::{ByteStream, EofStream};
+use crate::byte::ByteStream;
 use crate::mapper::SegmentMapper;
 use anyhow::{anyhow, Result};
 
@@ -111,9 +111,8 @@ struct Phase {
 }
 
 struct ConstSegments {
-    segments: Vec<Segment>, // precalculated segment array
-    init_state: InitState,  // (phase_offset, min_bytes_to_escape)
-    phase: Phase,           // (curr_phase, prev_phase)
+    init_state: InitState, // (phase_offset, min_bytes_to_escape)
+    phase: Phase,          // (curr_phase, prev_phase)
     is_eof: bool,
     in_lend: (usize, usize), // (len, count)
     tail_offset_margin: usize,
@@ -121,6 +120,8 @@ struct ConstSegments {
     open_ended: (bool, bool),
     pitch: usize,
     span: usize,
+
+    segments: Vec<Segment>, // precalculated segment array
 }
 
 impl ConstSegments {
@@ -328,9 +329,7 @@ impl ConstSegments {
             return self.update_lend_state(next_tail, len, self.segments.len());
         }
 
-        let n_extra = self.count_segments(next_tail.saturating_sub(len));
-        let n_extra = std::cmp::min(self.segments.len(), n_extra);
-
+        let n_extra = self.count_segments(next_tail.saturating_sub(len + self.pitch));
         let next_tail = next_tail - n_extra * self.pitch;
         let count = self.segments.len() - n_extra;
 
@@ -406,7 +405,7 @@ impl ConstSegments {
 }
 
 pub struct ConstSlicer {
-    src: EofStream<Box<dyn ByteStream>>,
+    src: Box<dyn ByteStream>,
     segments: ConstSegments,
 }
 
@@ -420,7 +419,7 @@ impl ConstSlicer {
         assert!(span > 0);
 
         ConstSlicer {
-            src: EofStream::new(src),
+            src,
             segments: ConstSegments::new(margin, open_ended, pitch, span),
         }
     }
