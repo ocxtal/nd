@@ -94,7 +94,7 @@ pub struct ClipStream {
     src: Box<dyn ByteStream>,
     skip: usize,
     rem: usize,
-    strip: usize,   // strip length from the tail
+    strip: usize, // strip length from the tail
 }
 
 impl ClipStream {

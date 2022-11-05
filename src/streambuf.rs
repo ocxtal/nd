@@ -181,17 +181,19 @@ fn test_stream_buf_random_len() {
             let mut acc = 0;
             let mut drain = Vec::new();
             while drain.len() < pattern.len() {
-                let (is_eof, len) = buf.fill_buf(|buf| {
-                    let (_, len) = src.fill_buf().unwrap();
-                    let slice = src.as_slice();
-                    assert!(slice.len() >= len + MARGIN_SIZE);
+                let (is_eof, len) = buf
+                    .fill_buf(|buf| {
+                        let (_, len) = src.fill_buf().unwrap();
+                        let slice = src.as_slice();
+                        assert!(slice.len() >= len + MARGIN_SIZE);
 
-                    buf.extend_from_slice(&slice[..len]);
-                    src.consume(len);
-                    acc += len;
+                        buf.extend_from_slice(&slice[..len]);
+                        src.consume(len);
+                        acc += len;
 
-                    Ok(false)
-                }).unwrap();
+                        Ok(false)
+                    })
+                    .unwrap();
 
                 if is_eof {
                     assert_eq!(drain.len() + len, pattern.len());
@@ -241,17 +243,19 @@ fn test_stream_buf_random_consume() {
             let mut acc = 0;
             let mut drain = Vec::new();
             while drain.len() < pattern.len() {
-                let (_, len) = buf.fill_buf(|buf| {
-                    let (_, len) = src.fill_buf().unwrap();
-                    let slice = src.as_slice();
-                    assert!(slice.len() >= len + MARGIN_SIZE);
+                let (_, len) = buf
+                    .fill_buf(|buf| {
+                        let (_, len) = src.fill_buf().unwrap();
+                        let slice = src.as_slice();
+                        assert!(slice.len() >= len + MARGIN_SIZE);
 
-                    buf.extend_from_slice(&slice[..len]);
-                    src.consume(len);
-                    acc += len;
+                        buf.extend_from_slice(&slice[..len]);
+                        src.consume(len);
+                        acc += len;
 
-                    Ok(false)
-                }).unwrap();
+                        Ok(false)
+                    })
+                    .unwrap();
 
                 if rng.gen::<bool>() {
                     buf.consume(0);
@@ -299,17 +303,19 @@ fn test_stream_buf_all_at_once() {
             let mut acc = 0;
             let mut prev_len = 0;
             loop {
-                let (is_eof, len) = buf.fill_buf(|buf| {
-                    let (_, len) = src.fill_buf().unwrap();
-                    let slice = src.as_slice();
-                    assert!(slice.len() >= len + MARGIN_SIZE);
+                let (is_eof, len) = buf
+                    .fill_buf(|buf| {
+                        let (_, len) = src.fill_buf().unwrap();
+                        let slice = src.as_slice();
+                        assert!(slice.len() >= len + MARGIN_SIZE);
 
-                    buf.extend_from_slice(&slice[..len]);
-                    src.consume(len);
-                    acc += len;
+                        buf.extend_from_slice(&slice[..len]);
+                        src.consume(len);
+                        acc += len;
 
-                    Ok(false)
-                }).unwrap();
+                        Ok(false)
+                    })
+                    .unwrap();
 
                 if is_eof && len == prev_len {
                     break;

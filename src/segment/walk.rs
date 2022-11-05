@@ -21,10 +21,7 @@ struct StreamFeeder {
 
 impl StreamFeeder {
     fn new(src: Box<dyn ByteStream>) -> Self {
-        StreamFeeder {
-            src,
-            last: (false, 0),
-        }
+        StreamFeeder { src, last: (false, 0) }
     }
 
     fn fill_buf(&mut self, request: usize) -> Result<(bool, usize)> {
