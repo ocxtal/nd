@@ -438,9 +438,9 @@ fn test_pipeline() {
 
             let mut buf = StreamBuf::new();
             buf.fill_buf(|buf| {
-                let bytes = stream.fill_buf()?;
+                let (is_eof, bytes) = stream.fill_buf()?;
 
-                if bytes == 0 {
+                if is_eof && bytes == 0 {
                     return Ok(false);
                 }
 

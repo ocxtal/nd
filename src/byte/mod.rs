@@ -36,13 +36,13 @@ use crate::params::{BLOCK_SIZE, MARGIN_SIZE};
 use rand::Rng;
 
 pub trait ByteStream: Send {
-    fn fill_buf(&mut self) -> Result<usize>;
+    fn fill_buf(&mut self) -> Result<(bool, usize)>;
     fn as_slice(&self) -> &[u8];
     fn consume(&mut self, amount: usize);
 }
 
 impl<T: ByteStream + ?Sized> ByteStream for Box<T> {
-    fn fill_buf(&mut self) -> Result<usize> {
+    fn fill_buf(&mut self) -> Result<(bool, usize)> {
         (**self).fill_buf()
     }
 
@@ -55,25 +55,25 @@ impl<T: ByteStream + ?Sized> ByteStream for Box<T> {
     }
 }
 
-// macro_rules! cat {
-//     ( $( $x: expr ),+ ) => {
-//         vec![ $( $x ),+ ].into_iter().flatten().collect::<Vec<u8>>()
-//     };
-// }
-
 // concatenation of random-length chunks
 #[cfg(test)]
 pub fn test_stream_random_len<T>(src: T, expected: &[u8]) -> T
 where
     T: Sized + ByteStream,
 {
+    let expected_len = expected.len();
+
     let mut rng = rand::thread_rng();
     let mut src = src;
     let mut v = Vec::new();
 
     loop {
-        let len = src.fill_buf().unwrap();
-        if len == 0 {
+        let (is_eof, len) = src.fill_buf().unwrap();
+        if is_eof {
+            assert_eq!(v.len() + len, expected_len);
+        }
+
+        if is_eof && len == 0 {
             break;
         }
 
@@ -85,7 +85,7 @@ where
         src.consume(consume);
     }
 
-    assert_eq!(&v, expected);
+    assert_eq!(&v, &expected[..expected_len]);
     src
 }
 
@@ -95,13 +95,20 @@ pub fn test_stream_random_consume<T>(src: T, expected: &[u8]) -> T
 where
     T: Sized + ByteStream,
 {
+    let expected_len = expected.len();
+
     let mut rng = rand::thread_rng();
     let mut src = src;
     let mut v = Vec::new();
 
     loop {
-        let len = src.fill_buf().unwrap();
-        if len == 0 {
+        let (is_eof, len) = src.fill_buf().unwrap();
+        if is_eof {
+            assert_eq!(v.len() + len, expected_len);
+        }
+
+        if is_eof && len == 0 {
+            assert!(is_eof);
             break;
         }
         if rng.gen::<bool>() {
@@ -116,7 +123,7 @@ where
         src.consume((len + 1) / 2);
     }
 
-    assert_eq!(&v, expected);
+    assert_eq!(&v, &expected[..expected_len]);
     src
 }
 
@@ -126,12 +133,19 @@ pub fn test_stream_all_at_once<T>(src: T, expected: &[u8]) -> T
 where
     T: Sized + ByteStream,
 {
+    let expected_len = expected.len();
+
     let mut src = src;
     let mut prev_len = 0;
 
     loop {
-        let len = src.fill_buf().unwrap();
-        if len == prev_len {
+        let (is_eof, len) = src.fill_buf().unwrap();
+        if is_eof {
+            assert_eq!(len, expected_len);
+        }
+
+        if is_eof && len == prev_len {
+            assert!(is_eof);
             break;
         }
 
@@ -139,16 +153,18 @@ where
         prev_len = len;
     }
 
-    let len = src.fill_buf().unwrap();
-    assert_eq!(len, expected.len());
+    let (is_eof, len) = src.fill_buf().unwrap();
+    assert!(is_eof);
+    assert_eq!(len, expected_len);
 
     let stream = src.as_slice();
     assert!(stream.len() >= len + MARGIN_SIZE);
-    assert_eq!(&stream[..len], expected);
+    assert_eq!(&stream[..len], &expected[..expected_len]);
 
     src.consume(len);
 
-    let len = src.fill_buf().unwrap();
+    let (is_eof, len) = src.fill_buf().unwrap();
+    assert!(is_eof);
     assert_eq!(len, 0);
 
     let stream = src.as_slice();

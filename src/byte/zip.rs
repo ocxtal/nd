@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
-use super::{ByteStream, EofStream};
+use super::ByteStream;
 use crate::filluninit::FillUninit;
 use crate::streambuf::StreamBuf;
 use anyhow::Result;
@@ -17,7 +17,7 @@ use super::RawStream;
 use rand::Rng;
 
 struct Zipper {
-    srcs: Vec<EofStream<Box<dyn ByteStream>>>,
+    srcs: Vec<Box<dyn ByteStream>>,
     ptrs: Vec<*const u8>, // pointer cache (only for use in the fill_buf_impl function)
     word_size: usize,
     gather_impl: fn(&mut Self, usize, &mut [u8]) -> Result<usize>,
@@ -71,7 +71,7 @@ impl Zipper {
 
         let len = srcs.len();
         Zipper {
-            srcs: srcs.into_iter().map(EofStream::new).collect(),
+            srcs,
             ptrs: (0..len).map(|_| std::ptr::null::<u8>()).collect(),
             word_size,
             gather_impl: gather_impls[index],
@@ -157,7 +157,7 @@ impl ZipStream {
 }
 
 impl ByteStream for ZipStream {
-    fn fill_buf(&mut self) -> Result<usize> {
+    fn fill_buf(&mut self) -> Result<(bool, usize)> {
         self.buf.fill_buf(|buf| {
             let (bytes_per_src, bytes_all) = self.src.fill_buf()?;
             if bytes_per_src == 0 {

@@ -15,8 +15,11 @@ use rand::{rngs::SmallRng, Rng, SeedableRng};
 pub struct MockSource {
     v: Vec<u8>,
     len: usize,
+
+    // states
     offset: usize,
-    prev_len: usize,
+    chunk_len: usize,
+
     rng: SmallRng,
 }
 
@@ -29,18 +32,20 @@ impl MockSource {
             v,
             len: pattern.len(),
             offset: 0,
-            prev_len: 0,
+            chunk_len: 0,
             rng: SmallRng::from_entropy(),
         }
     }
 
-    fn gen_len(&mut self) -> usize {
-        assert!(self.len >= (self.offset + self.prev_len));
-        let clip = self.len - (self.offset + self.prev_len);
+    fn gen_len(&mut self) -> (bool, usize) {
+        assert!(self.len >= (self.offset + self.chunk_len));
+        let clip = self.len - (self.offset + self.chunk_len);
 
         let rand: usize = self.rng.gen_range(1..=2 * BLOCK_SIZE);
-        self.prev_len += std::cmp::min(rand, clip);
-        self.prev_len
+        self.chunk_len += std::cmp::min(rand, clip);
+
+        let is_eof = self.len == self.offset + self.chunk_len;
+        (is_eof, self.chunk_len)
     }
 }
 
@@ -51,8 +56,9 @@ impl Read for MockSource {
         }
 
         // force clear the previous read when MockSource is used via trait Read
-        self.prev_len = 0;
-        let len = std::cmp::min(self.gen_len(), buf.len());
+        self.chunk_len = 0;
+        let (_, len) = self.gen_len();
+        let len = std::cmp::min(len, buf.len());
 
         let src = &self.v[self.offset..self.len];
         let len = std::cmp::min(len, src.len());
@@ -65,25 +71,22 @@ impl Read for MockSource {
 }
 
 impl ByteStream for MockSource {
-    fn fill_buf(&mut self) -> Result<usize> {
+    fn fill_buf(&mut self) -> Result<(bool, usize)> {
         if self.offset >= self.len {
-            return Ok(0);
+            return Ok((true, 0));
         }
         Ok(self.gen_len())
     }
 
     fn as_slice(&self) -> &[u8] {
-        &self.v[self.offset..self.offset + self.prev_len + MARGIN_SIZE]
+        &self.v[self.offset..self.offset + self.chunk_len + MARGIN_SIZE]
     }
 
     fn consume(&mut self, amount: usize) {
-        assert!(amount <= self.prev_len);
+        assert!(amount <= self.chunk_len);
 
-        if amount == 0 {
-            return;
-        }
         self.offset += amount;
-        self.prev_len -= amount;
+        self.chunk_len -= amount;
     }
 }
 

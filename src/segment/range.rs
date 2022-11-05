@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 
 use super::{Segment, SegmentStream};
-use crate::byte::{ByteStream, EofStream};
+use crate::byte::ByteStream;
 use crate::mapper::RangeMapper;
 use anyhow::Result;
 use std::cmp::Reverse;
@@ -104,7 +104,7 @@ impl Cutter {
 }
 
 pub struct RangeSlicer {
-    src: EofStream<Box<dyn ByteStream>>,
+    src: Box<dyn ByteStream>,
     src_consumed: usize, // in #bytes
     max_consume: usize,  // in #bytes
     segments: Vec<Segment>,
@@ -114,7 +114,7 @@ pub struct RangeSlicer {
 impl RangeSlicer {
     pub fn new(src: Box<dyn ByteStream>, exprs: &str) -> Result<Self> {
         Ok(RangeSlicer {
-            src: EofStream::new(src),
+            src,
             src_consumed: 0,
             max_consume: 0,
             segments: Vec::new(),

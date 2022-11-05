@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 
 use super::{Segment, SegmentStream};
-use crate::byte::{ByteStream, EofStream};
+use crate::byte::ByteStream;
 use crate::eval::{Rpn, VarAttr};
 use crate::params::BLOCK_SIZE;
 use anyhow::Result;
@@ -15,14 +15,14 @@ use crate::byte::tester::*;
 use super::tester::*;
 
 struct StreamFeeder {
-    src: EofStream<Box<dyn ByteStream>>,
+    src: Box<dyn ByteStream>,
     last: (bool, usize),
 }
 
 impl StreamFeeder {
     fn new(src: Box<dyn ByteStream>) -> Self {
         StreamFeeder {
-            src: EofStream::new(src),
+            src,
             last: (false, 0),
         }
     }

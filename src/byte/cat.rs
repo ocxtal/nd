@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
-use super::{ByteStream, EofStream};
+use super::ByteStream;
 use crate::streambuf::StreamBuf;
 use anyhow::Result;
 
@@ -13,7 +13,7 @@ use super::tester::*;
 use rand::Rng;
 
 pub struct CatStream {
-    srcs: Vec<EofStream<Box<dyn ByteStream>>>,
+    srcs: Vec<Box<dyn ByteStream>>,
     i: usize,
     rem: usize,
     cache: StreamBuf,
@@ -22,14 +22,14 @@ pub struct CatStream {
 impl CatStream {
     pub fn new(srcs: Vec<Box<dyn ByteStream>>) -> Self {
         CatStream {
-            srcs: srcs.into_iter().map(EofStream::new).collect(),
+            srcs,
             i: 0,
             rem: 0,
             cache: StreamBuf::new(),
         }
     }
 
-    fn accumulate_into_cache(&mut self, is_eof: bool, len: usize) -> Result<usize> {
+    fn accumulate_into_cache(&mut self, is_eof: bool, len: usize) -> Result<(bool, usize)> {
         let stream = self.srcs[self.i].as_slice();
         self.cache.extend_from_slice(&stream[self.rem..len]);
 
@@ -65,20 +65,20 @@ impl CatStream {
 }
 
 impl ByteStream for CatStream {
-    fn fill_buf(&mut self) -> Result<usize> {
+    fn fill_buf(&mut self) -> Result<(bool, usize)> {
         if self.i >= self.srcs.len() {
             debug_assert!(self.rem == usize::MAX);
-            return Ok(self.cache.len());
+            return Ok((true, self.cache.len()));
         }
 
         let (is_eof, len) = self.srcs[self.i].fill_buf()?;
-        if self.cache.len() > 0 || is_eof {
+        if is_eof || self.cache.len() > 0 {
             return self.accumulate_into_cache(is_eof, len);
         }
 
         // TODO: test this path
         self.rem = 0;
-        Ok(len)
+        Ok((is_eof, len))
     }
 
     fn as_slice(&self) -> &[u8] {

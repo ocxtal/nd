@@ -30,7 +30,7 @@ impl GaplessTextStream {
 }
 
 impl ByteStream for GaplessTextStream {
-    fn fill_buf(&mut self) -> Result<usize> {
+    fn fill_buf(&mut self) -> Result<(bool, usize)> {
         self.buf.fill_buf(|buf| {
             self.inner.read_line(buf)?;
             Ok(false)
@@ -164,7 +164,7 @@ impl TextStream {
 }
 
 impl ByteStream for TextStream {
-    fn fill_buf(&mut self) -> Result<usize> {
+    fn fill_buf(&mut self) -> Result<(bool, usize)> {
         let filler = self.buf.filler();
         self.buf.fill_buf(|buf| {
             if self.line.offset == usize::MAX {
