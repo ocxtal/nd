@@ -1,7 +1,7 @@
 // @file cut.rs
 // @author Hajime Suzuki
 
-use super::{ByteStream, EofStream};
+use super::ByteStream;
 use crate::mapper::RangeMapper;
 use crate::streambuf::StreamBuf;
 use anyhow::Result;
@@ -106,7 +106,7 @@ impl Cutter {
 }
 
 pub struct CutStream {
-    src: EofStream<Box<dyn ByteStream>>,
+    src: Box<dyn ByteStream>,
     src_consumed: usize, // absolute bytes from the head
 
     buf: StreamBuf,
@@ -116,7 +116,7 @@ pub struct CutStream {
 impl CutStream {
     pub fn new(src: Box<dyn ByteStream>, exprs: &str) -> Result<Self> {
         Ok(CutStream {
-            src: EofStream::new(src),
+            src,
             src_consumed: 0,
             buf: StreamBuf::new(),
             cutter: Cutter::from_str(exprs)?,
@@ -125,7 +125,7 @@ impl CutStream {
 }
 
 impl ByteStream for CutStream {
-    fn fill_buf(&mut self) -> Result<usize> {
+    fn fill_buf(&mut self) -> Result<(bool, usize)> {
         self.buf.fill_buf(|buf| {
             let (is_eof, bytes) = self.src.fill_buf()?;
             let bytes = self.cutter.max_consume(is_eof, bytes);

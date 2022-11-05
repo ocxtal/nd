@@ -102,10 +102,10 @@ impl PatchDrain {
 }
 
 impl ByteStream for PatchDrain {
-    fn fill_buf(&mut self) -> Result<usize> {
-        let bytes = self.patch.fill_buf()?;
+    fn fill_buf(&mut self) -> Result<(bool, usize)> {
+        let (is_eof, bytes) = self.patch.fill_buf()?;
 
-        if bytes == self.prev_bytes {
+        if is_eof && bytes == self.prev_bytes {
             if let Some(thread) = self.thread.take() {
                 thread.join().unwrap();
             }
@@ -114,7 +114,7 @@ impl ByteStream for PatchDrain {
         }
 
         self.prev_bytes = bytes;
-        Ok(bytes)
+        Ok((is_eof, bytes))
     }
 
     fn as_slice(&self) -> &[u8] {

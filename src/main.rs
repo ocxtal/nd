@@ -169,8 +169,8 @@ fn consume_stream(stream: Box<dyn ByteStream>, drain: Box<dyn Write>) -> Result<
     let mut drain = drain;
 
     loop {
-        let bytes = stream.fill_buf()?;
-        if bytes == 0 {
+        let (is_eof, bytes) = stream.fill_buf()?;
+        if is_eof && bytes == 0 {
             break;
         }
 

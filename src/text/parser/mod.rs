@@ -18,7 +18,7 @@ mod naive;
 use naive::*;
 
 use super::InoutFormat;
-use crate::byte::{ByteStream, EofStream};
+use crate::byte::ByteStream;
 use crate::filluninit::FillUninit;
 use crate::params::MARGIN_SIZE;
 use anyhow::{anyhow, Context, Result};
@@ -316,7 +316,7 @@ fn test_line_cache() {
 }
 
 pub struct TextParser {
-    src: EofStream<Box<dyn ByteStream>>,
+    src: Box<dyn ByteStream>,
 
     // parser for non-binary streams; bypassed for binary streams (though the functions are valid)
     parse_offset: ParseSingle,
@@ -351,7 +351,7 @@ impl TextParser {
         };
 
         TextParser {
-            src: EofStream::new(src),
+            src,
             parse_offset: header_parsers[offset].expect("unrecognized parser key for header.offset"),
             parse_span: header_parsers[span].expect("unrecognized parser key for header.span"),
             parse_body: body_parsers[body].expect("unrecognized parser key for body"),

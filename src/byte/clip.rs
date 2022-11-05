@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 // @date 2022/2/4
 
-use super::{ByteStream, CatStream, EofStream, ZeroStream};
+use super::{ByteStream, CatStream, ZeroStream};
 use anyhow::Result;
 use std::ops::Range;
 
@@ -91,10 +91,10 @@ fn test_stream_params() {
 }
 
 pub struct ClipStream {
-    src: EofStream<Box<dyn ByteStream>>,
+    src: Box<dyn ByteStream>,
     skip: usize,
     rem: usize,
-    strip: usize,
+    strip: usize, // strip length from the tail
 }
 
 impl ClipStream {
@@ -112,7 +112,7 @@ impl ClipStream {
         };
 
         ClipStream {
-            src: EofStream::new(src),
+            src,
             skip: params.clip.0,
             rem: params.len,
             strip: params.clip.1,
@@ -121,7 +121,7 @@ impl ClipStream {
 }
 
 impl ByteStream for ClipStream {
-    fn fill_buf(&mut self) -> Result<usize> {
+    fn fill_buf(&mut self) -> Result<(bool, usize)> {
         while self.skip > 0 {
             let (is_eof, len) = self.src.fill_buf()?;
             let consume_len = std::cmp::min(self.skip, len);
@@ -137,7 +137,8 @@ impl ByteStream for ClipStream {
             let (is_eof, len) = self.src.fill_buf()?;
             if is_eof || len > self.strip {
                 let len = std::cmp::min(self.rem, len.saturating_sub(self.strip));
-                return Ok(len);
+                let is_eof = is_eof || len == self.rem;
+                return Ok((is_eof, len));
             }
 
             self.src.consume(0);

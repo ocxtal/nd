@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 
 use super::{Segment, SegmentStream};
-use crate::byte::{ByteStream, EofStream};
+use crate::byte::ByteStream;
 use crate::text::parser::parse_hex_body;
 use anyhow::{anyhow, Context, Result};
 
@@ -16,7 +16,7 @@ use super::tester::*;
 use crate::params::BLOCK_SIZE;
 
 pub struct ExactMatchSlicer {
-    src: EofStream<Box<dyn ByteStream>>,
+    src: Box<dyn ByteStream>,
     segments: Vec<Segment>,
     scanned: usize,
     pattern: Vec<u8>,
@@ -38,7 +38,7 @@ impl ExactMatchSlicer {
         buf.truncate(filled);
 
         Ok(ExactMatchSlicer {
-            src: EofStream::new(src),
+            src,
             segments: Vec::new(),
             scanned: 0,
             pattern: buf,
@@ -48,7 +48,14 @@ impl ExactMatchSlicer {
 
 impl SegmentStream for ExactMatchSlicer {
     fn fill_segment_buf(&mut self) -> Result<(bool, usize, usize, usize)> {
-        let (is_eof, bytes) = self.src.fill_buf()?;
+        let (is_eof, bytes) = loop {
+            let (is_eof, bytes) = self.src.fill_buf()?;
+            if is_eof || bytes >= self.pattern.len() {
+                break (is_eof, bytes);
+            }
+
+            self.src.consume(0);
+        };
 
         // no need to scan the bytes when the pattern is empty
         if self.pattern.is_empty() {

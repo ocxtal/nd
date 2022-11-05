@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 
 use super::{Segment, SegmentStream};
-use crate::byte::{ByteStream, EofStream};
+use crate::byte::ByteStream;
 use crate::params::BLOCK_SIZE;
 use crate::text::parser::TextParser;
 use crate::text::InoutFormat;
@@ -18,7 +18,7 @@ use super::tester::*;
 use rand::Rng;
 
 pub struct GuidedSlicer {
-    src: EofStream<Box<dyn ByteStream>>,
+    src: Box<dyn ByteStream>,
     guide: TextParser,
     buf: Vec<u8>,
     segments: Vec<Segment>,
@@ -30,7 +30,7 @@ pub struct GuidedSlicer {
 impl GuidedSlicer {
     pub fn new(src: Box<dyn ByteStream>, guide: Box<dyn ByteStream>) -> Self {
         GuidedSlicer {
-            src: EofStream::new(src),
+            src,
             guide: TextParser::new(guide, &InoutFormat::from_str("xxx").unwrap()),
             buf: Vec::new(),
             segments: Vec::new(),

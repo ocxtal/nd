@@ -25,7 +25,7 @@ impl<T: Sized + ByteStream> EofStream<T> {
     }
 
     pub fn fill_buf(&mut self) -> Result<(bool, usize)> {
-        self.len = self.src.fill_buf()?;
+        self.len = self.src.fill_buf()?.1;
         if self.len >= self.request {
             return Ok((false, self.len));
         }
@@ -35,7 +35,7 @@ impl<T: Sized + ByteStream> EofStream<T> {
             // tell the src the stream being not enough, then try read again
             self.src.consume(0);
 
-            self.len = self.src.fill_buf()?;
+            self.len = self.src.fill_buf()?.1;
             if self.len >= self.request {
                 break false;
             }

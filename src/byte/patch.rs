@@ -91,11 +91,11 @@ impl PatchStream {
 }
 
 impl ByteStream for PatchStream {
-    fn fill_buf(&mut self) -> Result<usize> {
+    fn fill_buf(&mut self) -> Result<(bool, usize)> {
         self.buf.fill_buf(|buf| {
             while self.skip > 0 {
-                let len = self.src.fill_buf()?;
-                if len == 0 {
+                let (is_eof, len) = self.src.fill_buf()?;
+                if is_eof && len == 0 {
                     return Ok(false);
                 }
 
@@ -104,7 +104,7 @@ impl ByteStream for PatchStream {
                 self.skip -= consume_len;
             }
 
-            let len = self.src.fill_buf()?;
+            let (_, len) = self.src.fill_buf()?;
             let mut rem_len = len;
             let mut stream = self.src.as_slice();
 

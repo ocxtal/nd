@@ -33,14 +33,16 @@ impl ZeroStream {
 }
 
 impl ByteStream for ZeroStream {
-    fn fill_buf(&mut self) -> Result<usize> {
+    fn fill_buf(&mut self) -> Result<(bool, usize)> {
         if self.offset >= self.len {
             self.next_len = 0;
-            return Ok(0);
+            return Ok((true, 0));
         }
 
         self.buf.resize(self.next_len + MARGIN_SIZE, self.filler);
-        Ok(self.next_len)
+
+        let is_eof = self.len <= self.offset + self.next_len;
+        Ok((is_eof, self.next_len))
     }
 
     fn as_slice(&self) -> &[u8] {
