@@ -142,7 +142,7 @@ where
         }
     }
 
-    assert_eq!(len_acc, pattern.len());
+    assert!(len_acc <= pattern.len());
     assert_eq!(count_acc, expected.len());
 }
 
@@ -207,7 +207,7 @@ where
         }
     }
 
-    assert_eq!(len_acc, pattern.len());
+    assert!(len_acc <= pattern.len());
     assert_eq!(count_acc, expected.len());
 }
 
@@ -232,12 +232,12 @@ where
 
     let (is_eof, len, count, max_consume) = src.fill_segment_buf().unwrap();
     assert!(is_eof);
-    assert_eq!(len, pattern.len());
+    assert!(len <= pattern.len());
     assert_eq!(count, expected.len());
     assert_eq!(len, max_consume);
 
     let (stream, segments) = src.as_slices();
-    assert_eq!(&stream[..len], pattern);
+    assert_eq!(&stream[..len], &pattern[..len]);
     assert_eq!(&segments[..count], expected);
 
     let (len_fwd, count_fwd) = src.consume(len).unwrap();

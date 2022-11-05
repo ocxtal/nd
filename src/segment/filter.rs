@@ -53,9 +53,9 @@ impl Cutter {
         })
     }
 
-    // fn is_empty(&self) -> bool {
-    //     self.tail_filters.is_empty() && self.filters.is_empty()
-    // }
+    fn is_empty(&self) -> bool {
+        self.tail_filters.is_empty() && self.filters.is_empty()
+    }
 
     fn accumulate(
         &mut self,
@@ -155,6 +155,13 @@ impl SegmentStream for FilterStream {
             .cutter
             .accumulate(self.src_scanned, self.src_consumed, is_eof, count, segments, &mut self.segments)?;
 
+        let (is_eof, bytes) = if self.cutter.is_empty() {
+            let bytes = self.segments.last().map_or(0, |x| x.tail());
+            (true, bytes)
+        } else {
+            (is_eof, bytes)
+        };
+
         self.src_scanned = scanned;
         self.max_consume = if is_eof {
             bytes
@@ -164,7 +171,6 @@ impl SegmentStream for FilterStream {
             std::cmp::min(segments[scanned].pos, max_consume)
         };
 
-        let is_eof = is_eof; // || self.cutter.is_empty();
         Ok((is_eof, bytes, self.segments.len(), self.max_consume))
     }
 
@@ -420,44 +426,44 @@ test_long!(test_filter_long_all_at_once, test_segment_all_at_once);
 test_long!(test_filter_long_random_len, test_segment_random_len);
 test_long!(test_filter_long_occasional_consume, test_segment_occasional_consume);
 
-// #[cfg(test)]
-// macro_rules! test_inf_impl {
-//     ( $pitch: expr, $span: expr, $expected: expr ) => {
-//         let exprs = format_spans($span, usize::MAX, |_| (0, 4));
+#[cfg(test)]
+macro_rules! test_inf_impl {
+    ( $pitch: expr, $span: expr, $expected: expr ) => {
+        let exprs = format_spans($span, usize::MAX, |_| (0, 4));
 
-//         let src = Box::new(std::fs::File::open("/dev/zero").unwrap());
-//         let src = Box::new(RawStream::new(src, 1, 0));
-//         let src = Box::new(ConstSlicer::from_raw(src, (0, 0), (false, false), $pitch, $pitch));
-//         let mut src = Box::new(FilterStream::new(src, &exprs).unwrap());
+        let src = Box::new(std::fs::File::open("/dev/zero").unwrap());
+        let src = Box::new(RawStream::new(src, 1, 0));
+        let src = Box::new(ConstSlicer::from_raw(src, (0, 0), (false, false), $pitch, $pitch));
+        let mut src = Box::new(FilterStream::new(src, &exprs).unwrap());
 
-//         let mut scanned = 0;
-//         let mut v = Vec::new();
-//         loop {
-//             let (is_eof, bytes, count, _) = src.fill_segment_buf().unwrap();
-//             if is_eof && count == 0 {
-//                 break;
-//             }
+        let mut scanned = 0;
+        let mut v = Vec::new();
+        loop {
+            let (is_eof, bytes, count, _) = src.fill_segment_buf().unwrap();
+            if is_eof && count == 0 {
+                break;
+            }
 
-//             let (stream, segments) = src.as_slices();
-//             for s in &segments[scanned..count] {
-//                 v.extend_from_slice(&stream[s.as_range()]);
-//             }
-//             scanned = count;
+            let (stream, segments) = src.as_slices();
+            for s in &segments[scanned..count] {
+                v.extend_from_slice(&stream[s.as_range()]);
+            }
+            scanned = count;
 
-//             let (_, count) = src.consume(bytes).unwrap();
-//             scanned -= count;
-//         }
+            let (_, count) = src.consume(bytes).unwrap();
+            scanned -= count;
+        }
 
-//         assert_eq!(v.len(), $expected);
-//     };
-// }
+        assert_eq!(v.len(), $expected);
+    };
+}
 
-// #[test]
-// fn test_filter_inf() {
-//     test_inf_impl!(4, &[(0, 4)], 16);
-//     test_inf_impl!(4, &[(100, 4)], 16);
-//     test_inf_impl!(4, &[(10000, 4)], 16);
-//     test_inf_impl!(4, &[(1000000, 4)], 16);
-// }
+#[test]
+fn test_filter_inf() {
+    test_inf_impl!(4, &[(0, 4)], 16);
+    test_inf_impl!(4, &[(100, 4)], 16);
+    test_inf_impl!(4, &[(10000, 4)], 16);
+    test_inf_impl!(4, &[(1000000, 4)], 16);
+}
 
 // end of filter.rs
