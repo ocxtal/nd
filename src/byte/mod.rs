@@ -5,7 +5,7 @@
 mod cat;
 mod clip;
 mod cut;
-mod eof;
+// mod eof;
 mod patch;
 mod raw;
 mod tee;
@@ -19,7 +19,7 @@ mod mock;
 pub use self::cat::CatStream;
 pub use self::clip::{ClipStream, ClipperParams};
 pub use self::cut::CutStream;
-pub use self::eof::EofStream;
+// pub use self::eof::EofStream;
 pub use self::patch::PatchStream;
 pub use self::raw::RawStream;
 pub use self::tee::{TeeStream, TeeStreamReader};
