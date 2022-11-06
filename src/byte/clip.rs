@@ -15,13 +15,38 @@ use rand::Rng;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ClipperParams {
+    // `ClipperParams` describes a sequence of operations below:
+    //
+    // the first operation is padding:
+    //
+    //     ...................------------------------>.................
+    //        \                  \                        \
+    //        `pad.0`            input stream             `pad.1`
+    //
     pub pad: (usize, usize),
+
+    // the second operation is clipping:
+    //
+    //            ............------------------------>.......
+    //     +----->                                            <--------+
+    //        \                                                 \
+    //        `clip.0`                                          `clip.1`
+    //
     pub clip: (usize, usize),
+
+    // the last operation further clips the stream at a certain length:
+    //
+    //            ............------------->
+    //            +------------------------>
+    //               \
+    //               `len`
+    //
     pub len: usize,
 }
 
 impl ClipperParams {
-    // `ClipperParams` applies the following operations on the input stream
+    // `ClipperParams::new` converts a sequence of the following operations to
+    // a raw `ClipperParams` (that is considered more canonical) above.
     //
     //  suppose we have an input stream:
     //
