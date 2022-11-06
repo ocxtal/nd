@@ -123,11 +123,13 @@ impl ByteStream for CatStream {
         debug_assert!(amount <= self.cache.len());
         debug_assert!(self.cache.len() >= self.dup);
 
-        if amount <= self.cache.len() - self.dup {
+        if self.i >= self.srcs.len() || amount < self.cache.len() - self.dup {
             // the amount is shorter than the non-duplicated chunks in the cache.
             // so we're forced to go to the path 1 in the next iteration.
             //
-            // (note: nothing changes in the duplicated chunk length)
+            // note 1: nothing changes in the duplicated chunk length
+            // note 2: the case all input streams are consumed comes here too
+            //         (in that case, `self.dup == 0`)
             self.cache.consume(amount);
             return;
         }
