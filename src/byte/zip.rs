@@ -4,6 +4,7 @@
 
 use super::ByteStream;
 use crate::filluninit::FillUninit;
+use crate::params::BLOCK_SIZE;
 use crate::streambuf::StreamBuf;
 use anyhow::Result;
 
@@ -78,13 +79,15 @@ impl Zipper {
         }
     }
 
-    fn fill_buf(&mut self) -> Result<(usize, usize)> {
+    fn fill_buf(&mut self, request: usize) -> Result<(usize, usize)> {
+        let request = (request + self.srcs.len() - 1) / self.srcs.len();
+
         // bulk_len is the minimum valid slice length among the source buffers
         let len = loop {
             let mut is_eof = true;
             let mut len = usize::MAX;
             for src in &mut self.srcs {
-                let (x, y) = src.fill_buf()?;
+                let (x, y) = src.fill_buf(request)?;
                 is_eof = is_eof && x;
                 len = std::cmp::min(len, y);
             }
@@ -157,9 +160,9 @@ impl ZipStream {
 }
 
 impl ByteStream for ZipStream {
-    fn fill_buf(&mut self) -> Result<(bool, usize)> {
-        self.buf.fill_buf(|buf| {
-            let (bytes_per_src, bytes_all) = self.src.fill_buf()?;
+    fn fill_buf(&mut self, request: usize) -> Result<(bool, usize)> {
+        self.buf.fill_buf(request, |_, buf| {
+            let (bytes_per_src, bytes_all) = self.src.fill_buf(BLOCK_SIZE)?;
             if bytes_per_src == 0 {
                 return Ok(false);
             }

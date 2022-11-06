@@ -30,8 +30,8 @@ impl GaplessTextStream {
 }
 
 impl ByteStream for GaplessTextStream {
-    fn fill_buf(&mut self) -> Result<(bool, usize)> {
-        self.buf.fill_buf(|buf| {
+    fn fill_buf(&mut self, request: usize) -> Result<(bool, usize)> {
+        self.buf.fill_buf(request, |_, buf| {
             self.inner.read_line(buf)?;
             Ok(false)
         })
@@ -164,9 +164,9 @@ impl TextStream {
 }
 
 impl ByteStream for TextStream {
-    fn fill_buf(&mut self) -> Result<(bool, usize)> {
+    fn fill_buf(&mut self, request: usize) -> Result<(bool, usize)> {
         let filler = self.buf.filler();
-        self.buf.fill_buf(|buf| {
+        self.buf.fill_buf(request, |_, buf| {
             if self.line.offset == usize::MAX {
                 return Ok(false);
             }
@@ -215,7 +215,7 @@ impl ByteStream for TextStream {
 fn test_text_overlap() {
     let src = Box::new(MockSource::new(b"0000 03 | 01 02 03 \n0001 03 | 01 02 03"));
     let mut src = TextStream::new(src, 1, 0, &InoutFormat::from_str("xxx").unwrap());
-    assert!(src.fill_buf().is_err());
+    assert!(src.fill_buf(1).is_err());
 }
 
 #[allow(unused_macros)]

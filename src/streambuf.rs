@@ -13,7 +13,7 @@ use rand::Rng;
 
 pub struct StreamBuf {
     buf: Vec<u8>,
-    request: usize,
+    target_len: usize,
     pos: usize,
     len: usize,
     offset: usize,
@@ -34,7 +34,7 @@ impl StreamBuf {
 
         StreamBuf {
             buf,
-            request: BLOCK_SIZE,
+            target_len: BLOCK_SIZE,
             pos: 0,
             len: 0,
             offset: 0,
@@ -67,7 +67,7 @@ impl StreamBuf {
 
     fn mark_eof(&mut self) {
         // at this point the buffer does not have the tail margin
-        // debug_assert!(self.buf.len() < self.request);
+        // debug_assert!(self.buf.len() < self.target_len);
 
         // first mark EOF
         self.is_eof = true;
@@ -82,9 +82,9 @@ impl StreamBuf {
         self.is_eof = false;
     }
 
-    pub fn fill_buf<F>(&mut self, f: F) -> Result<(bool, usize)>
+    pub fn fill_buf<F>(&mut self, request: usize, f: F) -> Result<(bool, usize)>
     where
-        F: FnMut(&mut Vec<u8>) -> Result<bool>,
+        F: FnMut(usize, &mut Vec<u8>) -> Result<bool>,
     {
         let mut f = f;
 
@@ -96,12 +96,17 @@ impl StreamBuf {
         // first remove the margin
         self.buf.truncate(self.len);
 
+        // calculate target buffer length
+        // debug_assert!(self.target_len > self.len);
+        let target_len = std::cmp::max(self.target_len, request);
+
         // collect into the buffer without margin
         loop {
             let prev_len = self.buf.len();
 
             // TODO: test force_try_next == true
-            let force_try_next = f(&mut self.buf)?;
+            let request = target_len.saturating_sub(prev_len) + 1;
+            let force_try_next = f(request, &mut self.buf)?;
             if force_try_next {
                 continue;
             }
@@ -113,7 +118,7 @@ impl StreamBuf {
             }
 
             // break if long enough (do-while)
-            if self.buf.len() >= self.request {
+            if self.buf.len() >= target_len {
                 break;
             }
         }
@@ -155,14 +160,14 @@ impl StreamBuf {
         // if `consume` is called `amount == 0`, it regards the caller needs
         // more stream to forward its state.
         if amount == 0 {
-            self.request = (self.len + (self.len + 1) / 2).next_power_of_two();
-            debug_assert!(self.request > self.len);
+            self.target_len = (self.len + (self.len + 1) / 2).next_power_of_two();
+            debug_assert!(self.target_len > self.len);
 
-            let additional = self.request.saturating_sub(self.buf.capacity());
+            let additional = self.target_len.saturating_sub(self.buf.capacity());
             self.buf.reserve(additional);
         } else {
             // reset
-            self.request = std::cmp::max(self.len + 1, BLOCK_SIZE);
+            self.target_len = std::cmp::max(self.len + 1, BLOCK_SIZE);
         }
     }
 }
@@ -182,8 +187,8 @@ fn test_stream_buf_random_len() {
             let mut drain = Vec::new();
             while drain.len() < pattern.len() {
                 let (is_eof, len) = buf
-                    .fill_buf(|buf| {
-                        let (_, len) = src.fill_buf().unwrap();
+                    .fill_buf(1, |_, buf| {
+                        let (_, len) = src.fill_buf(1).unwrap();
                         let slice = src.as_slice();
                         assert!(slice.len() >= len + MARGIN_SIZE);
 
@@ -215,7 +220,7 @@ fn test_stream_buf_random_len() {
             assert_eq!(drain, pattern);
 
             // no byte remains in the source
-            assert_eq!(src.fill_buf().unwrap(), (true, 0));
+            assert_eq!(src.fill_buf(1).unwrap(), (true, 0));
 
             let stream = buf.as_slice();
             assert!(stream.len() >= MARGIN_SIZE);
@@ -244,8 +249,8 @@ fn test_stream_buf_random_consume() {
             let mut drain = Vec::new();
             while drain.len() < pattern.len() {
                 let (_, len) = buf
-                    .fill_buf(|buf| {
-                        let (_, len) = src.fill_buf().unwrap();
+                    .fill_buf(1, |_, buf| {
+                        let (_, len) = src.fill_buf(1).unwrap();
                         let slice = src.as_slice();
                         assert!(slice.len() >= len + MARGIN_SIZE);
 
@@ -277,7 +282,7 @@ fn test_stream_buf_random_consume() {
             assert_eq!(drain, pattern);
 
             // no byte remains in the source
-            assert_eq!(src.fill_buf().unwrap(), (true, 0));
+            assert_eq!(src.fill_buf(1).unwrap(), (true, 0));
 
             let stream = buf.as_slice();
             assert!(stream.len() >= MARGIN_SIZE);
@@ -304,8 +309,8 @@ fn test_stream_buf_all_at_once() {
             let mut prev_len = 0;
             loop {
                 let (is_eof, len) = buf
-                    .fill_buf(|buf| {
-                        let (_, len) = src.fill_buf().unwrap();
+                    .fill_buf(1, |_, buf| {
+                        let (_, len) = src.fill_buf(1).unwrap();
                         let slice = src.as_slice();
                         assert!(slice.len() >= len + MARGIN_SIZE);
 
@@ -333,11 +338,11 @@ fn test_stream_buf_all_at_once() {
             assert_eq!(&stream[..acc], pattern);
 
             // source is empty
-            assert_eq!(src.fill_buf().unwrap(), (true, 0));
+            assert_eq!(src.fill_buf(1).unwrap(), (true, 0));
 
             // buf gets empty after consuming all
             buf.consume(acc);
-            assert_eq!(buf.fill_buf(|_| Ok(false)).unwrap(), (true, 0));
+            assert_eq!(buf.fill_buf(1, |_, _| Ok(false)).unwrap(), (true, 0));
 
             let stream = buf.as_slice();
             assert!(stream.len() >= MARGIN_SIZE);

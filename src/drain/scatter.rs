@@ -120,8 +120,8 @@ impl ScatterDrain {
         })
     }
 
-    fn fill_buf_impl_through(&mut self) -> Result<(bool, usize)> {
-        self.drain.fill_buf(|buf| {
+    fn fill_buf_impl_through(&mut self, request: usize) -> Result<(bool, usize)> {
+        self.drain.fill_buf(request, |_, buf| {
             let (is_eof, bytes, count, max_consume) = self.src.fill_segment_buf()?;
             if is_eof && bytes == 0 {
                 return Ok(false);
@@ -170,11 +170,12 @@ impl ScatterDrain {
 }
 
 impl ByteStream for ScatterDrain {
-    fn fill_buf(&mut self) -> Result<(bool, usize)> {
+    fn fill_buf(&mut self, request: usize) -> Result<(bool, usize)> {
         if self.file.is_some() {
+            // this consumes everything
             self.fill_buf_impl_scatter()
         } else {
-            self.fill_buf_impl_through()
+            self.fill_buf_impl_through(request)
         }
     }
 

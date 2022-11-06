@@ -4,6 +4,7 @@
 use super::{Segment, SegmentStream};
 use crate::byte::ByteStream;
 use crate::mapper::RangeMapper;
+use crate::params::BLOCK_SIZE;
 use anyhow::Result;
 use std::cmp::Reverse;
 
@@ -125,7 +126,7 @@ impl RangeSlicer {
 
 impl SegmentStream for RangeSlicer {
     fn fill_segment_buf(&mut self) -> Result<(bool, usize, usize, usize)> {
-        let (is_eof, bytes) = self.src.fill_buf()?;
+        let (is_eof, bytes) = self.src.fill_buf(BLOCK_SIZE)?;
         self.max_consume = self.cutter.accumulate(self.src_consumed, is_eof, bytes, &mut self.segments)?;
 
         Ok((is_eof, bytes, self.segments.len(), self.max_consume))

@@ -18,6 +18,7 @@ use std::io::{Read, Write};
 use std::process::{Child, Stdio};
 
 use byte::ByteStream;
+use params::BLOCK_SIZE;
 use pipeline::*;
 
 static USAGE: &str = "nd [options] FILE ...";
@@ -169,7 +170,7 @@ fn consume_stream(stream: Box<dyn ByteStream>, drain: Box<dyn Write>) -> Result<
     let mut drain = drain;
 
     loop {
-        let (is_eof, bytes) = stream.fill_buf()?;
+        let (is_eof, bytes) = stream.fill_buf(BLOCK_SIZE)?;
         if is_eof && bytes == 0 {
             break;
         }

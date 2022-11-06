@@ -36,14 +36,14 @@ use crate::params::{BLOCK_SIZE, MARGIN_SIZE};
 use rand::Rng;
 
 pub trait ByteStream: Send {
-    fn fill_buf(&mut self) -> Result<(bool, usize)>;
+    fn fill_buf(&mut self, request: usize) -> Result<(bool, usize)>;
     fn as_slice(&self) -> &[u8];
     fn consume(&mut self, amount: usize);
 }
 
 impl<T: ByteStream + ?Sized> ByteStream for Box<T> {
-    fn fill_buf(&mut self) -> Result<(bool, usize)> {
-        (**self).fill_buf()
+    fn fill_buf(&mut self, request: usize) -> Result<(bool, usize)> {
+        (**self).fill_buf(request)
     }
 
     fn as_slice(&self) -> &[u8] {
@@ -68,7 +68,7 @@ where
     let mut v = Vec::new();
 
     loop {
-        let (is_eof, len) = src.fill_buf().unwrap();
+        let (is_eof, len) = src.fill_buf(1).unwrap();
         if is_eof {
             assert_eq!(v.len() + len, expected_len);
         }
@@ -102,7 +102,7 @@ where
     let mut v = Vec::new();
 
     loop {
-        let (is_eof, len) = src.fill_buf().unwrap();
+        let (is_eof, len) = src.fill_buf(1).unwrap();
         if is_eof {
             assert_eq!(v.len() + len, expected_len);
         }
@@ -139,7 +139,7 @@ where
     let mut prev_len = 0;
 
     loop {
-        let (is_eof, len) = src.fill_buf().unwrap();
+        let (is_eof, len) = src.fill_buf(1).unwrap();
         if is_eof {
             assert_eq!(len, expected_len);
         }
@@ -153,7 +153,7 @@ where
         prev_len = len;
     }
 
-    let (is_eof, len) = src.fill_buf().unwrap();
+    let (is_eof, len) = src.fill_buf(1).unwrap();
     assert!(is_eof);
     assert_eq!(len, expected_len);
 
@@ -163,7 +163,7 @@ where
 
     src.consume(len);
 
-    let (is_eof, len) = src.fill_buf().unwrap();
+    let (is_eof, len) = src.fill_buf(1).unwrap();
     assert!(is_eof);
     assert_eq!(len, 0);
 

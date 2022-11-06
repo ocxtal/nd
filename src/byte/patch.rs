@@ -3,6 +3,7 @@
 // @date 2022/2/5
 
 use super::ByteStream;
+use crate::params::BLOCK_SIZE;
 use crate::streambuf::StreamBuf;
 use crate::text::parser::TextParser;
 use crate::text::InoutFormat;
@@ -91,10 +92,10 @@ impl PatchStream {
 }
 
 impl ByteStream for PatchStream {
-    fn fill_buf(&mut self) -> Result<(bool, usize)> {
-        self.buf.fill_buf(|buf| {
+    fn fill_buf(&mut self, request: usize) -> Result<(bool, usize)> {
+        self.buf.fill_buf(request, |_, buf| {
             while self.skip > 0 {
-                let (is_eof, len) = self.src.fill_buf()?;
+                let (is_eof, len) = self.src.fill_buf(BLOCK_SIZE)?;
                 if is_eof && len == 0 {
                     return Ok(false);
                 }
@@ -104,7 +105,7 @@ impl ByteStream for PatchStream {
                 self.skip -= consume_len;
             }
 
-            let (_, len) = self.src.fill_buf()?;
+            let (_, len) = self.src.fill_buf(BLOCK_SIZE)?;
             let mut rem_len = len;
             let mut stream = self.src.as_slice();
 
@@ -165,7 +166,7 @@ fn test_patch_overlap() {
     let input = Box::new(MockSource::new([0u8; 256].as_slice()));
     let patch = Box::new(MockSource::new(b"0000 03 | 01 02 03 \n0001 03 | 01 02 03"));
     let mut src = PatchStream::new(input, patch, &InoutFormat::from_str("xxx").unwrap());
-    assert!(src.fill_buf().is_err());
+    assert!(src.fill_buf(1).is_err());
 }
 
 #[allow(unused_macros)]
