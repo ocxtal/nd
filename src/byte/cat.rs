@@ -15,7 +15,16 @@ use rand::Rng;
 pub struct CatStream {
     srcs: Vec<Box<dyn ByteStream>>,
     i: usize,
-    rem: usize,
+
+    // we use a cache to concatenate (sometimes rather short) input streams to create a long-enough
+    // stream, that is, longer than the `request` bytes. the last one of the cached (concatenated)
+    // chunks is always left unconsumed in the source stream. the `dup` field tells the length of
+    // the unconsumed chunk, in the sense that the chunk is *duplicated* in the source and cache.
+    //
+    // note: leaving unconsumed chunk at the tail makes it easy to consume the full length of the
+    // cached stream and return to the mode (path 2) that forwards a stream directly from the
+    // source to the consumer. this improves the performance by bypassing unnecessary memcpy.
+    dup: usize,
     cache: StreamBuf,
 }
 
@@ -24,89 +33,114 @@ impl CatStream {
         CatStream {
             srcs,
             i: 0,
-            rem: 0,
+            dup: 0,
             cache: StreamBuf::new(),
         }
     }
 
-    fn accumulate_into_cache(&mut self, request: usize, is_eof: bool, len: usize) -> Result<(bool, usize)> {
+    fn accumulate_into_cache(&mut self, is_eof: bool, bytes: usize, request: usize) -> Result<(bool, usize)> {
         let stream = self.srcs[self.i].as_slice();
-        self.cache.extend_from_slice(&stream[self.rem..len]);
+
+        // we already have `dup` bytes of the stream in the cache
+        self.cache.extend_from_slice(&stream[self.dup..bytes]);
+        self.dup = bytes - self.dup; // update it for the next iteration
 
         let mut is_eof = is_eof;
-        self.rem = len - self.rem; // keep the last stream length
-
         self.cache.fill_buf(request, |request, buf| {
             if self.i >= self.srcs.len() {
-                debug_assert!(self.rem == usize::MAX);
+                debug_assert!(self.dup == 0);
                 return Ok(false);
             }
 
             // consume the last stream
-            self.srcs[self.i].consume(self.rem);
+            self.srcs[self.i].consume(self.dup);
 
             self.i += is_eof as usize;
             if self.i >= self.srcs.len() {
-                self.rem = usize::MAX;
+                self.dup = 0;
                 return Ok(false);
             }
 
-            let (is_eof_next, len) = self.srcs[self.i].fill_buf(request)?;
+            let (is_eof_next, bytes) = self.srcs[self.i].fill_buf(request)?;
             let stream = self.srcs[self.i].as_slice();
-            buf.extend_from_slice(&stream[..len]);
+
+            buf.extend_from_slice(&stream[..bytes]);
+            self.dup = bytes;
 
             is_eof = is_eof_next;
-            self.rem = len;
-
             Ok(true)
         })
-        // note: the last stream is not consumed
     }
 }
 
 impl ByteStream for CatStream {
     fn fill_buf(&mut self, request: usize) -> Result<(bool, usize)> {
         if self.i >= self.srcs.len() {
-            debug_assert!(self.rem == usize::MAX);
+            debug_assert!(self.dup == 0);
             return Ok((true, self.cache.len()));
         }
 
-        let (is_eof, len) = self.srcs[self.i].fill_buf(request)?;
+        // try to extend at least one byte even if the cache already has enough bytes
+        let request = request.saturating_sub(self.cache.len());
+        let request = std::cmp::max(1, request);
+
+        let (is_eof, bytes) = self.srcs[self.i].fill_buf(request)?;
         if is_eof || self.cache.len() > 0 {
-            return self.accumulate_into_cache(request, is_eof, len);
+            // path 1: the source remainder is not enough for the `request` so we try
+            // the next source and accumulate them (including the one tried above)
+            // into the cache.
+            return self.accumulate_into_cache(is_eof, bytes, request);
         }
 
-        // TODO: test this path
-        self.rem = 0;
-        Ok((is_eof, len))
+        // path 2: the source has a long-enough chunk, and we don't have cached bytes
+        // thus we can forward the slice to the consumer without copying.
+        debug_assert!(self.cache.len() == 0 && self.i < self.srcs.len());
+
+        self.dup = 0;
+        Ok((is_eof, bytes))
     }
 
     fn as_slice(&self) -> &[u8] {
         if self.cache.len() == 0 && self.i < self.srcs.len() {
+            // path 2 in `fill_buf`; the stream is forwarded directly from
+            // the i-th source to the consumer
             return self.srcs[self.i].as_slice();
         }
+
+        // path 1; the stream is cached
         self.cache.as_slice()
     }
 
     fn consume(&mut self, amount: usize) {
-        // first update the remainder length
         if self.cache.len() == 0 && self.i < self.srcs.len() {
-            // is not cached, just forward to the source
+            // path 2 in `fill_buf` comes here. the stream is not cached
+            // so this call is just forwarded to the source.
             self.srcs[self.i].consume(amount);
             return;
         }
 
-        // cached
-        let in_cache = std::cmp::min(self.cache.len(), amount);
-        self.cache.consume(in_cache);
+        // path 1 in `fill_buf` comes here. the stream is cached in `self.cache`
+        debug_assert!(amount <= self.cache.len());
+        debug_assert!(self.cache.len() >= self.dup);
 
-        self.rem -= amount - in_cache;
-        if self.i >= self.srcs.len() {
-            // debug_assert!(self.rem == 0);
+        if self.i >= self.srcs.len() || amount < self.cache.len() - self.dup {
+            // the amount is shorter than the non-duplicated chunks in the cache.
+            // so we're forced to go to the path 1 in the next iteration.
+            //
+            // note 1: nothing changes in the duplicated chunk length
+            // note 2: the case all input streams are consumed comes here too
+            //         (in that case, `self.dup == 0`)
+            self.cache.consume(amount);
             return;
         }
 
-        self.srcs[self.i].consume(amount - in_cache);
+        // the non-duplicated chunks are all consumed. so we clear the cache
+        // so that we can return to the path 2 in the next call of `fill_buf`.
+        self.cache.consume(self.cache.len());
+        self.dup = 0;
+
+        let from_src = amount - (self.cache.len() - self.dup);
+        self.srcs[self.i].consume(from_src);
     }
 }
 
