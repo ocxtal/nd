@@ -20,7 +20,7 @@ use naive::*;
 use super::InoutFormat;
 use crate::byte::ByteStream;
 use crate::filluninit::FillUninit;
-use crate::params::MARGIN_SIZE;
+use crate::params::{BLOCK_SIZE, MARGIN_SIZE};
 use anyhow::{anyhow, Context, Result};
 
 #[cfg(test)]
@@ -428,7 +428,7 @@ impl TextParser {
         is_in_tail: bool,
         buf: &mut Vec<u8>,
     ) -> Result<(usize, usize, usize)> {
-        let (_, len) = self.src.fill_buf()?;
+        let (_, len) = self.src.fill_buf(BLOCK_SIZE)?;
         if len == 0 {
             return Ok((consumed, offset, span));
         }
@@ -462,7 +462,7 @@ impl TextParser {
 
     pub fn read_line(&mut self, buf: &mut Vec<u8>) -> Result<(usize, usize, usize)> {
         let len = loop {
-            let (is_eof, len) = self.src.fill_buf()?;
+            let (is_eof, len) = self.src.fill_buf(BLOCK_SIZE)?;
             if is_eof || len > 2 * 4 * 48 {
                 break len;
             }

@@ -3,6 +3,7 @@
 
 use super::{Segment, SegmentStream};
 use crate::byte::ByteStream;
+use crate::params::BLOCK_SIZE;
 use crate::text::parser::parse_hex_body;
 use anyhow::{anyhow, Context, Result};
 
@@ -11,9 +12,6 @@ use crate::byte::tester::*;
 
 #[cfg(test)]
 use super::tester::*;
-
-#[cfg(test)]
-use crate::params::BLOCK_SIZE;
 
 pub struct ExactMatchSlicer {
     src: Box<dyn ByteStream>,
@@ -49,7 +47,7 @@ impl ExactMatchSlicer {
 impl SegmentStream for ExactMatchSlicer {
     fn fill_segment_buf(&mut self) -> Result<(bool, usize, usize, usize)> {
         let (is_eof, bytes) = loop {
-            let (is_eof, bytes) = self.src.fill_buf()?;
+            let (is_eof, bytes) = self.src.fill_buf(BLOCK_SIZE)?;
             if is_eof || bytes >= self.pattern.len() {
                 break (is_eof, bytes);
             }

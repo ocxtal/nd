@@ -3,6 +3,7 @@
 
 use super::ByteStream;
 use crate::mapper::RangeMapper;
+use crate::params::BLOCK_SIZE;
 use crate::streambuf::StreamBuf;
 use anyhow::Result;
 use std::cmp::Reverse;
@@ -125,9 +126,9 @@ impl CutStream {
 }
 
 impl ByteStream for CutStream {
-    fn fill_buf(&mut self) -> Result<(bool, usize)> {
-        self.buf.fill_buf(|buf| {
-            let (is_eof, bytes) = self.src.fill_buf()?;
+    fn fill_buf(&mut self, request: usize) -> Result<(bool, usize)> {
+        self.buf.fill_buf(request, |_, buf| {
+            let (is_eof, bytes) = self.src.fill_buf(BLOCK_SIZE)?;
             let bytes = self.cutter.max_consume(is_eof, bytes);
 
             if !is_eof && bytes == 0 {

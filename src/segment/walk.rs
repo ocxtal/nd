@@ -30,7 +30,7 @@ impl StreamFeeder {
         }
 
         loop {
-            self.last = self.src.fill_buf()?;
+            self.last = self.src.fill_buf(request)?;
 
             // is_eof || bytes >= request
             if self.last.0 || self.last.1 >= request {

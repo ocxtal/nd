@@ -29,14 +29,14 @@ impl CatStream {
         }
     }
 
-    fn accumulate_into_cache(&mut self, is_eof: bool, len: usize) -> Result<(bool, usize)> {
+    fn accumulate_into_cache(&mut self, request: usize, is_eof: bool, len: usize) -> Result<(bool, usize)> {
         let stream = self.srcs[self.i].as_slice();
         self.cache.extend_from_slice(&stream[self.rem..len]);
 
         let mut is_eof = is_eof;
         self.rem = len - self.rem; // keep the last stream length
 
-        self.cache.fill_buf(|buf| {
+        self.cache.fill_buf(request, |request, buf| {
             if self.i >= self.srcs.len() {
                 debug_assert!(self.rem == usize::MAX);
                 return Ok(false);
@@ -51,7 +51,7 @@ impl CatStream {
                 return Ok(false);
             }
 
-            let (is_eof_next, len) = self.srcs[self.i].fill_buf()?;
+            let (is_eof_next, len) = self.srcs[self.i].fill_buf(request)?;
             let stream = self.srcs[self.i].as_slice();
             buf.extend_from_slice(&stream[..len]);
 
@@ -65,15 +65,15 @@ impl CatStream {
 }
 
 impl ByteStream for CatStream {
-    fn fill_buf(&mut self) -> Result<(bool, usize)> {
+    fn fill_buf(&mut self, request: usize) -> Result<(bool, usize)> {
         if self.i >= self.srcs.len() {
             debug_assert!(self.rem == usize::MAX);
             return Ok((true, self.cache.len()));
         }
 
-        let (is_eof, len) = self.srcs[self.i].fill_buf()?;
+        let (is_eof, len) = self.srcs[self.i].fill_buf(request)?;
         if is_eof || self.cache.len() > 0 {
-            return self.accumulate_into_cache(is_eof, len);
+            return self.accumulate_into_cache(request, is_eof, len);
         }
 
         // TODO: test this path

@@ -97,7 +97,7 @@ impl SegmentStream for GuidedSlicer {
 
         let mut prev_bytes = 0;
         loop {
-            let (is_eof, bytes) = self.src.fill_buf()?;
+            let (is_eof, bytes) = self.src.fill_buf(request)?;
             if is_eof && bytes == 0 {
                 return Ok((true, 0, 0, 0));
             }

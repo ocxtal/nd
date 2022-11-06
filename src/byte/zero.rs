@@ -33,12 +33,14 @@ impl ZeroStream {
 }
 
 impl ByteStream for ZeroStream {
-    fn fill_buf(&mut self) -> Result<(bool, usize)> {
+    fn fill_buf(&mut self, _: usize) -> Result<(bool, usize)> {
         if self.offset >= self.len {
             self.next_len = 0;
             return Ok((true, 0));
         }
 
+        // TODO: we need this
+        // self.next_len = std::cmp::max(self.next_len, request);
         self.buf.resize(self.next_len + MARGIN_SIZE, self.filler);
 
         let is_eof = self.len <= self.offset + self.next_len;

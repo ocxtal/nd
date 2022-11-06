@@ -21,6 +21,9 @@ use crate::byte::tester::*;
 #[cfg(test)]
 use crate::streambuf::StreamBuf;
 
+#[cfg(test)]
+use crate::params::BLOCK_SIZE;
+
 fn parse_const_slicer_params(s: &str) -> Result<ConstSlicerParams> {
     let v = s.split(',').map(|x| x.to_string()).collect::<Vec<_>>();
     assert!(!v.is_empty());
@@ -437,8 +440,8 @@ fn test_pipeline() {
             let mut stream = Pipeline::spawn_stream(&pipeline, inputs).unwrap();
 
             let mut buf = StreamBuf::new();
-            buf.fill_buf(|buf| {
-                let (is_eof, bytes) = stream.fill_buf()?;
+            buf.fill_buf(BLOCK_SIZE, |request, buf| {
+                let (is_eof, bytes) = stream.fill_buf(request)?;
 
                 if is_eof && bytes == 0 {
                     return Ok(false);

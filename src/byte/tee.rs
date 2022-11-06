@@ -55,8 +55,8 @@ impl TeeStream {
 }
 
 impl ByteStream for TeeStream {
-    fn fill_buf(&mut self) -> Result<(bool, usize)> {
-        self.src.fill_buf()
+    fn fill_buf(&mut self, request: usize) -> Result<(bool, usize)> {
+        self.src.fill_buf(request)
     }
 
     fn as_slice(&self) -> &[u8] {
@@ -80,14 +80,14 @@ impl ByteStream for TeeStream {
 }
 
 impl ByteStream for TeeStreamReader {
-    fn fill_buf(&mut self) -> Result<(bool, usize)> {
+    fn fill_buf(&mut self, request: usize) -> Result<(bool, usize)> {
         match self.cache.lock() {
             Ok(mut cache) => {
                 if cache.clear_eof {
                     self.buf.clear_eof();
                     cache.clear_eof = false; // decrement semaphore
                 }
-                self.buf.fill_buf(|buf| {
+                self.buf.fill_buf(request, |_, buf| {
                     cache.file.seek(SeekFrom::Start(self.offset as u64)).unwrap();
                     self.offset += buf.fill_uninit(BLOCK_SIZE, |buf| Ok(cache.file.read(buf)?))?;
                     Ok(false)
@@ -133,7 +133,7 @@ macro_rules! test_cache_all {
 
             let mut stream = TeeStream::new(Box::new(MockSource::new(&pattern)));
             loop {
-                let (is_eof, len) = stream.fill_buf().unwrap();
+                let (is_eof, len) = stream.fill_buf(1).unwrap();
                 if is_eof && len == 0 {
                     break;
                 }
@@ -166,7 +166,7 @@ macro_rules! test_cache_incremental {
                 let tail = rng.gen_range(base..std::cmp::min(pattern.len(), base + 1024));
 
                 while offset < tail {
-                    let (_, len) = stream.fill_buf().unwrap();
+                    let (_, len) = stream.fill_buf(1).unwrap();
                     offset += len;
                     stream.consume(len);
                 }

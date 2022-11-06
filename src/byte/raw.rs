@@ -28,8 +28,8 @@ impl RawStream {
 }
 
 impl ByteStream for RawStream {
-    fn fill_buf(&mut self) -> Result<(bool, usize)> {
-        self.buf.fill_buf(|buf| {
+    fn fill_buf(&mut self, request: usize) -> Result<(bool, usize)> {
+        self.buf.fill_buf(request, |_, buf| {
             buf.fill_uninit(BLOCK_SIZE, |arr| Ok(self.src.read(arr)?))?;
             Ok(false)
         })

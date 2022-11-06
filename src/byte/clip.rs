@@ -3,6 +3,7 @@
 // @date 2022/2/4
 
 use super::{ByteStream, CatStream, ZeroStream};
+use crate::params::BLOCK_SIZE;
 use anyhow::Result;
 use std::ops::Range;
 
@@ -121,9 +122,9 @@ impl ClipStream {
 }
 
 impl ByteStream for ClipStream {
-    fn fill_buf(&mut self) -> Result<(bool, usize)> {
+    fn fill_buf(&mut self, request: usize) -> Result<(bool, usize)> {
         while self.skip > 0 {
-            let (is_eof, len) = self.src.fill_buf()?;
+            let (is_eof, len) = self.src.fill_buf(BLOCK_SIZE)?;
             let consume_len = std::cmp::min(self.skip, len);
             self.src.consume(consume_len);
             self.skip -= consume_len;
@@ -134,7 +135,7 @@ impl ByteStream for ClipStream {
         }
 
         loop {
-            let (is_eof, len) = self.src.fill_buf()?;
+            let (is_eof, len) = self.src.fill_buf(request)?;
             if is_eof || len > self.strip {
                 let len = std::cmp::min(self.rem, len.saturating_sub(self.strip));
                 let is_eof = is_eof || len == self.rem;
