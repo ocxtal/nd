@@ -15,12 +15,66 @@ use rand::Rng;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ClipperParams {
+    // `ClipperParams` describes a sequence of operations below:
+    //
+    // the first operation is padding:
+    //
+    //     ...................------------------------>.................
+    //        \                  \                        \
+    //        `pad.0`            input stream             `pad.1`
+    //
     pub pad: (usize, usize),
+
+    // the second operation is clipping:
+    //
+    //            ............------------------------>.......
+    //     +----->                                            <--------+
+    //        \                                                 \
+    //        `clip.0`                                          `clip.1`
+    //
     pub clip: (usize, usize),
+
+    // the last operation further clips the stream at a certain length:
+    //
+    //            ............------------->
+    //            +------------------------>
+    //               \
+    //               `len`
+    //
     pub len: usize,
 }
 
 impl ClipperParams {
+    // `ClipperParams::new` converts a sequence of the following operations to
+    // a raw `ClipperParams` (that is considered more canonical) above.
+    //
+    //  suppose we have an input stream:
+    //
+    //                        ------------------------>
+    //                        ^
+    //                        0
+    //
+    //  it first puts paddings
+    //
+    //     ...................------------------------>.................
+    //        \                                           \
+    //        `pad.0`                                     `pad.1`
+    //
+    //  then drops the first `seek` bytes
+    //
+    //                             ------------------->.................
+    //     <------- `seek` ------->
+    //
+    //  then leaves bytes only within the `range`
+    //
+    //                                  -------------->.....
+    //                             <--->
+    //                               \
+    //                               `range.start`
+    //                             <----------------------->
+    //                               \
+    //                               `range.end`
+    //
     pub fn from_raw(pad: Option<(usize, usize)>, seek: Option<usize>, range: Option<Range<usize>>) -> Result<Self> {
         let pad = pad.unwrap_or((0, 0));
         let seek = seek.unwrap_or(0);
@@ -93,8 +147,8 @@ fn test_stream_params() {
 
 pub struct ClipStream {
     src: Box<dyn ByteStream>,
-    skip: usize,
-    rem: usize,
+    skip: usize,  // strip length from the head
+    rem: usize,   // body length
     strip: usize, // strip length from the tail
 }
 
@@ -123,27 +177,38 @@ impl ClipStream {
 
 impl ByteStream for ClipStream {
     fn fill_buf(&mut self, request: usize) -> Result<(bool, usize)> {
+        // on the first call of fill_buf, it tries to consume all of the head clip
         while self.skip > 0 {
-            let (is_eof, len) = self.src.fill_buf(BLOCK_SIZE)?;
-            let consume_len = std::cmp::min(self.skip, len);
+            let (is_eof, bytes) = self.src.fill_buf(BLOCK_SIZE)?;
+            let consume_len = std::cmp::min(self.skip, bytes);
             self.src.consume(consume_len);
             self.skip -= consume_len;
 
-            if is_eof {
-                break;
+            if is_eof && consume_len == bytes {
+                return Ok((true, 0));
             }
         }
 
-        loop {
-            let (is_eof, len) = self.src.fill_buf(request)?;
-            if is_eof || len > self.strip {
-                let len = std::cmp::min(self.rem, len.saturating_sub(self.strip));
-                let is_eof = is_eof || len == self.rem;
-                return Ok((is_eof, len));
-            }
+        // after the head clip consumed, self.skip becomes zero
+        //
+        // note: on the second and later calls, the control flow reaches here without
+        // executing the loop above.
+        debug_assert!(self.skip == 0);
 
-            self.src.consume(0);
+        // it'll request another chunk of `request` plus tail margin
+        // (+1 to return at least one byte)
+        let request = std::cmp::min(self.rem, request) + self.strip + 1;
+        debug_assert!(request > self.strip);
+
+        let (is_eof, bytes) = self.src.fill_buf(request)?;
+        if !is_eof {
+            debug_assert!(bytes > self.strip);
         }
+
+        let bytes = std::cmp::min(self.rem, bytes.saturating_sub(self.strip));
+        let is_eof = is_eof || bytes == self.rem;
+
+        Ok((is_eof, bytes))
     }
 
     fn as_slice(&self) -> &[u8] {
