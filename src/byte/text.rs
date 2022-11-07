@@ -32,8 +32,7 @@ impl GaplessTextStream {
 impl ByteStream for GaplessTextStream {
     fn fill_buf(&mut self, request: usize) -> Result<(bool, usize)> {
         self.buf.fill_buf(request, |_, buf| {
-            let (fwd, _, _) = self.inner.read_line(buf)?;
-            Ok(fwd == 0)
+            Ok(self.inner.read_line(buf)?.is_none())
         })
     }
 
@@ -121,25 +120,24 @@ impl TextFeeder {
         }
     }
 
-    fn fill_buf(&mut self) -> Result<(usize, usize)> {
+    fn fill_buf(&mut self) -> Result<(bool, usize)> {
         // offset is set usize::MAX once the source reached EOF
         if self.offset == usize::MAX {
-            return Ok((usize::MAX, 0));
+            return Ok((true, 0));
         }
 
         // flush the current buffer, then read the next line
         self.buf.clear();
 
-        let (fwd, offset, span) = self.src.read_line(&mut self.buf)?;
-        self.offset = offset;
-        self.span = span;
-
-        // mark EOF
-        if fwd == 0 {
+        if let Some((offset, span)) = self.src.read_line(&mut self.buf)? {
+            self.offset = offset;
+            self.span = span;
+            Ok((false, offset))
+        } else {
             self.offset = usize::MAX;
             self.span = 0;
+            Ok((true, usize::MAX))
         }
-        Ok((fwd, offset))
     }
 }
 
@@ -185,18 +183,15 @@ impl ByteStream for TextStream {
             buf.extend_from_slice(&self.line.buf);
             self.offset += self.line.span;
 
-            let (fwd, next_offset) = self.line.fill_buf()?;
-            if fwd == 0 {
-                return Ok(true);
-            }
-            if self.offset > next_offset {
+            let (is_eof, next_offset) = self.line.fill_buf()?;
+            if !is_eof && self.offset > next_offset {
                 return Err(anyhow!(
                     "hex records must not overlap each other (offset = {}, between {})",
                     self.offset,
                     &self.line.src.format_cache(true)
                 ));
             }
-            Ok(false)
+            Ok(is_eof)
         })
     }
 

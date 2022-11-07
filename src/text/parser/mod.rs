@@ -420,24 +420,16 @@ impl TextParser {
         Some((len - rem_len, is_in_tail, rem_len > 0, false))
     }
 
-    // fn pack_eof(fwd: usize, offset: usize, span: usize) -> Option<(usize, usize)> {
-    //     if fwd == 0 {
-    //         return None;
-    //     }
-    //     Some((offset, span))
-    // }
-
     fn read_line_continued(
         &mut self,
-        consumed: usize,
         offset: usize,
         span: usize,
         is_in_tail: bool,
         buf: &mut Vec<u8>,
-    ) -> Result<(usize, usize, usize)> {
+    ) -> Result<Option<(usize, usize)>> {
         let (is_eof, len) = self.src.fill_buf(BLOCK_SIZE)?;
         if is_eof && len == 0 {
-            return Ok((consumed, offset, span));
+            return Ok(Some((offset, span)));
         }
 
         let mut stream = self.src.as_slice();
@@ -456,7 +448,7 @@ impl TextParser {
             if eol_found {
                 rem_len = rem_len.saturating_sub(1);
                 self.src.consume(len - rem_len);
-                return Ok((consumed + len - rem_len, offset, span));
+                return Ok(Some((offset, span)));
             }
 
             let (_, rem_stream) = stream.split_at(fwd);
@@ -464,13 +456,13 @@ impl TextParser {
         }
 
         self.src.consume(len - rem_len);
-        self.read_line_continued(consumed + len - rem_len, offset, span, is_in_tail, buf)
+        self.read_line_continued(offset, span, is_in_tail, buf)
     }
 
-    pub fn read_line(&mut self, buf: &mut Vec<u8>) -> Result<(usize, usize, usize)> {
+    pub fn read_line(&mut self, buf: &mut Vec<u8>) -> Result<Option<(usize, usize)>> {
         let (is_eof, len) = self.src.fill_buf(BLOCK_SIZE)?;
         if is_eof && len == 0 {
-            return Ok((0, 0, 0));
+            return Ok(None);
         }
 
         let stream = self.src.as_slice();
@@ -491,7 +483,7 @@ impl TextParser {
         if (delims & 0xff) == b'\n' as u32 {
             let fwd = std::cmp::min(fwd + 1, len);
             self.src.consume(fwd);
-            return Ok((fwd, offset, span));
+            return Ok(Some((offset, span)));
         }
         // 0x207c20 == " | "
         if (delims & 0xffffff) != 0x00207c20 {
@@ -518,7 +510,7 @@ impl TextParser {
             if eol_found {
                 rem_len = rem_len.saturating_sub(1);
                 self.src.consume(len - rem_len);
-                return Ok((len - rem_len, offset, span));
+                return Ok(Some((offset, span)));
             }
 
             let (_, rem_stream) = stream.split_at(fwd);
@@ -526,51 +518,49 @@ impl TextParser {
         }
 
         self.src.consume(len - rem_len);
-        self.read_line_continued(len - rem_len, offset, span, is_in_tail, buf)
+        self.read_line_continued(offset, span, is_in_tail, buf)
     }
 }
 
 #[test]
 fn test_text_parser_hex() {
     macro_rules! test {
-        ( $input: expr, $ex_fwd: expr, $ex_offset: expr, $ex_span: expr, $ex_arr: expr ) => {{
+        ( $input: expr, $expected_ret: expr, $expected_arr: expr ) => {{
             let input = Box::new(MockSource::new($input));
             let mut parser = TextParser::new(input, &InoutFormat::from_str("xxx").unwrap());
             let mut buf = Vec::new();
-            let (fwd, offset, span) = parser.read_line(&mut buf).unwrap();
-            assert_eq!(fwd, $ex_fwd);
-            assert_eq!(offset, $ex_offset);
-            assert_eq!(span, $ex_span);
-            assert_eq!(&buf, $ex_arr);
+            let ret = parser.read_line(&mut buf).unwrap();
+            assert_eq!(ret, $expected_ret);
+            assert_eq!(&buf, $expected_arr);
         }};
     }
 
-    test!(b"0000 00\n", 8, 0, 0, &[]);
-    test!(b"0010 00\n", 8, 0x10, 0, &[]);
-    test!(b"0000 fe\n", 8, 0, 0xfe, &[]);
+    test!(b"0000 00\n", Some((0, 0)), &[]);
+    test!(b"0010 00\n", Some((0x10, 0)), &[]);
+    test!(b"0000 fe\n", Some((0, 0xfe)), &[]);
 
-    test!(b"0000 00 | \n", 11, 0, 0, &[]);
-    test!(b"0010 00 | \n", 11, 0x10, 0, &[]);
-    test!(b"0000 fe | \n", 11, 0, 0xfe, &[]);
+    test!(b"0000 00 | \n", Some((0, 0)), &[]);
+    test!(b"0010 00 | \n", Some((0x10, 0)), &[]);
+    test!(b"0000 fe | \n", Some((0, 0xfe)), &[]);
 
-    test!(b"00001 fe | \n", 12, 1, 0xfe, &[]);
-    test!(b"00000001 fe | \n", 15, 1, 0xfe, &[]);
-    test!(b"00000000001 fe | \n", 18, 1, 0xfe, &[]);
-    test!(b"00000000000001 fe | \n", 21, 1, 0xfe, &[]);
+    test!(b"00001 fe | \n", Some((1, 0xfe)), &[]);
+    test!(b"00000001 fe | \n", Some((1, 0xfe)), &[]);
+    test!(b"00000000001 fe | \n", Some((1, 0xfe)), &[]);
+    test!(b"00000000000001 fe | \n", Some((1, 0xfe)), &[]);
 
-    test!(b"0001 000fe | \n", 14, 1, 0xfe, &[]);
-    test!(b"0001 000000fe | \n", 17, 1, 0xfe, &[]);
-    test!(b"0001 000000000fe | \n", 20, 1, 0xfe, &[]);
-    test!(b"0001 000000000000fe | \n", 23, 1, 0xfe, &[]);
+    test!(b"0001 000fe | \n", Some((1, 0xfe)), &[]);
+    test!(b"0001 000000fe | \n", Some((1, 0xfe)), &[]);
+    test!(b"0001 000000000fe | \n", Some((1, 0xfe)), &[]);
+    test!(b"0001 000000000000fe | \n", Some((1, 0xfe)), &[]);
 
-    test!(b"0001 02 | |\n", 12, 1, 2, &[]);
-    test!(b"0001 02 | |  \n", 14, 1, 2, &[]);
-    test!(b"0001 02 | |xx\n", 14, 1, 2, &[]);
-    test!(b"0001 02 | | abcde\n", 18, 1, 2, &[]);
+    test!(b"0001 02 | |\n", Some((1, 2)), &[]);
+    test!(b"0001 02 | |  \n", Some((1, 2)), &[]);
+    test!(b"0001 02 | |xx\n", Some((1, 2)), &[]);
+    test!(b"0001 02 | | abcde\n", Some((1, 2)), &[]);
 
-    test!(b"0001 02 | 10 11 12\n", 19, 1, 2, &[0x10, 0x11, 0x12]);
-    test!(b"0001 02 | 10 11 12 |\n", 21, 1, 2, &[0x10, 0x11, 0x12]);
-    test!(b"0001 02 | 10 11 12 |  \n", 23, 1, 2, &[0x10, 0x11, 0x12]);
+    test!(b"0001 02 | 10 11 12\n", Some((1, 2)), &[0x10, 0x11, 0x12]);
+    test!(b"0001 02 | 10 11 12 |\n", Some((1, 2)), &[0x10, 0x11, 0x12]);
+    test!(b"0001 02 | 10 11 12 |  \n", Some((1, 2)), &[0x10, 0x11, 0x12]);
 
     test!(
         b"0001 02 | \
@@ -591,9 +581,7 @@ fn test_text_parser_hex() {
           10 11 12 10 11 12 10 11 12 10 11 12 \
           10 11 12 10 11 12 10 11 12 10 11 12 \
           \n",
-        587,
-        1,
-        2,
+        Some((1, 2)),
         &rep!(&[0x10u8, 0x11, 0x12], 64)
     );
 
@@ -648,9 +636,7 @@ fn test_text_parser_hex() {
           10 11 12 10 11 12 10 11 12 10 11 12 \
           10 11 12 10 11 12 10 11 12 10 11 12 \
           \n",
-        1739,
-        1,
-        2,
+        Some((1, 2)),
         &rep!(&[0x10u8, 0x11, 0x12], 192)
     );
 
@@ -673,9 +659,7 @@ fn test_text_parser_hex() {
           10 11 12 10 11 12 10 11 12 10 11 12 \
           10 11 12 10 11 12 10 11 12 10 11 12 | \
           aaaaaa\n",
-        595,
-        1,
-        2,
+        Some((1, 2)),
         &rep!(&[0x10u8, 0x11, 0x12], 64)
     );
 
@@ -705,9 +689,7 @@ fn test_text_parser_hex() {
           bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\
           bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\
           \n",
-        869,
-        1,
-        2,
+        Some((1, 2)),
         &rep!(&[0x10u8, 0x11, 0x12], 64)
     );
 
@@ -730,9 +712,7 @@ fn test_text_parser_hex() {
           10 11 12 10 11 12 10 11 12 10 11 12 \
           10 11 12 10 11 12 10 11 12 10 11 12 \
           10 11 12 10 11 12 10 11 12 10 11 12 ",
-        586,
-        1,
-        2,
+        Some((1, 2)),
         &rep!(&[0x10u8, 0x11, 0x12], 64)
     );
 
@@ -761,9 +741,7 @@ fn test_text_parser_hex() {
           bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\
           bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\
           bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        868,
-        1,
-        2,
+        Some((1, 2)),
         &rep!(&[0x10u8, 0x11, 0x12], 64)
     );
 }
@@ -777,11 +755,7 @@ fn test_text_parser_hex_multiline() {
 
             let mut offset_and_spans = Vec::new();
             let mut buf = Vec::new();
-            loop {
-                let (fwd, offset, span) = parser.read_line(&mut buf).unwrap();
-                if fwd == 0 {
-                    break;
-                }
+            while let Some((offset, span)) = parser.read_line(&mut buf).unwrap() {
                 offset_and_spans.push((offset, span));
             }
             assert_eq!(&offset_and_spans, $ex_offset_and_spans);
