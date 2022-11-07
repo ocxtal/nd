@@ -102,17 +102,12 @@ impl StreamBuf {
 
         // collect into the buffer without margin
         loop {
-            let prev_len = self.buf.len();
+            let request = target_len.saturating_sub(self.buf.len()) + 1;
 
-            // TODO: test force_try_next == true
-            let request = target_len.saturating_sub(prev_len) + 1;
-            let force_try_next = f(request, &mut self.buf)?;
-            if force_try_next {
-                continue;
-            }
-
-            // end of stream if no byte added to the buffer
-            if self.buf.len() == prev_len {
+            // `f` must return true if it has consumed all of the source,
+            // and it's certain that it won't append any more byte to buf
+            let is_eof = f(request, &mut self.buf)?;
+            if is_eof {
                 self.mark_eof();
                 break;
             }
@@ -188,7 +183,7 @@ fn test_stream_buf_random_len() {
             while drain.len() < pattern.len() {
                 let (is_eof, len) = buf
                     .fill_buf(1, |_, buf| {
-                        let (_, len) = src.fill_buf(1).unwrap();
+                        let (is_eof, len) = src.fill_buf(1).unwrap();
                         let slice = src.as_slice();
                         assert!(slice.len() >= len + MARGIN_SIZE);
 
@@ -196,7 +191,7 @@ fn test_stream_buf_random_len() {
                         src.consume(len);
                         acc += len;
 
-                        Ok(false)
+                        Ok(is_eof)
                     })
                     .unwrap();
 
@@ -250,7 +245,7 @@ fn test_stream_buf_random_consume() {
             while drain.len() < pattern.len() {
                 let (_, len) = buf
                     .fill_buf(1, |_, buf| {
-                        let (_, len) = src.fill_buf(1).unwrap();
+                        let (is_eof, len) = src.fill_buf(1).unwrap();
                         let slice = src.as_slice();
                         assert!(slice.len() >= len + MARGIN_SIZE);
 
@@ -258,7 +253,7 @@ fn test_stream_buf_random_consume() {
                         src.consume(len);
                         acc += len;
 
-                        Ok(false)
+                        Ok(is_eof)
                     })
                     .unwrap();
 
@@ -310,7 +305,7 @@ fn test_stream_buf_all_at_once() {
             loop {
                 let (is_eof, len) = buf
                     .fill_buf(1, |_, buf| {
-                        let (_, len) = src.fill_buf(1).unwrap();
+                        let (is_eof, len) = src.fill_buf(1).unwrap();
                         let slice = src.as_slice();
                         assert!(slice.len() >= len + MARGIN_SIZE);
 
@@ -318,7 +313,7 @@ fn test_stream_buf_all_at_once() {
                         src.consume(len);
                         acc += len;
 
-                        Ok(false)
+                        Ok(is_eof)
                     })
                     .unwrap();
 

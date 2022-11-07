@@ -131,19 +131,13 @@ impl ByteStream for CutStream {
             let (is_eof, bytes) = self.src.fill_buf(BLOCK_SIZE)?;
             let bytes = self.cutter.max_consume(is_eof, bytes);
 
-            if !is_eof && bytes == 0 {
-                self.src.consume(0);
-                return Ok(true);
-            }
-
-            let prev_len = buf.len();
             let stream = self.src.as_slice();
             self.cutter.accumulate(self.src_consumed, is_eof, bytes, stream, buf)?;
 
             self.src.consume(bytes);
             self.src_consumed += bytes;
 
-            Ok(!is_eof && buf.len() == prev_len)
+            Ok(is_eof)
         })
     }
 
