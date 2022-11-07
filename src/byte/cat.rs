@@ -43,7 +43,7 @@ impl CatStream {
 
         // we already have `dup` bytes of the stream in the cache
         self.cache.extend_from_slice(&stream[self.dup..bytes]);
-        self.dup = bytes - self.dup; // update it for the next iteration
+        self.dup = bytes; // update it for the next iteration
 
         let mut is_eof = is_eof;
         self.cache.fill_buf(request, |request, buf| {
@@ -68,7 +68,7 @@ impl CatStream {
             self.dup = bytes;
 
             is_eof = is_eof_next;
-            Ok(true)
+            Ok(is_eof && bytes == 0)
         })
     }
 }
@@ -136,11 +136,11 @@ impl ByteStream for CatStream {
 
         // the non-duplicated chunks are all consumed. so we clear the cache
         // so that we can return to the path 2 in the next call of `fill_buf`.
-        self.cache.consume(self.cache.len());
-        self.dup = 0;
-
         let from_src = amount - (self.cache.len() - self.dup);
         self.srcs[self.i].consume(from_src);
+
+        self.cache.consume(self.cache.len());
+        self.dup = 0;
     }
 }
 
