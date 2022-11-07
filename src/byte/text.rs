@@ -31,9 +31,7 @@ impl GaplessTextStream {
 
 impl ByteStream for GaplessTextStream {
     fn fill_buf(&mut self, request: usize) -> Result<(bool, usize)> {
-        self.buf.fill_buf(request, |_, buf| {
-            Ok(self.inner.read_line(buf)?.is_none())
-        })
+        self.buf.fill_buf(request, |_, buf| Ok(self.inner.read_line(buf)?.is_none()))
     }
 
     fn as_slice(&self) -> &[u8] {

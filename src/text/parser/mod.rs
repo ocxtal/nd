@@ -420,13 +420,7 @@ impl TextParser {
         Some((len - rem_len, is_in_tail, rem_len > 0, false))
     }
 
-    fn read_line_continued(
-        &mut self,
-        offset: usize,
-        span: usize,
-        is_in_tail: bool,
-        buf: &mut Vec<u8>,
-    ) -> Result<Option<(usize, usize)>> {
+    fn read_line_continued(&mut self, offset: usize, span: usize, is_in_tail: bool, buf: &mut Vec<u8>) -> Result<Option<(usize, usize)>> {
         let (is_eof, len) = self.src.fill_buf(BLOCK_SIZE)?;
         if is_eof && len == 0 {
             return Ok(Some((offset, span)));
