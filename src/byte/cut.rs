@@ -3,7 +3,6 @@
 
 use super::ByteStream;
 use crate::mapper::RangeMapper;
-use crate::params::BLOCK_SIZE;
 use crate::streambuf::StreamBuf;
 use anyhow::Result;
 use std::cmp::Reverse;
@@ -17,7 +16,7 @@ use rand::Rng;
 struct Cutter {
     filters: Vec<RangeMapper>,      // filters that both ends are start-anchored
     tail_filters: Vec<RangeMapper>, // filters that have tail-anchored ends
-    pass_after: usize,              // minimum start offset among {StartAnchored(x)..EndAnchored(y)}
+    trans_offset: usize,            // minimum start offset among {StartAnchored(x)..EndAnchored(y)}
     tail_margin: usize,             // #bytes to be left at the tail
 }
 
@@ -38,28 +37,28 @@ impl Cutter {
         }
         filters.sort_by_key(|x| Reverse(x.sort_key()));
 
-        let pass_after = tail_filters.iter().map(|x| x.trans_offset()).min().unwrap_or(usize::MAX);
+        let trans_offset = tail_filters.iter().map(|x| x.trans_offset()).min().unwrap_or(usize::MAX);
         let tail_margin = tail_filters.iter().map(|x| x.tail_margin()).max().unwrap_or(0);
 
         Ok(Cutter {
             filters,
             tail_filters,
-            pass_after,
+            trans_offset,
             tail_margin,
         })
     }
 
-    fn max_consume(&self, is_eof: bool, bytes: usize) -> usize {
-        if is_eof {
-            bytes
-        } else {
-            bytes.saturating_sub(self.tail_margin)
-        }
+    fn min_fill_bytes(&self, request: usize) -> usize {
+        request + self.tail_margin + 1
     }
 
-    fn accumulate(&mut self, offset: usize, is_eof: bool, bytes: usize, stream: &[u8], v: &mut Vec<u8>) -> Result<()> {
-        // convert all right-anchored and mixed ranges to left-anchored ones,
-        // as the absolute offset finally got known when it reached EOF
+    // fn is_empty(&self) -> bool {
+    //     self.tail_filters.is_empty() && self.filters.is_empty()
+    // }
+
+    fn accumulate(&mut self, offset: usize, is_eof: bool, bytes: usize, stream: &[u8], v: &mut Vec<u8>) -> Result<usize> {
+        // when it reached EOF, convert all right-anchored and mixed ranges to
+        // left-anchored ones, as the absolute offset finally got known
         if is_eof && !self.tail_filters.is_empty() {
             for filter in &self.tail_filters {
                 self.filters.push(filter.to_left_anchored(offset + bytes));
@@ -69,11 +68,15 @@ impl Cutter {
             self.filters.sort_by_key(|x| Reverse(x.sort_key()));
         }
 
-        // patch for overlaps with StartAnchored(x)..EndAnchored(y) ranges
-        let pass_after = if is_eof {
-            usize::MAX
+        // if not reached EOF, we can forward the pointer up to the trans_offset
+        // (body -> tail transition offset) at most. we use `clip` for clipping
+        // the ranges in the loop below.
+        let scan_upto = if is_eof {
+            bytes
         } else {
-            self.pass_after.saturating_sub(offset)
+            let bytes = bytes.saturating_sub(self.tail_margin);
+            let clip = self.trans_offset.saturating_sub(offset);
+            std::cmp::min(bytes, clip)
         };
 
         let mut last_scanned = 0;
@@ -81,34 +84,32 @@ impl Cutter {
             // evaluate the filter range into a relative offsets on the current segment array
             let range = filter.to_range(offset);
 
-            let start = std::cmp::min(range.start, pass_after);
-            let start = std::cmp::max(start, last_scanned);
-            let start = std::cmp::min(start, bytes);
-
+            // becomes an empty range if the whole `range.start..range.end` is before the pointer
+            // (i.e., the range is completely covered by one of the previous ranges)
+            let start = std::cmp::max(range.start, last_scanned);
             let end = std::cmp::max(range.end, last_scanned);
-            let end = std::cmp::min(end, bytes);
+
+            // becomes an empty range if the whole `start..end` is after the clipping offset
+            // (i.e., the range is completely out of the current window)
+            let start = std::cmp::min(start, scan_upto);
+            let end = std::cmp::min(end, scan_upto);
 
             v.extend_from_slice(&stream[start..end]);
             last_scanned = end;
 
             // if not all consumed, the remainders are postponed to the next call
-            if !is_eof && range.end > bytes {
+            if !is_eof && range.end > scan_upto {
                 self.filters.push(filter);
                 break;
             }
         }
-
-        let pass_after = std::cmp::max(pass_after, last_scanned);
-        if pass_after < bytes {
-            v.extend_from_slice(&stream[pass_after..bytes]);
-        }
-        Ok(())
+        Ok(scan_upto)
     }
 }
 
 pub struct CutStream {
     src: Box<dyn ByteStream>,
-    src_consumed: usize, // absolute bytes from the head
+    src_consumed: usize, // absolute offset in bytes from the head
 
     buf: StreamBuf,
     cutter: Cutter,
@@ -127,15 +128,15 @@ impl CutStream {
 
 impl ByteStream for CutStream {
     fn fill_buf(&mut self, request: usize) -> Result<(bool, usize)> {
-        self.buf.fill_buf(request, |_, buf| {
-            let (is_eof, bytes) = self.src.fill_buf(BLOCK_SIZE)?;
-            let bytes = self.cutter.max_consume(is_eof, bytes);
+        self.buf.fill_buf(request, |request, buf| {
+            let request = self.cutter.min_fill_bytes(request);
 
+            let (is_eof, bytes) = self.src.fill_buf(request)?;
             let stream = self.src.as_slice();
-            self.cutter.accumulate(self.src_consumed, is_eof, bytes, stream, buf)?;
 
-            self.src.consume(bytes);
-            self.src_consumed += bytes;
+            let scanned = self.cutter.accumulate(self.src_consumed, is_eof, bytes, stream, buf)?;
+            self.src.consume(scanned);
+            self.src_consumed += scanned;
 
             Ok(is_eof)
         })
