@@ -38,12 +38,10 @@ impl PatchFeeder {
         // flush the current buffer, then read the next line
         self.buf.clear();
 
-        let (fwd, offset, span) = self.src.read_line(&mut self.buf)?;
-        self.offset = offset;
-        self.span = span;
-
-        // fwd == 0 indicates EOF; we use a patch at usize::MAX..usize::MAX as the tail sentinel
-        if fwd == 0 {
+        if let Some((offset, span)) = self.src.read_line(&mut self.buf)? {
+            self.offset = offset;
+            self.span = span;
+        } else {
             self.offset = usize::MAX;
             self.span = 0;
         }

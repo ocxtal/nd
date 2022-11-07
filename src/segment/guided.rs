@@ -61,12 +61,13 @@ impl GuidedSlicer {
             // read the next guide to the buffer
             self.buf.clear();
 
-            let (fwd, offset, span) = self.guide.read_line(&mut self.buf)?;
-            if fwd == 0 {
+            let ret = self.guide.read_line(&mut self.buf)?;
+            if ret.is_none() {
                 // the guide stream reached EOF
                 self.guide_consumed = self.segments.len();
                 break;
             }
+            let (offset, span) = ret.unwrap();
 
             // slice the stream out by the guide
             let pos = offset - self.src_consumed;
