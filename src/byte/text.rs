@@ -32,8 +32,8 @@ impl GaplessTextStream {
 impl ByteStream for GaplessTextStream {
     fn fill_buf(&mut self, request: usize) -> Result<(bool, usize)> {
         self.buf.fill_buf(request, |_, buf| {
-            self.inner.read_line(buf)?;
-            Ok(false)
+            let (fwd, _, _) = self.inner.read_line(buf)?;
+            Ok(fwd == 0)
         })
     }
 
