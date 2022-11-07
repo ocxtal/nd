@@ -123,22 +123,27 @@ impl ScatterDrain {
     fn fill_buf_impl_through(&mut self, request: usize) -> Result<(bool, usize)> {
         self.drain.fill_buf(request, |_, buf| {
             let (is_eof, bytes, count, max_consume) = self.src.fill_segment_buf()?;
-            if is_eof && bytes == 0 {
-                return Ok(false);
+            if is_eof {
+                assert_eq!(bytes, max_consume);
             }
 
             let (stream, segments) = self.src.as_slices();
+
             self.formatter
                 .format_segments(self.offset, stream, &segments[self.src_consumed..count], buf);
             self.src_consumed += count;
 
             // consumed bytes and count
             let (bytes, count) = self.src.consume(max_consume)?;
+            if is_eof {
+                assert_eq!(bytes, max_consume);
+            }
+
             self.src_consumed -= count;
             self.offset += bytes;
             self.lines += count;
 
-            Ok(!is_eof && count == 0)
+            Ok(is_eof)
         })
     }
 

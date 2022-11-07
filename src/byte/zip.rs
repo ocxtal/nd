@@ -79,11 +79,11 @@ impl Zipper {
         }
     }
 
-    fn fill_buf(&mut self, request: usize) -> Result<(usize, usize)> {
+    fn fill_buf(&mut self, request: usize) -> Result<(bool, usize, usize)> {
         let request = (request + self.srcs.len() - 1) / self.srcs.len();
 
         // bulk_len is the minimum valid slice length among the source buffers
-        let len = loop {
+        let (is_eof, len) = loop {
             let mut is_eof = true;
             let mut len = usize::MAX;
             for src in &mut self.srcs {
@@ -96,7 +96,7 @@ impl Zipper {
             let len = (len / self.word_size) * self.word_size;
 
             if is_eof || len > 0 {
-                break len;
+                break (is_eof, len);
             }
 
             debug_assert!(len == 0);
@@ -107,7 +107,7 @@ impl Zipper {
         for (src, ptr) in self.srcs.iter_mut().zip(self.ptrs.iter_mut()) {
             *ptr = src.as_slice().as_ptr();
         }
-        Ok((len, self.srcs.len() * len))
+        Ok((is_eof, len, self.srcs.len() * len))
     }
 
     gather_impl!(gather_impl_w1, 1);
@@ -162,14 +162,14 @@ impl ZipStream {
 impl ByteStream for ZipStream {
     fn fill_buf(&mut self, request: usize) -> Result<(bool, usize)> {
         self.buf.fill_buf(request, |_, buf| {
-            let (bytes_per_src, bytes_all) = self.src.fill_buf(BLOCK_SIZE)?;
-            if bytes_per_src == 0 {
-                return Ok(false);
-            }
+            let (is_eof, bytes_per_src, bytes_all) = self.src.fill_buf(BLOCK_SIZE)?;
+            // if bytes_per_src == 0 {
+            //     return Ok(is_eof);
+            // }
 
             buf.fill_uninit(bytes_all, |buf| self.src.gather(bytes_per_src, buf))?;
             self.src.consume(bytes_per_src);
-            Ok(false)
+            Ok(is_eof)
         })
     }
 

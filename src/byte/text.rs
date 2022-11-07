@@ -168,7 +168,8 @@ impl ByteStream for TextStream {
         let filler = self.buf.filler();
         self.buf.fill_buf(request, |_, buf| {
             if self.line.offset == usize::MAX {
-                return Ok(false);
+                // it has already reached EOF
+                return Ok(true);
             }
 
             let next_offset = std::cmp::min(self.offset + BLOCK_SIZE, self.line.offset);
@@ -186,7 +187,7 @@ impl ByteStream for TextStream {
 
             let (fwd, next_offset) = self.line.fill_buf()?;
             if fwd == 0 {
-                return Ok(false);
+                return Ok(true);
             }
             if self.offset > next_offset {
                 return Err(anyhow!(
@@ -195,10 +196,7 @@ impl ByteStream for TextStream {
                     &self.line.src.format_cache(true)
                 ));
             }
-
-            // the buffer may not grow even if the input stream has not reached EOF,
-            // so try the next patch forcibly
-            Ok(true)
+            Ok(false)
         })
     }
 

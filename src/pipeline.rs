@@ -442,16 +442,11 @@ fn test_pipeline() {
             let mut buf = StreamBuf::new();
             buf.fill_buf(BLOCK_SIZE, |request, buf| {
                 let (is_eof, bytes) = stream.fill_buf(request)?;
-
-                if is_eof && bytes == 0 {
-                    return Ok(false);
-                }
-
                 let slice = stream.as_slice();
                 buf.extend_from_slice(&slice[..bytes]);
                 stream.consume(bytes);
 
-                Ok(true)
+                Ok(is_eof)
             })
             .unwrap();
 

@@ -89,8 +89,11 @@ impl ByteStream for TeeStreamReader {
                 }
                 self.buf.fill_buf(request, |_, buf| {
                     cache.file.seek(SeekFrom::Start(self.offset as u64)).unwrap();
-                    self.offset += buf.fill_uninit(BLOCK_SIZE, |buf| Ok(cache.file.read(buf)?))?;
-                    Ok(false)
+
+                    let len = buf.fill_uninit(BLOCK_SIZE, |buf| Ok(cache.file.read(buf)?))?;
+                    self.offset += len;
+
+                    Ok(len == 0)
                 })
             }
             _ => panic!("failed to lock cache."),
