@@ -420,6 +420,13 @@ impl TextParser {
         Some((len - rem_len, is_in_tail, rem_len > 0, false))
     }
 
+    // fn pack_eof(fwd: usize, offset: usize, span: usize) -> Option<(usize, usize)> {
+    //     if fwd == 0 {
+    //         return None;
+    //     }
+    //     Some((offset, span))
+    // }
+
     fn read_line_continued(
         &mut self,
         consumed: usize,
@@ -428,8 +435,8 @@ impl TextParser {
         is_in_tail: bool,
         buf: &mut Vec<u8>,
     ) -> Result<(usize, usize, usize)> {
-        let (_, len) = self.src.fill_buf(BLOCK_SIZE)?;
-        if len == 0 {
+        let (is_eof, len) = self.src.fill_buf(BLOCK_SIZE)?;
+        if is_eof && len == 0 {
             return Ok((consumed, offset, span));
         }
 
@@ -461,14 +468,8 @@ impl TextParser {
     }
 
     pub fn read_line(&mut self, buf: &mut Vec<u8>) -> Result<(usize, usize, usize)> {
-        let len = loop {
-            let (is_eof, len) = self.src.fill_buf(BLOCK_SIZE)?;
-            if is_eof || len > 2 * 4 * 48 {
-                break len;
-            }
-            self.src.consume(0);
-        };
-        if len == 0 {
+        let (is_eof, len) = self.src.fill_buf(BLOCK_SIZE)?;
+        if is_eof && len == 0 {
             return Ok((0, 0, 0));
         }
 
