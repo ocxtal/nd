@@ -56,7 +56,7 @@ impl Cutter {
     //     self.tail_filters.is_empty() && self.filters.is_empty()
     // }
 
-    fn accumulate(&mut self, scanned: usize, offset: usize, is_eof: bool, bytes: usize, stream: &[u8], v: &mut Vec<u8>) -> Result<usize> {
+    fn accumulate(&mut self, offset: usize, is_eof: bool, bytes: usize, stream: &[u8], v: &mut Vec<u8>) -> Result<usize> {
         // when it reached EOF, convert all right-anchored and mixed ranges to
         // left-anchored ones, as the absolute offset finally got known
         if is_eof && !self.tail_filters.is_empty() {
@@ -103,15 +103,12 @@ impl Cutter {
                 break;
             }
         }
-
-        let scanned = std::cmp::max(scan_upto, scanned);
-        Ok(scanned)
+        Ok(scan_upto)
     }
 }
 
 pub struct CutStream {
     src: Box<dyn ByteStream>,
-    src_scanned: usize,  // relative offset in bytes that is already scanned
     src_consumed: usize, // absolute offset in bytes from the head
 
     buf: StreamBuf,
@@ -122,7 +119,6 @@ impl CutStream {
     pub fn new(src: Box<dyn ByteStream>, exprs: &str) -> Result<Self> {
         Ok(CutStream {
             src,
-            src_scanned: 0,
             src_consumed: 0,
             buf: StreamBuf::new(),
             cutter: Cutter::from_str(exprs)?,
@@ -138,11 +134,7 @@ impl ByteStream for CutStream {
             let (is_eof, bytes) = self.src.fill_buf(request)?;
             let stream = self.src.as_slice();
 
-            let scanned = self
-                .cutter
-                .accumulate(self.src_scanned, self.src_consumed, is_eof, bytes, stream, buf)?;
-            self.src_scanned = bytes - scanned;
-
+            let scanned = self.cutter.accumulate(self.src_consumed, is_eof, bytes, stream, buf)?;
             self.src.consume(scanned);
             self.src_consumed += scanned;
 
