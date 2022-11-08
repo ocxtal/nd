@@ -52,9 +52,9 @@ impl Cutter {
         request + self.tail_margin + 1
     }
 
-    // fn is_empty(&self) -> bool {
-    //     self.tail_filters.is_empty() && self.filters.is_empty()
-    // }
+    fn is_empty(&self) -> bool {
+        self.tail_filters.is_empty() && self.filters.is_empty()
+    }
 
     fn accumulate(&mut self, offset: usize, is_eof: bool, bytes: usize, stream: &[u8], v: &mut Vec<u8>) -> Result<usize> {
         // when it reached EOF, convert all right-anchored and mixed ranges to
@@ -138,6 +138,7 @@ impl ByteStream for CutStream {
             self.src.consume(scanned);
             self.src_consumed += scanned;
 
+            let is_eof = is_eof || self.cutter.is_empty();
             Ok(is_eof)
         })
     }
@@ -325,4 +326,35 @@ test_long!(test_cut_long_random_len, test_stream_random_len);
 test_long!(test_cut_long_random_consume, test_stream_random_consume);
 test_long!(test_cut_long_all_at_once, test_stream_all_at_once);
 
+#[cfg(test)]
+macro_rules! test_inf_impl {
+    ( $exprs: expr, $expected: expr ) => {
+        let src = Box::new(std::fs::File::open("/dev/zero").unwrap());
+        let src = Box::new(RawStream::new(src, 1, 0));
+        let mut src = Box::new(CutStream::new(src, $exprs).unwrap());
+
+        let mut v = Vec::new();
+        loop {
+            let (is_eof, bytes) = src.fill_buf(1).unwrap();
+            if is_eof && bytes == 0 {
+                break;
+            }
+
+            let stream = src.as_slice();
+            v.extend_from_slice(&stream[..bytes]);
+
+            src.consume(bytes);
+        }
+
+        assert_eq!(v.len(), $expected);
+    };
+}
+
+#[test]
+fn test_cut_inf() {
+    test_inf_impl!("0..16", 16);
+    test_inf_impl!("100..116", 16);
+    test_inf_impl!("10000..10016", 16);
+    test_inf_impl!("1000000..1000016", 16);
+}
 // end of cut.rs
