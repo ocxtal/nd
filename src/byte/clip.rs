@@ -221,7 +221,6 @@ impl ByteStream for ClipStream {
 mod tests {
     use super::{ClipStream, ClipperParams};
     use crate::byte::tester::*;
-    use rand::Rng;
 
     macro_rules! test_impl {
         ( $inner: ident, $input: expr, $clip: expr, $len: expr, $expected: expr ) => {{

@@ -416,9 +416,11 @@ impl Pipeline {
 
 #[cfg(test)]
 mod tests {
+    use super::{Pipeline, PipelineArgs};
     use crate::byte::tester::*;
-    use crate::params::BLOCK_SIZE;
     use crate::streambuf::StreamBuf;
+    use clap::Parser;
+    use std::io::Read;
 
     #[test]
     fn test_pipeline() {

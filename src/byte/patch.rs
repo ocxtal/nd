@@ -158,9 +158,8 @@ impl ByteStream for PatchStream {
 
 #[cfg(test)]
 mod tests {
-    use super::PatchStream;
+    use super::{InoutFormat, PatchStream};
     use crate::byte::tester::*;
-    use crate::text::InoutFormat;
 
     #[test]
     fn test_patch_overlap() {

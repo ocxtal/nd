@@ -210,10 +210,7 @@ impl SegmentStream for MergeStream {
 #[cfg(test)]
 mod tests {
     use super::MergeStream;
-    use crate::byte::tester::*;
     use crate::segment::tester::*;
-    use crate::segment::{ConstSlicer, GuidedSlicer};
-    use rand::Rng;
 
     macro_rules! bind_closed {
         ( $pitch: expr, $span: expr, $merge: expr ) => {

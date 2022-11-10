@@ -146,9 +146,8 @@ impl ByteStream for TextStream {
 
 #[cfg(test)]
 mod tests {
-    use super::{GaplessTextStream, TextStream};
+    use super::{GaplessTextStream, InoutFormat, TextStream};
     use crate::byte::tester::*;
-    use crate::text::InoutFormat;
 
     macro_rules! test_gapless_impl {
         ( $inner: ident, $input: expr, $expected: expr ) => {{

@@ -193,7 +193,6 @@ impl SegmentStream for WalkSlicer {
 mod tests {
     // TODO: we need to test the remainder handling
     use super::WalkSlicer;
-    use crate::byte::tester::*;
     use crate::segment::tester::*;
 
     macro_rules! bind {

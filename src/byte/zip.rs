@@ -168,8 +168,6 @@ impl ByteStream for ZipStream {
 mod tests {
     use super::ZipStream;
     use crate::byte::tester::*;
-    use crate::byte::RawStream;
-    use rand::Rng;
 
     macro_rules! test_impl {
         ( $inner: ident, $word_size: expr, $inputs: expr, $expected: expr ) => {{

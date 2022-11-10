@@ -142,7 +142,6 @@ impl ByteStream for CatStream {
 mod tests {
     use super::CatStream;
     use crate::byte::tester::*;
-    use rand::Rng;
 
     macro_rules! test_impl {
         ( $inner: ident, $inputs: expr, $expected: expr ) => {{

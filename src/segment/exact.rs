@@ -89,8 +89,6 @@ impl SegmentStream for ExactMatchSlicer {
 #[cfg(test)]
 mod tests {
     use super::ExactMatchSlicer;
-    use crate::byte::tester::*;
-    use crate::params::BLOCK_SIZE;
     use crate::segment::tester::*;
 
     macro_rules! bind {

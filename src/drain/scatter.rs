@@ -192,6 +192,7 @@ mod tests {
     use super::ScatterDrain;
     use crate::byte::tester::*;
     use crate::segment::ConstSlicer;
+    use crate::text::InoutFormat;
 
     macro_rules! test_impl {
         ( $inner: ident, $pattern: expr, $drain: expr, $expected: expr ) => {

@@ -163,9 +163,7 @@ impl SegmentStream for RangeSlicer {
 #[cfg(test)]
 mod tests {
     use super::RangeSlicer;
-    use crate::byte::tester::*;
     use crate::segment::tester::*;
-    use rand::Rng;
 
     macro_rules! bind {
         ( $exprs: expr ) => {

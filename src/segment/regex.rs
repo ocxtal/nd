@@ -81,9 +81,7 @@ impl SegmentStream for RegexSlicer {
 #[cfg(test)]
 mod tests {
     use super::RegexSlicer;
-    use crate::byte::tester::*;
     use crate::segment::tester::*;
-    use crate::segment::ConstSlicer;
 
     macro_rules! bind {
         ( $pattern: expr ) => {

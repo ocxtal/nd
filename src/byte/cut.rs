@@ -150,7 +150,6 @@ impl ByteStream for CutStream {
 mod tests {
     use super::CutStream;
     use crate::byte::tester::*;
-    use rand::Rng;
 
     macro_rules! test_impl {
         ( $inner: ident, $input: expr, $exprs: expr, $expected: expr ) => {

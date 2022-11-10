@@ -191,10 +191,7 @@ impl SegmentStream for ExtendStream {
 #[cfg(test)]
 mod tests {
     use super::ExtendStream;
-    use crate::byte::tester::*;
     use crate::segment::tester::*;
-    use crate::segment::{ConstSlicer, GuidedSlicer};
-    use rand::Rng;
 
     macro_rules! bind_closed {
         ( $pitch: expr, $span: expr, $offsets: expr ) => {

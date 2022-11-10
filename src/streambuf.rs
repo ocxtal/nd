@@ -165,6 +165,7 @@ impl StreamBuf {
 mod tests {
     use super::StreamBuf;
     use crate::byte::tester::*;
+    use crate::params::{BLOCK_SIZE, MARGIN_SIZE};
     use rand::Rng;
 
     #[test]

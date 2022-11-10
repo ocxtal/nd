@@ -440,9 +440,7 @@ impl SegmentStream for ConstSlicer {
 #[cfg(test)]
 mod tests {
     use super::ConstSlicer;
-    use crate::byte::tester::*;
     use crate::segment::tester::*;
-    use rand::Rng;
 
     macro_rules! bind_closed {
         ( $margin: expr, $pitch: expr, $span: expr ) => {

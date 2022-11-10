@@ -107,7 +107,6 @@ impl ByteStream for TeeStreamReader {
 mod tests {
     use super::TeeStream;
     use crate::byte::tester::*;
-    use rand::Rng;
 
     macro_rules! test_through {
         ( $name: ident, $inner: ident ) => {
