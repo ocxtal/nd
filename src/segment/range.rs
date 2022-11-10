@@ -57,6 +57,10 @@ impl Cutter {
         })
     }
 
+    fn is_empty(&self) -> bool {
+        self.tail_filters.is_empty() && self.filters.is_empty()
+    }
+
     fn accumulate(&mut self, offset: usize, is_eof: bool, bytes: usize, v: &mut Vec<Segment>) -> Result<usize> {
         if is_eof && !self.tail_filters.is_empty() {
             for filter in &self.tail_filters {
@@ -129,7 +133,15 @@ impl SegmentStream for RangeSlicer {
         let (is_eof, bytes) = self.src.fill_buf(BLOCK_SIZE)?;
         self.max_consume = self.cutter.accumulate(self.src_consumed, is_eof, bytes, &mut self.segments)?;
 
-        Ok((is_eof, bytes, self.segments.len(), self.max_consume))
+        let (is_eof, bytes, max_consume) = if self.cutter.is_empty() {
+            let bytes = self.segments.last().map_or(0, |x| x.tail());
+            let max_consume = std::cmp::min(bytes, self.max_consume);
+            (true, bytes, max_consume)
+        } else {
+            (is_eof, bytes, self.max_consume)
+        };
+
+        Ok((is_eof, bytes, self.segments.len(), max_consume))
     }
 
     fn as_slices(&self) -> (&[u8], &[Segment]) {
@@ -322,5 +334,42 @@ macro_rules! test_long {
 test_long!(test_range_long_all_at_once, test_segment_all_at_once);
 test_long!(test_range_long_random_len, test_segment_random_len);
 test_long!(test_range_long_occasional_consume, test_segment_occasional_consume);
+
+#[cfg(test)]
+macro_rules! test_inf_impl {
+    ( $exprs: expr, $expected: expr ) => {
+        let src = Box::new(std::fs::File::open("/dev/zero").unwrap());
+        let src = Box::new(RawStream::new(src, 1, 0));
+        let mut src = Box::new(RangeSlicer::new(src, $exprs).unwrap());
+
+        let mut scanned = 0;
+        let mut acc = 0;
+        loop {
+            let (is_eof, bytes, count, _) = src.fill_segment_buf().unwrap();
+            if is_eof && count == 0 {
+                break;
+            }
+
+            let (_, segments) = src.as_slices();
+            for s in &segments[scanned..count] {
+                acc += s.len;
+            }
+            scanned = count;
+
+            let (_, count) = src.consume(bytes).unwrap();
+            scanned -= count;
+        }
+
+        assert_eq!(acc, $expected);
+    };
+}
+
+#[test]
+fn test_range_inf() {
+    test_inf_impl!("0..16", 16);
+    test_inf_impl!("100..116", 16);
+    test_inf_impl!("10000..10016", 16);
+    test_inf_impl!("1000000..1000016", 16);
+}
 
 // end of range.rs
