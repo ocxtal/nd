@@ -83,25 +83,16 @@ impl Zipper {
         let request = (request + self.srcs.len() - 1) / self.srcs.len();
 
         // bulk_len is the minimum valid slice length among the source buffers
-        let (is_eof, len) = loop {
-            let mut is_eof = true;
-            let mut len = usize::MAX;
-            for src in &mut self.srcs {
-                let (x, y) = src.fill_buf(request)?;
-                is_eof = is_eof && x;
-                len = std::cmp::min(len, y);
-            }
+        let mut is_eof = true;
+        let mut len = usize::MAX;
+        for src in &mut self.srcs {
+            let (x, y) = src.fill_buf(request)?;
+            is_eof = is_eof && x;
+            len = std::cmp::min(len, y);
+        }
 
-            // teardown
-            let len = (len / self.word_size) * self.word_size;
-
-            if is_eof || len > 0 {
-                break (is_eof, len);
-            }
-
-            debug_assert!(len == 0);
-            self.consume(0);
-        };
+        // teardown
+        let len = (len / self.word_size) * self.word_size;
 
         // initialize the pointer cache (used in `gather_impl`)
         for (src, ptr) in self.srcs.iter_mut().zip(self.ptrs.iter_mut()) {
