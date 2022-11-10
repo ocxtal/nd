@@ -437,16 +437,16 @@ macro_rules! test_inf_impl {
         let mut src = Box::new(FilterStream::new(src, &exprs).unwrap());
 
         let mut scanned = 0;
-        let mut v = Vec::new();
+        let mut acc = 0;
         loop {
             let (is_eof, bytes, count, _) = src.fill_segment_buf().unwrap();
             if is_eof && count == 0 {
                 break;
             }
 
-            let (stream, segments) = src.as_slices();
+            let (_, segments) = src.as_slices();
             for s in &segments[scanned..count] {
-                v.extend_from_slice(&stream[s.as_range()]);
+                acc += s.len;
             }
             scanned = count;
 
@@ -454,7 +454,7 @@ macro_rules! test_inf_impl {
             scanned -= count;
         }
 
-        assert_eq!(v.len(), $expected);
+        assert_eq!(acc, $expected);
     };
 }
 
