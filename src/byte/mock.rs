@@ -101,7 +101,6 @@ mod tests {
         }};
     }
 
-    #[allow(unused_macros)]
     macro_rules! test {
         ( $name: ident, $inner: ident ) => {
             #[test]

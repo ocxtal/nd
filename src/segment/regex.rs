@@ -6,15 +6,6 @@ use super::{Segment, SegmentStream};
 use anyhow::Result;
 use regex::bytes::{Match, Regex};
 
-#[cfg(test)]
-use crate::byte::tester::*;
-
-#[cfg(test)]
-use super::tester::*;
-
-#[cfg(test)]
-use super::ConstSlicer;
-
 pub struct RegexSlicer {
     src: Box<dyn SegmentStream>,
     matches: Vec<Segment>,
@@ -88,39 +79,46 @@ impl SegmentStream for RegexSlicer {
 }
 
 #[cfg(test)]
-macro_rules! bind {
-    ( $pattern: expr ) => {
-        |input: &[u8]| -> Box<dyn SegmentStream> {
-            let src = Box::new(MockSource::new(input));
-            let src = Box::new(ConstSlicer::from_raw(src, (0, -3), (false, false), 4, 6));
-            Box::new(RegexSlicer::new(src, $pattern))
-        }
-    };
+mod tests {
+    use super::RegexSlicer;
+    use crate::byte::tester::*;
+    use crate::segment::tester::*;
+    use crate::segment::ConstSlicer;
+
+    macro_rules! bind {
+        ( $pattern: expr ) => {
+            |input: &[u8]| -> Box<dyn SegmentStream> {
+                let src = Box::new(MockSource::new(input));
+                let src = Box::new(ConstSlicer::from_raw(src, (0, -3), (false, false), 4, 6));
+                Box::new(RegexSlicer::new(src, $pattern))
+            }
+        };
+    }
+
+    macro_rules! test {
+        ( $name: ident, $inner: ident ) => {
+            #[test]
+            fn $name() {
+                $inner(b"aaaaaaaaaa", &bind!("a+"), &[(0..6).into(), (4..10).into()]);
+                $inner(b"abcabcabca", &bind!("a.+c"), &[(0..6).into(), (6..9).into()]);
+                $inner(b"abcabcabca", &bind!("abc"), &[(0..3).into(), (3..6).into(), (6..9).into()]);
+                $inner(b"abcabcabca", &bind!("abcabc"), &[(0..6).into()]);
+                $inner(b"abcdefabcd", &bind!("abc"), &[(0..3).into(), (6..9).into()]);
+                $inner(b"abcdefabcd", &bind!("abcd"), &[(0..4).into(), (6..10).into()]);
+                $inner(b"abcdefabcd", &bind!("abcde"), &[(0..5).into()]);
+
+                $inner(b"abcdefabcd", &bind!("^abc"), &[(0..3).into()]);
+                $inner(b"abcdabcdab", &bind!("^abc"), &[(0..3).into(), (4..7).into()]);
+                $inner(b"cabcabcabc", &bind!("^abc"), &[(4..7).into()]);
+
+                // TODO: we need a lot more...
+            }
+        };
+    }
+
+    test!(test_regex_all_at_once, test_segment_all_at_once);
+    test!(test_regex_random_len, test_segment_random_len);
+    test!(test_regex_occasional_consume, test_segment_occasional_consume);
 }
-
-macro_rules! test {
-    ( $name: ident, $inner: ident ) => {
-        #[test]
-        fn $name() {
-            $inner(b"aaaaaaaaaa", &bind!("a+"), &[(0..6).into(), (4..10).into()]);
-            $inner(b"abcabcabca", &bind!("a.+c"), &[(0..6).into(), (6..9).into()]);
-            $inner(b"abcabcabca", &bind!("abc"), &[(0..3).into(), (3..6).into(), (6..9).into()]);
-            $inner(b"abcabcabca", &bind!("abcabc"), &[(0..6).into()]);
-            $inner(b"abcdefabcd", &bind!("abc"), &[(0..3).into(), (6..9).into()]);
-            $inner(b"abcdefabcd", &bind!("abcd"), &[(0..4).into(), (6..10).into()]);
-            $inner(b"abcdefabcd", &bind!("abcde"), &[(0..5).into()]);
-
-            $inner(b"abcdefabcd", &bind!("^abc"), &[(0..3).into()]);
-            $inner(b"abcdabcdab", &bind!("^abc"), &[(0..3).into(), (4..7).into()]);
-            $inner(b"cabcabcabc", &bind!("^abc"), &[(4..7).into()]);
-
-            // TODO: we need a lot more...
-        }
-    };
-}
-
-test!(test_regex_all_at_once, test_segment_all_at_once);
-test!(test_regex_random_len, test_segment_random_len);
-test!(test_regex_occasional_consume, test_segment_occasional_consume);
 
 // end of regex.rs

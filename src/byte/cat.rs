@@ -202,7 +202,6 @@ mod tests {
     test!(test_cat_random_consume, test_stream_random_consume);
     test!(test_cat_all_at_once, test_stream_all_at_once);
 
-    #[allow(unused_macros)]
     macro_rules! test_long {
         ( $name: ident, $inner: ident ) => {
             #[test]

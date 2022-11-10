@@ -412,7 +412,6 @@ mod tests {
     test_clamped!(test_zip_clampled_random_consume, test_stream_random_consume);
     test_clamped!(test_zip_clampled_all_at_once, test_stream_all_at_once);
 
-    #[cfg(test)]
     fn gen_pattern(word_size: usize, len: usize, count: usize, clamp: bool) -> (Vec<Vec<u8>>, Vec<u8>) {
         let mut rng = rand::thread_rng();
 

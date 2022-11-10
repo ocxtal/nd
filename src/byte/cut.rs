@@ -227,7 +227,6 @@ mod tests {
     test!(test_cut_random_consume, test_stream_random_consume);
     test!(test_cut_all_at_once, test_stream_all_at_once);
 
-    #[cfg(test)]
     fn gen_pattern(len: usize, count: usize) -> (Vec<u8>, String, Vec<u8>) {
         let mut rng = rand::thread_rng();
 

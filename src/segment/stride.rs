@@ -7,15 +7,6 @@ use crate::byte::ByteStream;
 use crate::mapper::SegmentMapper;
 use anyhow::{anyhow, Result};
 
-#[cfg(test)]
-use crate::byte::tester::*;
-
-#[cfg(test)]
-use super::tester::*;
-
-#[cfg(test)]
-use rand::Rng;
-
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct ConstSlicerParams {
     margin: (isize, isize),
@@ -447,280 +438,285 @@ impl SegmentStream for ConstSlicer {
 }
 
 #[cfg(test)]
-macro_rules! bind_closed {
-    ( $margin: expr, $pitch: expr, $span: expr ) => {
-        |pattern: &[u8]| -> Box<dyn SegmentStream> {
-            let src = Box::new(MockSource::new(pattern));
-            Box::new(ConstSlicer::from_raw(src, $margin, (false, false), $pitch, $span))
-        }
-    };
-}
+mod tests {
+    use super::ConstSlicer;
+    use crate::byte::tester::*;
+    use crate::segment::tester::*;
+    use rand::Rng;
 
-#[cfg(test)]
-macro_rules! bind_open {
-    ( $margin: expr, $pitch: expr, $span: expr ) => {
-        |pattern: &[u8]| -> Box<dyn SegmentStream> {
-            let src = Box::new(MockSource::new(pattern));
-            Box::new(ConstSlicer::from_raw(src, $margin, (true, true), $pitch, $span))
-        }
-    };
-}
-
-macro_rules! test_closed {
-    ( $name: ident, $inner: ident ) => {
-        #[test]
-        fn $name() {
-            // smallest examples
-            $inner(b"a", &bind_closed!((0, 0), 1, 1), &[(0..1).into()]);
-            $inner(
-                b"abc",
-                &bind_closed!((0, 0), 1, 1),
-                &[(0..1).into(), (1..2).into(), (2..3).into()],
-            );
-
-            // empty (segment too large for the input)
-            $inner(b"", &bind_closed!((0, 0), 1, 1), &[]);
-            $inner(b"abc", &bind_closed!((0, 0), 1, 10), &[]);
-            $inner(b"abc", &bind_closed!((0, 0), 10, 10), &[]);
-
-            // len < pitch, len == pitch, len > pitch
-            $inner(
-                b"abcdefghij",
-                &bind_closed!((0, 0), 3, 1),
-                &[(0..1).into(), (3..4).into(), (6..7).into(), (9..10).into()],
-            );
-            $inner(
-                b"abcdefghij",
-                &bind_closed!((0, 0), 3, 3),
-                &[(0..3).into(), (3..6).into(), (6..9).into()],
-            );
-            $inner(
-                b"abcdefghij",
-                &bind_closed!((0, 0), 3, 4),
-                &[(0..4).into(), (3..7).into(), (6..10).into()],
-            );
-
-            // head / tail positive margins
-            $inner(
-                b"abcdefghij",
-                &bind_closed!((2, 0), 3, 2),
-                &[(2..4).into(), (5..7).into(), (8..10).into()],
-            );
-            $inner(
-                b"abcdefghij",
-                &bind_closed!((0, 2), 3, 2),
-                &[(0..2).into(), (3..5).into(), (6..8).into()],
-            );
-            $inner(b"abcdefghij", &bind_closed!((3, 0), 3, 2), &[(3..5).into(), (6..8).into()]);
-            $inner(b"abcdefghij", &bind_closed!((0, 3), 3, 2), &[(0..2).into(), (3..5).into()]);
-            $inner(b"abcdefghij", &bind_closed!((2, 0), 3, 4), &[(2..6).into(), (5..9).into()]);
-            $inner(b"abcdefghij", &bind_closed!((0, 2), 3, 4), &[(0..4).into(), (3..7).into()]);
-
-            // head / tail negative margins
-            $inner(
-                b"abcdefghij",
-                &bind_closed!((-1, 0), 3, 2),
-                &[(0..1).into(), (2..4).into(), (5..7).into(), (8..10).into()],
-            );
-            $inner(
-                b"abcdefghij",
-                &bind_closed!((0, -1), 3, 2),
-                &[(0..2).into(), (3..5).into(), (6..8).into(), (9..10).into()],
-            );
-            $inner(
-                b"abcdefghij",
-                &bind_closed!((-2, 0), 3, 4),
-                &[(0..2).into(), (1..5).into(), (4..8).into()],
-            );
-            $inner(
-                b"abcdefghij",
-                &bind_closed!((-3, 0), 3, 4),
-                &[(0..1).into(), (0..4).into(), (3..7).into(), (6..10).into()],
-            );
-            $inner(
-                b"abcdefghij",
-                &bind_closed!((-2, -1), 3, 4),
-                &[(0..2).into(), (1..5).into(), (4..8).into(), (7..10).into()],
-            );
-            $inner(
-                b"abcdefghij",
-                &bind_closed!((-2, -2), 3, 5),
-                &[(0..3).into(), (1..6).into(), (4..9).into(), (7..10).into()],
-            );
-            $inner(
-                b"abcdefghij",
-                &bind_closed!((-2, -2), 5, 3),
-                &[(0..1).into(), (3..6).into(), (8..10).into()],
-            );
-
-            // both
-            $inner(
-                b"abcdefghij",
-                &bind_closed!((2, -2), 3, 4),
-                &[(2..6).into(), (5..9).into(), (8..10).into()],
-            );
-            $inner(
-                b"abcdefghij",
-                &bind_closed!((-2, 2), 3, 4),
-                &[(0..2).into(), (1..5).into(), (4..8).into()],
-            );
-
-            // large margins
-            $inner(b"abcdefghij", &bind_closed!((10, 0), 3, 4), &[]);
-            $inner(b"abcdefghij", &bind_closed!((10, -2), 3, 4), &[]);
-            $inner(b"abcdefghij", &bind_closed!((100, 0), 3, 4), &[]);
-            $inner(b"abcdefghij", &bind_closed!((100, -2), 3, 4), &[]);
-            $inner(b"abcdefghij", &bind_closed!((0, 10), 3, 4), &[]);
-            $inner(b"abcdefghij", &bind_closed!((-2, 12), 3, 4), &[]);
-            $inner(b"abcdefghij", &bind_closed!((0, 100), 3, 4), &[]);
-            $inner(b"abcdefghij", &bind_closed!((-2, 100), 3, 4), &[]);
-        }
-    };
-}
-
-test_closed!(test_stride_closed_all_at_once, test_segment_all_at_once);
-test_closed!(test_stride_closed_random_len, test_segment_random_len);
-test_closed!(test_stride_closed_occasional_consume, test_segment_occasional_consume);
-
-macro_rules! test_open {
-    ( $name: ident, $inner: ident ) => {
-        #[test]
-        fn $name() {
-            $inner(
-                b"abc",
-                &bind_open!((0, 0), 1, 1),
-                &[(0..1).into(), (1..2).into(), (2..3).into()],
-            );
-            $inner(b"", &bind_open!((0, 0), 1, 1), &[]);
-
-            // head / tail positive margins
-            $inner(
-                b"abcdefghij",
-                &bind_open!((2, 0), 3, 2),
-                &[(0..4).into(), (5..7).into(), (8..10).into()],
-            );
-            $inner(
-                b"abcdefghij",
-                &bind_open!((0, 2), 3, 2),
-                &[(0..2).into(), (3..5).into(), (6..10).into()],
-            );
-            $inner(b"abcdefghij", &bind_open!((3, 0), 3, 2), &[(0..5).into(), (6..10).into()]);
-            $inner(b"abcdefghij", &bind_open!((0, 3), 3, 2), &[(0..2).into(), (3..10).into()]);
-            $inner(b"abcdefghij", &bind_open!((2, 0), 3, 4), &[(0..6).into(), (5..10).into()]);
-            $inner(b"abcdefghij", &bind_open!((0, 2), 3, 4), &[(0..4).into(), (3..10).into()]);
-
-            // head / tail negative margins
-            $inner(
-                b"abcdefghij",
-                &bind_open!((-2, -2), 5, 3),
-                &[(0..1).into(), (3..6).into(), (8..10).into()],
-            );
-
-            // both
-            $inner(
-                b"abcdefghij",
-                &bind_open!((2, -2), 3, 4),
-                &[(0..6).into(), (5..9).into(), (8..10).into()],
-            );
-            $inner(
-                b"abcdefghij",
-                &bind_open!((-2, 2), 3, 4),
-                &[(0..2).into(), (1..5).into(), (4..10).into()],
-            );
-        }
-    };
-}
-
-test_open!(test_stride_open_all_at_once, test_segment_all_at_once);
-test_open!(test_stride_open_random_len, test_segment_random_len);
-test_open!(test_stride_open_occasional_consume, test_segment_occasional_consume);
-
-#[cfg(test)]
-fn gen_slices(margin: (isize, isize), pitch: usize, span: usize, stream_len: usize) -> Vec<Segment> {
-    let pitch = pitch as isize;
-    let span = span as isize;
-    let stream_len = stream_len as isize;
-
-    let mut v = Vec::new();
-    let mut tail = span + margin.0;
-    while tail + margin.1 <= stream_len {
-        let pos = if tail < span { 0 } else { tail - span };
-        let len = std::cmp::min(tail, stream_len) - pos;
-        v.push(Segment {
-            pos: pos as usize,
-            len: len as usize,
-        });
-        tail += pitch;
+    macro_rules! bind_closed {
+        ( $margin: expr, $pitch: expr, $span: expr ) => {
+            |pattern: &[u8]| -> Box<dyn SegmentStream> {
+                let src = Box::new(MockSource::new(pattern));
+                Box::new(ConstSlicer::from_raw(src, $margin, (false, false), $pitch, $span))
+            }
+        };
     }
-    v
-}
 
-macro_rules! test_long {
-    ( $name: ident, $inner: ident ) => {
-        #[test]
-        fn $name() {
-            let mut rng = rand::thread_rng();
-            let s = (0..5 * 255 * 257).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
+    macro_rules! bind_open {
+        ( $margin: expr, $pitch: expr, $span: expr ) => {
+            |pattern: &[u8]| -> Box<dyn SegmentStream> {
+                let src = Box::new(MockSource::new(pattern));
+                Box::new(ConstSlicer::from_raw(src, $margin, (true, true), $pitch, $span))
+            }
+        };
+    }
 
-            $inner(&s, &bind_closed!((0, 0), 1, 1), &gen_slices((0, 0), 1, 1, s.len()));
-            $inner(&s, &bind_closed!((0, 0), 31, 109), &gen_slices((0, 0), 31, 109, s.len()));
-            $inner(&s, &bind_closed!((0, 0), 109, 31), &gen_slices((0, 0), 109, 31, s.len()));
+    macro_rules! test_closed {
+        ( $name: ident, $inner: ident ) => {
+            #[test]
+            fn $name() {
+                // smallest examples
+                $inner(b"a", &bind_closed!((0, 0), 1, 1), &[(0..1).into()]);
+                $inner(
+                    b"abc",
+                    &bind_closed!((0, 0), 1, 1),
+                    &[(0..1).into(), (1..2).into(), (2..3).into()],
+                );
 
-            $inner(&s, &bind_closed!((-1, 0), 31, 109), &gen_slices((-1, 0), 31, 109, s.len()));
-            $inner(&s, &bind_closed!((-1, 0), 109, 31), &gen_slices((-1, 0), 109, 31, s.len()));
-            $inner(&s, &bind_closed!((-15, 0), 31, 109), &gen_slices((-15, 0), 31, 109, s.len()));
-            $inner(&s, &bind_closed!((-15, 0), 109, 31), &gen_slices((-15, 0), 109, 31, s.len()));
+                // empty (segment too large for the input)
+                $inner(b"", &bind_closed!((0, 0), 1, 1), &[]);
+                $inner(b"abc", &bind_closed!((0, 0), 1, 10), &[]);
+                $inner(b"abc", &bind_closed!((0, 0), 10, 10), &[]);
 
-            $inner(&s, &bind_closed!((0, -1), 31, 109), &gen_slices((0, -1), 31, 109, s.len()));
-            $inner(&s, &bind_closed!((0, -1), 109, 31), &gen_slices((0, -1), 109, 31, s.len()));
-            $inner(&s, &bind_closed!((0, -15), 31, 109), &gen_slices((0, -15), 31, 109, s.len()));
-            $inner(&s, &bind_closed!((0, -15), 109, 31), &gen_slices((0, -15), 109, 31, s.len()));
+                // len < pitch, len == pitch, len > pitch
+                $inner(
+                    b"abcdefghij",
+                    &bind_closed!((0, 0), 3, 1),
+                    &[(0..1).into(), (3..4).into(), (6..7).into(), (9..10).into()],
+                );
+                $inner(
+                    b"abcdefghij",
+                    &bind_closed!((0, 0), 3, 3),
+                    &[(0..3).into(), (3..6).into(), (6..9).into()],
+                );
+                $inner(
+                    b"abcdefghij",
+                    &bind_closed!((0, 0), 3, 4),
+                    &[(0..4).into(), (3..7).into(), (6..10).into()],
+                );
 
-            $inner(&s, &bind_closed!((-1, -1), 31, 109), &gen_slices((-1, -1), 31, 109, s.len()));
-            $inner(&s, &bind_closed!((-1, -1), 109, 31), &gen_slices((-1, -1), 109, 31, s.len()));
-            $inner(
-                &s,
-                &bind_closed!((-15, -15), 31, 109),
-                &gen_slices((-15, -15), 31, 109, s.len()),
-            );
-            $inner(
-                &s,
-                &bind_closed!((-15, -15), 109, 31),
-                &gen_slices((-15, -15), 109, 31, s.len()),
-            );
+                // head / tail positive margins
+                $inner(
+                    b"abcdefghij",
+                    &bind_closed!((2, 0), 3, 2),
+                    &[(2..4).into(), (5..7).into(), (8..10).into()],
+                );
+                $inner(
+                    b"abcdefghij",
+                    &bind_closed!((0, 2), 3, 2),
+                    &[(0..2).into(), (3..5).into(), (6..8).into()],
+                );
+                $inner(b"abcdefghij", &bind_closed!((3, 0), 3, 2), &[(3..5).into(), (6..8).into()]);
+                $inner(b"abcdefghij", &bind_closed!((0, 3), 3, 2), &[(0..2).into(), (3..5).into()]);
+                $inner(b"abcdefghij", &bind_closed!((2, 0), 3, 4), &[(2..6).into(), (5..9).into()]);
+                $inner(b"abcdefghij", &bind_closed!((0, 2), 3, 4), &[(0..4).into(), (3..7).into()]);
 
-            $inner(
-                &s,
-                &bind_closed!((-1000, -1000), 3131, 1091),
-                &gen_slices((-1000, -1000), 3131, 1091, s.len()),
-            );
-            $inner(
-                &s,
-                &bind_closed!((-1000, -1000), 1091, 3131),
-                &gen_slices((-1000, -1000), 1091, 3131, s.len()),
-            );
+                // head / tail negative margins
+                $inner(
+                    b"abcdefghij",
+                    &bind_closed!((-1, 0), 3, 2),
+                    &[(0..1).into(), (2..4).into(), (5..7).into(), (8..10).into()],
+                );
+                $inner(
+                    b"abcdefghij",
+                    &bind_closed!((0, -1), 3, 2),
+                    &[(0..2).into(), (3..5).into(), (6..8).into(), (9..10).into()],
+                );
+                $inner(
+                    b"abcdefghij",
+                    &bind_closed!((-2, 0), 3, 4),
+                    &[(0..2).into(), (1..5).into(), (4..8).into()],
+                );
+                $inner(
+                    b"abcdefghij",
+                    &bind_closed!((-3, 0), 3, 4),
+                    &[(0..1).into(), (0..4).into(), (3..7).into(), (6..10).into()],
+                );
+                $inner(
+                    b"abcdefghij",
+                    &bind_closed!((-2, -1), 3, 4),
+                    &[(0..2).into(), (1..5).into(), (4..8).into(), (7..10).into()],
+                );
+                $inner(
+                    b"abcdefghij",
+                    &bind_closed!((-2, -2), 3, 5),
+                    &[(0..3).into(), (1..6).into(), (4..9).into(), (7..10).into()],
+                );
+                $inner(
+                    b"abcdefghij",
+                    &bind_closed!((-2, -2), 5, 3),
+                    &[(0..1).into(), (3..6).into(), (8..10).into()],
+                );
 
-            $inner(&s, &bind_closed!((1, 1), 31, 109), &gen_slices((1, 1), 31, 109, s.len()));
-            $inner(&s, &bind_closed!((1, 1), 109, 31), &gen_slices((1, 1), 109, 31, s.len()));
-            $inner(&s, &bind_closed!((15, 15), 31, 109), &gen_slices((15, 15), 31, 109, s.len()));
-            $inner(&s, &bind_closed!((15, 15), 109, 31), &gen_slices((15, 15), 109, 31, s.len()));
+                // both
+                $inner(
+                    b"abcdefghij",
+                    &bind_closed!((2, -2), 3, 4),
+                    &[(2..6).into(), (5..9).into(), (8..10).into()],
+                );
+                $inner(
+                    b"abcdefghij",
+                    &bind_closed!((-2, 2), 3, 4),
+                    &[(0..2).into(), (1..5).into(), (4..8).into()],
+                );
 
-            $inner(
-                &s,
-                &bind_closed!((1500, 1500), 3131, 1091),
-                &gen_slices((1500, 1500), 3131, 1091, s.len()),
-            );
-            $inner(
-                &s,
-                &bind_closed!((1500, 1500), 1091, 3131),
-                &gen_slices((1500, 1500), 1091, 3131, s.len()),
-            );
+                // large margins
+                $inner(b"abcdefghij", &bind_closed!((10, 0), 3, 4), &[]);
+                $inner(b"abcdefghij", &bind_closed!((10, -2), 3, 4), &[]);
+                $inner(b"abcdefghij", &bind_closed!((100, 0), 3, 4), &[]);
+                $inner(b"abcdefghij", &bind_closed!((100, -2), 3, 4), &[]);
+                $inner(b"abcdefghij", &bind_closed!((0, 10), 3, 4), &[]);
+                $inner(b"abcdefghij", &bind_closed!((-2, 12), 3, 4), &[]);
+                $inner(b"abcdefghij", &bind_closed!((0, 100), 3, 4), &[]);
+                $inner(b"abcdefghij", &bind_closed!((-2, 100), 3, 4), &[]);
+            }
+        };
+    }
+
+    test_closed!(test_stride_closed_all_at_once, test_segment_all_at_once);
+    test_closed!(test_stride_closed_random_len, test_segment_random_len);
+    test_closed!(test_stride_closed_occasional_consume, test_segment_occasional_consume);
+
+    macro_rules! test_open {
+        ( $name: ident, $inner: ident ) => {
+            #[test]
+            fn $name() {
+                $inner(
+                    b"abc",
+                    &bind_open!((0, 0), 1, 1),
+                    &[(0..1).into(), (1..2).into(), (2..3).into()],
+                );
+                $inner(b"", &bind_open!((0, 0), 1, 1), &[]);
+
+                // head / tail positive margins
+                $inner(
+                    b"abcdefghij",
+                    &bind_open!((2, 0), 3, 2),
+                    &[(0..4).into(), (5..7).into(), (8..10).into()],
+                );
+                $inner(
+                    b"abcdefghij",
+                    &bind_open!((0, 2), 3, 2),
+                    &[(0..2).into(), (3..5).into(), (6..10).into()],
+                );
+                $inner(b"abcdefghij", &bind_open!((3, 0), 3, 2), &[(0..5).into(), (6..10).into()]);
+                $inner(b"abcdefghij", &bind_open!((0, 3), 3, 2), &[(0..2).into(), (3..10).into()]);
+                $inner(b"abcdefghij", &bind_open!((2, 0), 3, 4), &[(0..6).into(), (5..10).into()]);
+                $inner(b"abcdefghij", &bind_open!((0, 2), 3, 4), &[(0..4).into(), (3..10).into()]);
+
+                // head / tail negative margins
+                $inner(
+                    b"abcdefghij",
+                    &bind_open!((-2, -2), 5, 3),
+                    &[(0..1).into(), (3..6).into(), (8..10).into()],
+                );
+
+                // both
+                $inner(
+                    b"abcdefghij",
+                    &bind_open!((2, -2), 3, 4),
+                    &[(0..6).into(), (5..9).into(), (8..10).into()],
+                );
+                $inner(
+                    b"abcdefghij",
+                    &bind_open!((-2, 2), 3, 4),
+                    &[(0..2).into(), (1..5).into(), (4..10).into()],
+                );
+            }
+        };
+    }
+
+    test_open!(test_stride_open_all_at_once, test_segment_all_at_once);
+    test_open!(test_stride_open_random_len, test_segment_random_len);
+    test_open!(test_stride_open_occasional_consume, test_segment_occasional_consume);
+
+    fn gen_slices(margin: (isize, isize), pitch: usize, span: usize, stream_len: usize) -> Vec<Segment> {
+        let pitch = pitch as isize;
+        let span = span as isize;
+        let stream_len = stream_len as isize;
+
+        let mut v = Vec::new();
+        let mut tail = span + margin.0;
+        while tail + margin.1 <= stream_len {
+            let pos = if tail < span { 0 } else { tail - span };
+            let len = std::cmp::min(tail, stream_len) - pos;
+            v.push(Segment {
+                pos: pos as usize,
+                len: len as usize,
+            });
+            tail += pitch;
         }
-    };
-}
+        v
+    }
 
-test_long!(test_stride_long_all_at_once, test_segment_all_at_once);
-test_long!(test_stride_long_random_len, test_segment_random_len);
-test_long!(test_stride_long_occasional_consume, test_segment_occasional_consume);
+    macro_rules! test_long {
+        ( $name: ident, $inner: ident ) => {
+            #[test]
+            fn $name() {
+                let mut rng = rand::thread_rng();
+                let s = (0..5 * 255 * 257).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
+
+                $inner(&s, &bind_closed!((0, 0), 1, 1), &gen_slices((0, 0), 1, 1, s.len()));
+                $inner(&s, &bind_closed!((0, 0), 31, 109), &gen_slices((0, 0), 31, 109, s.len()));
+                $inner(&s, &bind_closed!((0, 0), 109, 31), &gen_slices((0, 0), 109, 31, s.len()));
+
+                $inner(&s, &bind_closed!((-1, 0), 31, 109), &gen_slices((-1, 0), 31, 109, s.len()));
+                $inner(&s, &bind_closed!((-1, 0), 109, 31), &gen_slices((-1, 0), 109, 31, s.len()));
+                $inner(&s, &bind_closed!((-15, 0), 31, 109), &gen_slices((-15, 0), 31, 109, s.len()));
+                $inner(&s, &bind_closed!((-15, 0), 109, 31), &gen_slices((-15, 0), 109, 31, s.len()));
+
+                $inner(&s, &bind_closed!((0, -1), 31, 109), &gen_slices((0, -1), 31, 109, s.len()));
+                $inner(&s, &bind_closed!((0, -1), 109, 31), &gen_slices((0, -1), 109, 31, s.len()));
+                $inner(&s, &bind_closed!((0, -15), 31, 109), &gen_slices((0, -15), 31, 109, s.len()));
+                $inner(&s, &bind_closed!((0, -15), 109, 31), &gen_slices((0, -15), 109, 31, s.len()));
+
+                $inner(&s, &bind_closed!((-1, -1), 31, 109), &gen_slices((-1, -1), 31, 109, s.len()));
+                $inner(&s, &bind_closed!((-1, -1), 109, 31), &gen_slices((-1, -1), 109, 31, s.len()));
+                $inner(
+                    &s,
+                    &bind_closed!((-15, -15), 31, 109),
+                    &gen_slices((-15, -15), 31, 109, s.len()),
+                );
+                $inner(
+                    &s,
+                    &bind_closed!((-15, -15), 109, 31),
+                    &gen_slices((-15, -15), 109, 31, s.len()),
+                );
+
+                $inner(
+                    &s,
+                    &bind_closed!((-1000, -1000), 3131, 1091),
+                    &gen_slices((-1000, -1000), 3131, 1091, s.len()),
+                );
+                $inner(
+                    &s,
+                    &bind_closed!((-1000, -1000), 1091, 3131),
+                    &gen_slices((-1000, -1000), 1091, 3131, s.len()),
+                );
+
+                $inner(&s, &bind_closed!((1, 1), 31, 109), &gen_slices((1, 1), 31, 109, s.len()));
+                $inner(&s, &bind_closed!((1, 1), 109, 31), &gen_slices((1, 1), 109, 31, s.len()));
+                $inner(&s, &bind_closed!((15, 15), 31, 109), &gen_slices((15, 15), 31, 109, s.len()));
+                $inner(&s, &bind_closed!((15, 15), 109, 31), &gen_slices((15, 15), 109, 31, s.len()));
+
+                $inner(
+                    &s,
+                    &bind_closed!((1500, 1500), 3131, 1091),
+                    &gen_slices((1500, 1500), 3131, 1091, s.len()),
+                );
+                $inner(
+                    &s,
+                    &bind_closed!((1500, 1500), 1091, 3131),
+                    &gen_slices((1500, 1500), 1091, 3131, s.len()),
+                );
+            }
+        };
+    }
+
+    test_long!(test_stride_long_all_at_once, test_segment_all_at_once);
+    test_long!(test_stride_long_random_len, test_segment_random_len);
+    test_long!(test_stride_long_occasional_consume, test_segment_occasional_consume);
+}
 
 // end of stride.rs

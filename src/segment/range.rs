@@ -8,15 +8,6 @@ use crate::params::BLOCK_SIZE;
 use anyhow::Result;
 use std::cmp::Reverse;
 
-#[cfg(test)]
-use crate::byte::tester::*;
-
-#[cfg(test)]
-use super::tester::*;
-
-#[cfg(test)]
-use rand::Rng;
-
 struct Cutter {
     filters: Vec<RangeMapper>,      // filters that both ends are start-anchored
     tail_filters: Vec<RangeMapper>, // filters that have tail-anchored ends
@@ -170,206 +161,210 @@ impl SegmentStream for RangeSlicer {
 }
 
 #[cfg(test)]
-macro_rules! bind {
-    ( $exprs: expr ) => {
-        |pattern: &[u8]| -> Box<dyn SegmentStream> {
-            let src = Box::new(MockSource::new(pattern));
-            Box::new(RangeSlicer::new(src, $exprs).unwrap())
-        }
-    };
-}
+mod tests {
+    use super::RangeSlicer;
+    use crate::byte::tester::*;
+    use crate::segment::tester::*;
+    use rand::Rng;
 
-macro_rules! test {
-    ( $name: ident, $inner: ident ) => {
-        #[test]
-        fn $name() {
-            // pass all
-            $inner(b"", &bind!(".."), &[]);
-            $inner(b"abcdefghijklmnopqrstu", &bind!(".."), &[(0..21).into()]);
-            $inner(b"abcdefghijklmnopqrstu", &bind!("s - 4..e + 4"), &[(0..21).into()]);
-
-            $inner(b"", &bind!("..,"), &[]);
-            $inner(b"abcdefghijklmnopqrstu", &bind!("..,"), &[(0..21).into()]);
-            $inner(b"abcdefghijklmnopqrstu", &bind!("s - 4..e + 4,"), &[(0..21).into()]);
-
-            // pass none
-            $inner(b"", &bind!(""), &[]);
-            $inner(b"abcdefghijklmnopqrstu", &bind!(""), &[]);
-            $inner(b"abcdefghijklmnopqrstu", &bind!("s..s"), &[]);
-            $inner(b"abcdefghijklmnopqrstu", &bind!("e..e"), &[]);
-
-            // left-anchored
-            $inner(b"abcdefghijklmnopqrstu", &bind!("s + 3..s + 5"), &[(3..5).into()]);
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind!("s..s + 1, s + 5..s + 8, s + 10..s + 16"),
-                &[(0..1).into(), (5..8).into(), (10..16).into()],
-            );
-
-            // left-anchored; overlaps
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind!("s..s + 10, s + 5..s + 18, s + 10..s + 16"),
-                &[(0..10).into(), (5..18).into(), (10..16).into()],
-            );
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind!("s..s + 30, s + 5..s + 8, s + 10..s + 20, s + 15..s + 21"),
-                &[(0..21).into(), (5..8).into(), (10..20).into(), (15..21).into()],
-            );
-
-            // left- and right-anchored
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind!("s..s + 10, s + 5..e"),
-                &[(0..10).into(), (5..21).into()],
-            );
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind!("s..s + 10, e - 10..e"),
-                &[(0..10).into(), (11..21).into()],
-            );
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind!("e - 18..s + 10, e - 10..e"),
-                &[(3..10).into(), (11..21).into()],
-            );
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind!("e - 18..e - 10, s + 10..e"),
-                &[(3..11).into(), (10..21).into()],
-            );
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind!("e - 18..e - 10, e - 11..s + 16"),
-                &[(3..11).into(), (10..16).into()],
-            );
-            $inner(b"abcdefghijklmnopqrstu", &bind!("s..s + 23, e - 28..e"), &[(0..21).into()]);
-        }
-    };
-}
-
-test!(test_range_all_at_once, test_segment_all_at_once);
-test!(test_range_random_len, test_segment_random_len);
-test!(test_range_occasional_consume, test_segment_occasional_consume);
-
-#[cfg(test)]
-fn gen_range(len: usize, count: usize) -> (String, Vec<Segment>) {
-    let mut rng = rand::thread_rng();
-
-    let mut s = String::new();
-    let mut v = Vec::new();
-
-    for _ in 0..count {
-        let pos1 = rng.gen_range(0..len);
-        let pos2 = rng.gen_range(0..len);
-        if pos1 == pos2 {
-            continue;
-        }
-
-        let (start, end) = if pos1 < pos2 { (pos1, pos2) } else { (pos2, pos1) };
-        v.push(Segment {
-            pos: start,
-            len: end - start,
-        });
-        let anchor_range = if start < len / 2 { 1 } else { 4 };
-
-        // gen anchors and format string
-        let dup = rng.gen_range(0..10) == 0;
-        let mut push = || match rng.gen_range(0..anchor_range) {
-            0 => s.push_str(&format!("s+{}..s+{},", start, end)),
-            1 => s.push_str(&format!("s+{}..e-{},", start, len - end)),
-            2 => s.push_str(&format!("e-{}..s+{},", len - start, end)),
-            _ => s.push_str(&format!("e-{}..e-{},", len - start, len - end)),
+    macro_rules! bind {
+        ( $exprs: expr ) => {
+            |pattern: &[u8]| -> Box<dyn SegmentStream> {
+                let src = Box::new(MockSource::new(pattern));
+                Box::new(RangeSlicer::new(src, $exprs).unwrap())
+            }
         };
-
-        push();
-        if dup {
-            push();
-        }
     }
 
-    v.sort_by_key(|x| (x.pos, x.len));
-    v.dedup();
+    macro_rules! test {
+        ( $name: ident, $inner: ident ) => {
+            #[test]
+            fn $name() {
+                // pass all
+                $inner(b"", &bind!(".."), &[]);
+                $inner(b"abcdefghijklmnopqrstu", &bind!(".."), &[(0..21).into()]);
+                $inner(b"abcdefghijklmnopqrstu", &bind!("s - 4..e + 4"), &[(0..21).into()]);
 
-    (s, v)
-}
+                $inner(b"", &bind!("..,"), &[]);
+                $inner(b"abcdefghijklmnopqrstu", &bind!("..,"), &[(0..21).into()]);
+                $inner(b"abcdefghijklmnopqrstu", &bind!("s - 4..e + 4,"), &[(0..21).into()]);
 
-#[cfg(test)]
-macro_rules! test_long_impl {
-    ( $inner: ident, $len: expr, $count: expr ) => {
-        let mut rng = rand::thread_rng();
-        let v = (0..$len).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
-        let (exprs, segments) = gen_range($len, $count);
+                // pass none
+                $inner(b"", &bind!(""), &[]);
+                $inner(b"abcdefghijklmnopqrstu", &bind!(""), &[]);
+                $inner(b"abcdefghijklmnopqrstu", &bind!("s..s"), &[]);
+                $inner(b"abcdefghijklmnopqrstu", &bind!("e..e"), &[]);
 
-        let bind = |x: &[u8]| -> Box<dyn SegmentStream> {
-            let stream = Box::new(MockSource::new(x));
-            Box::new(RangeSlicer::new(stream, &exprs).unwrap())
+                // left-anchored
+                $inner(b"abcdefghijklmnopqrstu", &bind!("s + 3..s + 5"), &[(3..5).into()]);
+                $inner(
+                    b"abcdefghijklmnopqrstu",
+                    &bind!("s..s + 1, s + 5..s + 8, s + 10..s + 16"),
+                    &[(0..1).into(), (5..8).into(), (10..16).into()],
+                );
+
+                // left-anchored; overlaps
+                $inner(
+                    b"abcdefghijklmnopqrstu",
+                    &bind!("s..s + 10, s + 5..s + 18, s + 10..s + 16"),
+                    &[(0..10).into(), (5..18).into(), (10..16).into()],
+                );
+                $inner(
+                    b"abcdefghijklmnopqrstu",
+                    &bind!("s..s + 30, s + 5..s + 8, s + 10..s + 20, s + 15..s + 21"),
+                    &[(0..21).into(), (5..8).into(), (10..20).into(), (15..21).into()],
+                );
+
+                // left- and right-anchored
+                $inner(
+                    b"abcdefghijklmnopqrstu",
+                    &bind!("s..s + 10, s + 5..e"),
+                    &[(0..10).into(), (5..21).into()],
+                );
+                $inner(
+                    b"abcdefghijklmnopqrstu",
+                    &bind!("s..s + 10, e - 10..e"),
+                    &[(0..10).into(), (11..21).into()],
+                );
+                $inner(
+                    b"abcdefghijklmnopqrstu",
+                    &bind!("e - 18..s + 10, e - 10..e"),
+                    &[(3..10).into(), (11..21).into()],
+                );
+                $inner(
+                    b"abcdefghijklmnopqrstu",
+                    &bind!("e - 18..e - 10, s + 10..e"),
+                    &[(3..11).into(), (10..21).into()],
+                );
+                $inner(
+                    b"abcdefghijklmnopqrstu",
+                    &bind!("e - 18..e - 10, e - 11..s + 16"),
+                    &[(3..11).into(), (10..16).into()],
+                );
+                $inner(b"abcdefghijklmnopqrstu", &bind!("s..s + 23, e - 28..e"), &[(0..21).into()]);
+            }
         };
-        $inner(&v, &bind, &segments);
-    };
-}
+    }
 
-macro_rules! test_long {
-    ( $name: ident, $inner: ident ) => {
-        #[test]
-        fn $name() {
-            test_long_impl!($inner, 0, 0);
-            test_long_impl!($inner, 10, 0);
-            test_long_impl!($inner, 10, 1);
+    test!(test_range_all_at_once, test_segment_all_at_once);
+    test!(test_range_random_len, test_segment_random_len);
+    test!(test_range_occasional_consume, test_segment_occasional_consume);
 
-            test_long_impl!($inner, 1000, 0);
-            test_long_impl!($inner, 1000, 100);
+    fn gen_range(len: usize, count: usize) -> (String, Vec<Segment>) {
+        let mut rng = rand::thread_rng();
 
-            // try longer, multiple times
-            test_long_impl!($inner, 100000, 1000);
-            test_long_impl!($inner, 100000, 1000);
-            test_long_impl!($inner, 100000, 1000);
-            test_long_impl!($inner, 100000, 1000);
-            test_long_impl!($inner, 100000, 1000);
-        }
-    };
-}
+        let mut s = String::new();
+        let mut v = Vec::new();
 
-test_long!(test_range_long_all_at_once, test_segment_all_at_once);
-test_long!(test_range_long_random_len, test_segment_random_len);
-test_long!(test_range_long_occasional_consume, test_segment_occasional_consume);
-
-#[cfg(test)]
-macro_rules! test_inf_impl {
-    ( $exprs: expr, $expected: expr ) => {
-        let src = Box::new(std::fs::File::open("/dev/zero").unwrap());
-        let src = Box::new(RawStream::new(src, 1, 0));
-        let mut src = Box::new(RangeSlicer::new(src, $exprs).unwrap());
-
-        let mut scanned = 0;
-        let mut acc = 0;
-        loop {
-            let (is_eof, bytes, count, _) = src.fill_segment_buf().unwrap();
-            if is_eof && count == 0 {
-                break;
+        for _ in 0..count {
+            let pos1 = rng.gen_range(0..len);
+            let pos2 = rng.gen_range(0..len);
+            if pos1 == pos2 {
+                continue;
             }
 
-            let (_, segments) = src.as_slices();
-            for s in &segments[scanned..count] {
-                acc += s.len;
-            }
-            scanned = count;
+            let (start, end) = if pos1 < pos2 { (pos1, pos2) } else { (pos2, pos1) };
+            v.push(Segment {
+                pos: start,
+                len: end - start,
+            });
+            let anchor_range = if start < len / 2 { 1 } else { 4 };
 
-            let (_, count) = src.consume(bytes).unwrap();
-            scanned -= count;
+            // gen anchors and format string
+            let dup = rng.gen_range(0..10) == 0;
+            let mut push = || match rng.gen_range(0..anchor_range) {
+                0 => s.push_str(&format!("s+{}..s+{},", start, end)),
+                1 => s.push_str(&format!("s+{}..e-{},", start, len - end)),
+                2 => s.push_str(&format!("e-{}..s+{},", len - start, end)),
+                _ => s.push_str(&format!("e-{}..e-{},", len - start, len - end)),
+            };
+
+            push();
+            if dup {
+                push();
+            }
         }
 
-        assert_eq!(acc, $expected);
-    };
-}
+        v.sort_by_key(|x| (x.pos, x.len));
+        v.dedup();
 
-#[test]
-fn test_range_inf() {
-    test_inf_impl!("0..16", 16);
-    test_inf_impl!("100..116", 16);
-    test_inf_impl!("10000..10016", 16);
-    test_inf_impl!("1000000..1000016", 16);
+        (s, v)
+    }
+
+    macro_rules! test_long_impl {
+        ( $inner: ident, $len: expr, $count: expr ) => {
+            let mut rng = rand::thread_rng();
+            let v = (0..$len).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
+            let (exprs, segments) = gen_range($len, $count);
+
+            let bind = |x: &[u8]| -> Box<dyn SegmentStream> {
+                let stream = Box::new(MockSource::new(x));
+                Box::new(RangeSlicer::new(stream, &exprs).unwrap())
+            };
+            $inner(&v, &bind, &segments);
+        };
+    }
+
+    macro_rules! test_long {
+        ( $name: ident, $inner: ident ) => {
+            #[test]
+            fn $name() {
+                test_long_impl!($inner, 0, 0);
+                test_long_impl!($inner, 10, 0);
+                test_long_impl!($inner, 10, 1);
+
+                test_long_impl!($inner, 1000, 0);
+                test_long_impl!($inner, 1000, 100);
+
+                // try longer, multiple times
+                test_long_impl!($inner, 100000, 1000);
+                test_long_impl!($inner, 100000, 1000);
+                test_long_impl!($inner, 100000, 1000);
+                test_long_impl!($inner, 100000, 1000);
+                test_long_impl!($inner, 100000, 1000);
+            }
+        };
+    }
+
+    test_long!(test_range_long_all_at_once, test_segment_all_at_once);
+    test_long!(test_range_long_random_len, test_segment_random_len);
+    test_long!(test_range_long_occasional_consume, test_segment_occasional_consume);
+
+    macro_rules! test_inf_impl {
+        ( $exprs: expr, $expected: expr ) => {
+            let src = Box::new(std::fs::File::open("/dev/zero").unwrap());
+            let src = Box::new(RawStream::new(src, 1, 0));
+            let mut src = Box::new(RangeSlicer::new(src, $exprs).unwrap());
+
+            let mut scanned = 0;
+            let mut acc = 0;
+            loop {
+                let (is_eof, bytes, count, _) = src.fill_segment_buf().unwrap();
+                if is_eof && count == 0 {
+                    break;
+                }
+
+                let (_, segments) = src.as_slices();
+                for s in &segments[scanned..count] {
+                    acc += s.len;
+                }
+                scanned = count;
+
+                let (_, count) = src.consume(bytes).unwrap();
+                scanned -= count;
+            }
+
+            assert_eq!(acc, $expected);
+        };
+    }
+
+    #[test]
+    fn test_range_inf() {
+        test_inf_impl!("0..16", 16);
+        test_inf_impl!("100..116", 16);
+        test_inf_impl!("10000..10016", 16);
+        test_inf_impl!("1000000..1000016", 16);
+    }
 }
 
 // end of range.rs
