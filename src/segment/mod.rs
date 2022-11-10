@@ -253,8 +253,10 @@ where
 
 #[cfg(test)]
 pub mod tester {
-    #[allow(unused_imports)]
-    pub use super::{test_segment_all_at_once, test_segment_occasional_consume, test_segment_random_len, SegmentStream};
+    pub use super::guided::GuidedSlicer;
+    pub use super::stride::ConstSlicer;
+    pub use super::{test_segment_all_at_once, test_segment_occasional_consume, test_segment_random_len, Segment, SegmentStream};
+    pub use crate::byte::tester::*;
 }
 
 // end of mod.rs

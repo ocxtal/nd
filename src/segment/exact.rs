@@ -7,12 +7,6 @@ use crate::params::BLOCK_SIZE;
 use crate::text::parser::parse_hex_body;
 use anyhow::{anyhow, Context, Result};
 
-#[cfg(test)]
-use crate::byte::tester::*;
-
-#[cfg(test)]
-use super::tester::*;
-
 pub struct ExactMatchSlicer {
     src: Box<dyn ByteStream>,
     segments: Vec<Segment>,
@@ -93,144 +87,146 @@ impl SegmentStream for ExactMatchSlicer {
 }
 
 #[cfg(test)]
-macro_rules! bind {
-    ( $pattern: expr ) => {
-        |input: &[u8]| -> Box<dyn SegmentStream> {
-            let src = Box::new(MockSource::new(input));
-            Box::new(ExactMatchSlicer::new(src, $pattern).unwrap())
-        }
-    };
-}
+mod tests {
+    use super::ExactMatchSlicer;
+    use crate::segment::tester::*;
 
-macro_rules! test {
-    ( $name: ident, $inner: ident ) => {
-        #[test]
-        fn $name() {
-            // empty pattern
-            $inner(b"", &bind!(""), &[]);
-            $inner(b"abcdefghijklmnopqrstu", &bind!(""), &[]);
-
-            // single-char
-            $inner(b"abcdefghijklmnopqrstu", &bind!("61"), &[(0..1).into()]);
-            $inner(b"abcdefghijklmnopqrstu", &bind!("70"), &[(15..16).into()]);
-
-            // string
-            $inner(b"abcdefghijklmnopqrstu", &bind!("61 62 63 64 65"), &[(0..5).into()]);
-            $inner(b"abcdefghijklmnopqrstu", &bind!("70 71 72"), &[(15..18).into()]);
-
-            // string not found
-            $inner(b"abcdefghijklmnopqrstu", &bind!("61 62 63 65 64"), &[]);
-            $inner(b"abcdefghijklmnopqrstu", &bind!("70 71 52"), &[]);
-
-            // multi occurrences
-            $inner(
-                b"mississippi, mississippi, and mississippi",
-                &bind!("70 70 69"),
-                &[(8..11).into(), (21..24).into(), (38..41).into()],
-            );
-            $inner(
-                b"mississippi, mississippi, and mississippi",
-                &bind!("73 73 69"),
-                &[
-                    (2..5).into(),
-                    (5..8).into(),
-                    (15..18).into(),
-                    (18..21).into(),
-                    (32..35).into(),
-                    (35..38).into(),
-                ],
-            );
-        }
-    };
-}
-
-test!(test_exact_all_at_once, test_segment_all_at_once);
-test!(test_exact_random_len, test_segment_random_len);
-test!(test_exact_occasional_consume, test_segment_occasional_consume);
-
-#[cfg(test)]
-fn gen_pattern(pattern: &[u8], offset: usize, len: usize, rep: usize) -> (Vec<u8>, Vec<Segment>) {
-    debug_assert!(offset + pattern.len() <= len);
-
-    let mut v = Vec::new();
-    let mut s = Vec::new();
-    for _ in 0..rep {
-        let base_len = v.len();
-        v.resize(base_len + offset, 0);
-        v.extend_from_slice(pattern);
-        v.resize(base_len + len, 0);
-
-        if pattern.is_empty() {
-            continue;
-        }
-
-        s.push(Segment {
-            pos: base_len + offset,
-            len: pattern.len(),
-        });
-    }
-
-    (v, s)
-}
-
-#[cfg(test)]
-fn format_pattern(pattern: &[u8]) -> String {
-    let table = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'];
-
-    let mut s = String::new();
-    for x in pattern {
-        s.push(table[(*x >> 4) as usize]);
-        s.push(table[(*x & 0x0f) as usize]);
-        s.push(' ');
-    }
-    if !s.is_empty() {
-        s.pop().unwrap();
-    }
-
-    s
-}
-
-#[cfg(test)]
-macro_rules! test_impl {
-    ( $inner: ident, $pattern: expr, $offset: expr, $len: expr, $rep: expr ) => {
-        let (v, s) = gen_pattern($pattern.as_bytes(), $offset, $len, $rep);
-        let pattern = format_pattern($pattern.as_bytes());
-
-        let bind = |x: &[u8]| -> Box<dyn SegmentStream> {
-            let stream = Box::new(MockSource::new(x));
-            Box::new(ExactMatchSlicer::new(stream, &pattern).unwrap())
+    macro_rules! bind {
+        ( $pattern: expr ) => {
+            |input: &[u8]| -> Box<dyn SegmentStream> {
+                let src = Box::new(MockSource::new(input));
+                Box::new(ExactMatchSlicer::new(src, $pattern).unwrap())
+            }
         };
-        $inner(&v, &bind, &s);
-    };
-}
+    }
 
-macro_rules! test_long {
-    ( $name: ident, $inner: ident ) => {
-        #[test]
-        fn $name() {
-            test_impl!($inner, "", 0, BLOCK_SIZE, BLOCK_SIZE + 2);
-            test_impl!($inner, "abc", 0, BLOCK_SIZE, BLOCK_SIZE + 2);
-            test_impl!($inner, "abc", BLOCK_SIZE - 3, BLOCK_SIZE, BLOCK_SIZE + 2);
+    macro_rules! test {
+        ( $name: ident, $inner: ident ) => {
+            #[test]
+            fn $name() {
+                // empty pattern
+                $inner(b"", &bind!(""), &[]);
+                $inner(b"abcdefghijklmnopqrstu", &bind!(""), &[]);
 
-            // period being shorter by one
-            test_impl!($inner, "abc", 0, BLOCK_SIZE - 1, BLOCK_SIZE + 2);
-            test_impl!($inner, "abc", BLOCK_SIZE - 4, BLOCK_SIZE - 1, BLOCK_SIZE + 2);
+                // single-char
+                $inner(b"abcdefghijklmnopqrstu", &bind!("61"), &[(0..1).into()]);
+                $inner(b"abcdefghijklmnopqrstu", &bind!("70"), &[(15..16).into()]);
 
-            test_impl!($inner, "abcdefg", 0, BLOCK_SIZE - 1, BLOCK_SIZE + 2);
-            test_impl!($inner, "abcdefg", BLOCK_SIZE - 8, BLOCK_SIZE - 1, BLOCK_SIZE + 2);
+                // string
+                $inner(b"abcdefghijklmnopqrstu", &bind!("61 62 63 64 65"), &[(0..5).into()]);
+                $inner(b"abcdefghijklmnopqrstu", &bind!("70 71 72"), &[(15..18).into()]);
 
-            // period being longer by one
-            test_impl!($inner, "abc", 0, BLOCK_SIZE + 1, BLOCK_SIZE + 2);
-            test_impl!($inner, "abc", BLOCK_SIZE - 4, BLOCK_SIZE + 1, BLOCK_SIZE + 2);
+                // string not found
+                $inner(b"abcdefghijklmnopqrstu", &bind!("61 62 63 65 64"), &[]);
+                $inner(b"abcdefghijklmnopqrstu", &bind!("70 71 52"), &[]);
 
-            test_impl!($inner, "abcdefg", 0, BLOCK_SIZE + 1, BLOCK_SIZE + 2);
-            test_impl!($inner, "abcdefg", BLOCK_SIZE - 8, BLOCK_SIZE + 1, BLOCK_SIZE + 2);
+                // multi occurrences
+                $inner(
+                    b"mississippi, mississippi, and mississippi",
+                    &bind!("70 70 69"),
+                    &[(8..11).into(), (21..24).into(), (38..41).into()],
+                );
+                $inner(
+                    b"mississippi, mississippi, and mississippi",
+                    &bind!("73 73 69"),
+                    &[
+                        (2..5).into(),
+                        (5..8).into(),
+                        (15..18).into(),
+                        (18..21).into(),
+                        (32..35).into(),
+                        (35..38).into(),
+                    ],
+                );
+            }
+        };
+    }
+
+    test!(test_exact_all_at_once, test_segment_all_at_once);
+    test!(test_exact_random_len, test_segment_random_len);
+    test!(test_exact_occasional_consume, test_segment_occasional_consume);
+
+    fn gen_pattern(pattern: &[u8], offset: usize, len: usize, rep: usize) -> (Vec<u8>, Vec<Segment>) {
+        debug_assert!(offset + pattern.len() <= len);
+
+        let mut v = Vec::new();
+        let mut s = Vec::new();
+        for _ in 0..rep {
+            let base_len = v.len();
+            v.resize(base_len + offset, 0);
+            v.extend_from_slice(pattern);
+            v.resize(base_len + len, 0);
+
+            if pattern.is_empty() {
+                continue;
+            }
+
+            s.push(Segment {
+                pos: base_len + offset,
+                len: pattern.len(),
+            });
         }
-    };
-}
 
-test_long!(test_exact_long_all_at_once, test_segment_all_at_once);
-test_long!(test_exact_long_random_len, test_segment_random_len);
-test_long!(test_exact_long_occasional_consume, test_segment_occasional_consume);
+        (v, s)
+    }
+
+    fn format_pattern(pattern: &[u8]) -> String {
+        let table = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'];
+
+        let mut s = String::new();
+        for x in pattern {
+            s.push(table[(*x >> 4) as usize]);
+            s.push(table[(*x & 0x0f) as usize]);
+            s.push(' ');
+        }
+        if !s.is_empty() {
+            s.pop().unwrap();
+        }
+
+        s
+    }
+
+    macro_rules! test_impl {
+        ( $inner: ident, $pattern: expr, $offset: expr, $len: expr, $rep: expr ) => {
+            let (v, s) = gen_pattern($pattern.as_bytes(), $offset, $len, $rep);
+            let pattern = format_pattern($pattern.as_bytes());
+
+            let bind = |x: &[u8]| -> Box<dyn SegmentStream> {
+                let stream = Box::new(MockSource::new(x));
+                Box::new(ExactMatchSlicer::new(stream, &pattern).unwrap())
+            };
+            $inner(&v, &bind, &s);
+        };
+    }
+
+    macro_rules! test_long {
+        ( $name: ident, $inner: ident ) => {
+            #[test]
+            fn $name() {
+                test_impl!($inner, "", 0, BLOCK_SIZE, BLOCK_SIZE + 2);
+                test_impl!($inner, "abc", 0, BLOCK_SIZE, BLOCK_SIZE + 2);
+                test_impl!($inner, "abc", BLOCK_SIZE - 3, BLOCK_SIZE, BLOCK_SIZE + 2);
+
+                // period being shorter by one
+                test_impl!($inner, "abc", 0, BLOCK_SIZE - 1, BLOCK_SIZE + 2);
+                test_impl!($inner, "abc", BLOCK_SIZE - 4, BLOCK_SIZE - 1, BLOCK_SIZE + 2);
+
+                test_impl!($inner, "abcdefg", 0, BLOCK_SIZE - 1, BLOCK_SIZE + 2);
+                test_impl!($inner, "abcdefg", BLOCK_SIZE - 8, BLOCK_SIZE - 1, BLOCK_SIZE + 2);
+
+                // period being longer by one
+                test_impl!($inner, "abc", 0, BLOCK_SIZE + 1, BLOCK_SIZE + 2);
+                test_impl!($inner, "abc", BLOCK_SIZE - 4, BLOCK_SIZE + 1, BLOCK_SIZE + 2);
+
+                test_impl!($inner, "abcdefg", 0, BLOCK_SIZE + 1, BLOCK_SIZE + 2);
+                test_impl!($inner, "abcdefg", BLOCK_SIZE - 8, BLOCK_SIZE + 1, BLOCK_SIZE + 2);
+            }
+        };
+    }
+
+    test_long!(test_exact_long_all_at_once, test_segment_all_at_once);
+    test_long!(test_exact_long_random_len, test_segment_random_len);
+    test_long!(test_exact_long_occasional_consume, test_segment_occasional_consume);
+}
 
 // end of exact.rs

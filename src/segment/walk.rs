@@ -8,12 +8,6 @@ use crate::params::BLOCK_SIZE;
 use anyhow::Result;
 use std::collections::HashMap;
 
-#[cfg(test)]
-use crate::byte::tester::*;
-
-#[cfg(test)]
-use super::tester::*;
-
 struct SpanFetcher {
     expr: String,
     rpn: Rpn,
@@ -195,89 +189,93 @@ impl SegmentStream for WalkSlicer {
     }
 }
 
-// TODO: we need to test the remainder handling
-
 #[cfg(test)]
-macro_rules! bind {
-    ( $expr: expr ) => {
-        |input: &[u8]| -> Box<dyn SegmentStream> {
-            let src = Box::new(MockSource::new(input));
-            let exprs: Vec<_> = $expr.split(',').map(|x| x.to_string()).collect();
+mod tests {
+    // TODO: we need to test the remainder handling
+    use super::WalkSlicer;
+    use crate::segment::tester::*;
 
-            Box::new(WalkSlicer::new(src, &exprs))
-        }
-    };
-}
+    macro_rules! bind {
+        ( $expr: expr ) => {
+            |input: &[u8]| -> Box<dyn SegmentStream> {
+                let src = Box::new(MockSource::new(input));
+                let exprs: Vec<_> = $expr.split(',').map(|x| x.to_string()).collect();
 
-macro_rules! test {
-    ( $name: ident, $inner: ident ) => {
-        #[test]
-        fn $name() {
-            // positive integers
-            $inner(b"", &bind!("b[0]"), &[]);
-            $inner(&[1u8], &bind!("b[0]"), &[(0..1).into()]);
-            $inner(&[0u8], &bind!("b[0] + 1"), &[(0..1).into()]);
-
-            // multiple chunks
-            $inner(
-                &[1u8, 2, 10, 1, 1],
-                &bind!("b[0]"),
-                &[(0..1).into(), (1..3).into(), (3..4).into(), (4..5).into()],
-            );
-
-            // 16, 32, and 64-bit integers
-            $inner(&[2u8, 0, 4, 0, 0, 0], &bind!("h[0]"), &[(0..2).into(), (2..6).into()]);
-            $inner(&[4u8, 0, 0, 0, 4, 0, 0, 0], &bind!("i[0]"), &[(0..4).into(), (4..8).into()]);
-            $inner(&[8u8, 0, 0, 0, 0, 0, 0, 0], &bind!("l[0]"), &[(0..8).into()]);
-
-            // more complicated expressions
-            $inner(&[8u8, 0, 1, 2, 3, 4, 5, 6], &bind!("l[0] & 0xff"), &[(0..8).into()]);
-            $inner(&[0u8, 3, 0, 0, 0], &bind!("b[0] + 1"), &[(0..1).into(), (1..5).into()]);
-            $inner(&[2u8, 0, 0, 0, 1, 1], &bind!("2 * b[0]"), &[(0..4).into(), (4..6).into()]);
-
-            // multiple expressions
-            $inner(&[1u8, 1], &bind!("b[0], b[1]"), &[(0..1).into(), (1..2).into()]);
-            $inner(
-                &[1u8, 3, 0, 0, 2, 1, 0],
-                &bind!("b[0], b[1]"),
-                &[(0..1).into(), (1..4).into(), (4..6).into(), (6..7).into()],
-            );
-
-            // multiple expressions; long
-            let mut input = Vec::new();
-            let mut expected = Vec::new();
-            for i in 0..10000 {
-                input.extend_from_slice(&[1u8, 3, 0, 0, 2, 1, 0]);
-                expected.extend_from_slice(&[
-                    Segment { pos: i * 7, len: 1 },
-                    Segment { pos: i * 7 + 1, len: 3 },
-                    Segment { pos: i * 7 + 4, len: 2 },
-                    Segment { pos: i * 7 + 6, len: 1 },
-                ]);
+                Box::new(WalkSlicer::new(src, &exprs))
             }
-            $inner(&input, &bind!("b[0], b[1]"), &expected);
+        };
+    }
 
-            let mut input = Vec::new();
-            let mut expected = Vec::new();
-            for i in 0..10000 {
-                input.extend_from_slice(&[1u8, 0, 0, 0, 6, 0, 0, 5, 0, 0, 0, 1, 0]);
-                expected.extend_from_slice(&[
-                    Segment { pos: i * 13, len: 1 },
-                    Segment { pos: i * 13 + 1, len: 6 },
-                    Segment { pos: i * 13 + 7, len: 5 },
-                    Segment {
-                        pos: i * 13 + 12,
-                        len: 1,
-                    },
-                ]);
+    macro_rules! test {
+        ( $name: ident, $inner: ident ) => {
+            #[test]
+            fn $name() {
+                // positive integers
+                $inner(b"", &bind!("b[0]"), &[]);
+                $inner(&[1u8], &bind!("b[0]"), &[(0..1).into()]);
+                $inner(&[0u8], &bind!("b[0] + 1"), &[(0..1).into()]);
+
+                // multiple chunks
+                $inner(
+                    &[1u8, 2, 10, 1, 1],
+                    &bind!("b[0]"),
+                    &[(0..1).into(), (1..3).into(), (3..4).into(), (4..5).into()],
+                );
+
+                // 16, 32, and 64-bit integers
+                $inner(&[2u8, 0, 4, 0, 0, 0], &bind!("h[0]"), &[(0..2).into(), (2..6).into()]);
+                $inner(&[4u8, 0, 0, 0, 4, 0, 0, 0], &bind!("i[0]"), &[(0..4).into(), (4..8).into()]);
+                $inner(&[8u8, 0, 0, 0, 0, 0, 0, 0], &bind!("l[0]"), &[(0..8).into()]);
+
+                // more complicated expressions
+                $inner(&[8u8, 0, 1, 2, 3, 4, 5, 6], &bind!("l[0] & 0xff"), &[(0..8).into()]);
+                $inner(&[0u8, 3, 0, 0, 0], &bind!("b[0] + 1"), &[(0..1).into(), (1..5).into()]);
+                $inner(&[2u8, 0, 0, 0, 1, 1], &bind!("2 * b[0]"), &[(0..4).into(), (4..6).into()]);
+
+                // multiple expressions
+                $inner(&[1u8, 1], &bind!("b[0], b[1]"), &[(0..1).into(), (1..2).into()]);
+                $inner(
+                    &[1u8, 3, 0, 0, 2, 1, 0],
+                    &bind!("b[0], b[1]"),
+                    &[(0..1).into(), (1..4).into(), (4..6).into(), (6..7).into()],
+                );
+
+                // multiple expressions; long
+                let mut input = Vec::new();
+                let mut expected = Vec::new();
+                for i in 0..10000 {
+                    input.extend_from_slice(&[1u8, 3, 0, 0, 2, 1, 0]);
+                    expected.extend_from_slice(&[
+                        Segment { pos: i * 7, len: 1 },
+                        Segment { pos: i * 7 + 1, len: 3 },
+                        Segment { pos: i * 7 + 4, len: 2 },
+                        Segment { pos: i * 7 + 6, len: 1 },
+                    ]);
+                }
+                $inner(&input, &bind!("b[0], b[1]"), &expected);
+
+                let mut input = Vec::new();
+                let mut expected = Vec::new();
+                for i in 0..10000 {
+                    input.extend_from_slice(&[1u8, 0, 0, 0, 6, 0, 0, 5, 0, 0, 0, 1, 0]);
+                    expected.extend_from_slice(&[
+                        Segment { pos: i * 13, len: 1 },
+                        Segment { pos: i * 13 + 1, len: 6 },
+                        Segment { pos: i * 13 + 7, len: 5 },
+                        Segment {
+                            pos: i * 13 + 12,
+                            len: 1,
+                        },
+                    ]);
+                }
+                $inner(&input, &bind!("i[0], h[2]"), &expected);
             }
-            $inner(&input, &bind!("i[0], h[2]"), &expected);
-        }
-    };
-}
+        };
+    }
 
-test!(test_walk_all_at_once, test_segment_all_at_once);
-test!(test_walk_random_len, test_segment_random_len);
-test!(test_walk_occasional_consume, test_segment_occasional_consume);
+    test!(test_walk_all_at_once, test_segment_all_at_once);
+    test!(test_walk_random_len, test_segment_random_len);
+    test!(test_walk_occasional_consume, test_segment_occasional_consume);
+}
 
 // end of walk.rs

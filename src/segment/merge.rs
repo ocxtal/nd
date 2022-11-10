@@ -4,18 +4,6 @@
 use super::{Segment, SegmentStream};
 use anyhow::Result;
 
-#[cfg(test)]
-use crate::byte::tester::*;
-
-#[cfg(test)]
-use super::tester::*;
-
-#[cfg(test)]
-use super::{ConstSlicer, GuidedSlicer};
-
-#[cfg(test)]
-use rand::Rng;
-
 // working variable; segments are accumulated onto this
 #[derive(Copy, Clone, Debug)]
 struct Accumulator {
@@ -220,162 +208,163 @@ impl SegmentStream for MergeStream {
 }
 
 #[cfg(test)]
-macro_rules! bind_closed {
-    ( $pitch: expr, $span: expr, $merge: expr ) => {
-        |pattern: &[u8]| -> Box<dyn SegmentStream> {
-            let src = Box::new(MockSource::new(pattern));
-            let src = Box::new(ConstSlicer::from_raw(src, (3, 3), (false, false), $pitch, $span));
-            Box::new(MergeStream::new(src, $merge))
-        }
-    };
-}
+mod tests {
+    use super::MergeStream;
+    use crate::segment::tester::*;
 
-#[cfg(test)]
-macro_rules! bind_open {
-    ( $pitch: expr, $span: expr, $merge: expr ) => {
-        |pattern: &[u8]| -> Box<dyn SegmentStream> {
-            let src = Box::new(MockSource::new(pattern));
-            let src = Box::new(ConstSlicer::from_raw(src, (3, 3), (true, true), $pitch, $span));
-            Box::new(MergeStream::new(src, $merge))
-        }
-    };
-}
-
-macro_rules! test {
-    ( $name: ident, $inner: ident ) => {
-        #[test]
-        fn $name() {
-            // thresh == 0
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_closed!(4, 2, 0),
-                &[(3..5).into(), (7..9).into(), (11..13).into(), (15..17).into()],
-            );
-            $inner(
-                b"abcdefghijklmnopqrstu",
-                &bind_open!(4, 2, 0),
-                &[(0..5).into(), (7..9).into(), (11..13).into(), (15..21).into()],
-            );
-
-            $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 4, 0), &[(3..15).into()]);
-            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 4, 0), &[(0..21).into()]);
-
-            $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 6, 0), &[(3..17).into()]);
-            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 6, 0), &[(0..21).into()]);
-
-            // thresh == 2
-            $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 2, 2), &[(3..17).into()]);
-            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 2, 2), &[(0..21).into()]);
-
-            $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 4, 2), &[(3..15).into()]);
-            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 4, 2), &[(0..21).into()]);
-
-            $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 6, 2), &[(3..17).into()]);
-            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 6, 2), &[(0..21).into()]);
-
-            // thresh == inf
-            $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 2, usize::MAX), &[(3..17).into()]);
-            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 2, usize::MAX), &[(0..21).into()]);
-
-            $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 4, usize::MAX), &[(3..15).into()]);
-            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 4, usize::MAX), &[(0..21).into()]);
-
-            $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 6, usize::MAX), &[(3..17).into()]);
-            $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 6, usize::MAX), &[(0..21).into()]);
-        }
-    };
-}
-
-test!(test_merge_all_at_once, test_segment_all_at_once);
-test!(test_merge_random_len, test_segment_random_len);
-test!(test_merge_occasional_consume, test_segment_occasional_consume);
-
-#[cfg(test)]
-fn repeat_pattern(pattern: &[Segment], pitch: usize, repeat: usize) -> Vec<Segment> {
-    let mut v = Vec::new();
-    for i in 0..repeat {
-        let offset = i * pitch;
-        for p in pattern {
-            v.push(Segment {
-                pos: p.pos + offset,
-                len: p.len,
-            });
-        }
-    }
-
-    v
-}
-
-#[cfg(test)]
-fn gen_guide(pattern: &[Segment], pitch: usize, repeat: usize) -> Vec<u8> {
-    let v = repeat_pattern(pattern, pitch, repeat);
-
-    let mut s = Vec::new();
-    for x in &v {
-        s.extend_from_slice(format!("{:x} {:x} | \n", x.pos, x.len).as_bytes());
-    }
-
-    s
-}
-
-#[cfg(test)]
-macro_rules! test_long_impl {
-    ( $inner: ident, $pattern: expr, $merged: expr, $merge: expr ) => {
-        let pitch = 1000;
-        let repeat = 2;
-
-        let mut rng = rand::thread_rng();
-        let v = (0..pitch * repeat).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
-
-        let guide = gen_guide($pattern, pitch, repeat);
-        let expected = repeat_pattern($merged, pitch, repeat);
-
-        let bind = |x: &[u8]| -> Box<dyn SegmentStream> {
-            let src = Box::new(MockSource::new(x));
-            let guide = Box::new(MockSource::new(&guide));
-            let src = Box::new(GuidedSlicer::new(src, guide));
-            Box::new(MergeStream::new(src, $merge))
+    macro_rules! bind_closed {
+        ( $pitch: expr, $span: expr, $merge: expr ) => {
+            |pattern: &[u8]| -> Box<dyn SegmentStream> {
+                let src = Box::new(MockSource::new(pattern));
+                let src = Box::new(ConstSlicer::from_raw(src, (3, 3), (false, false), $pitch, $span));
+                Box::new(MergeStream::new(src, $merge))
+            }
         };
+    }
 
-        $inner(&v, &bind, &expected);
-    };
-}
+    macro_rules! bind_open {
+        ( $pitch: expr, $span: expr, $merge: expr ) => {
+            |pattern: &[u8]| -> Box<dyn SegmentStream> {
+                let src = Box::new(MockSource::new(pattern));
+                let src = Box::new(ConstSlicer::from_raw(src, (3, 3), (true, true), $pitch, $span));
+                Box::new(MergeStream::new(src, $merge))
+            }
+        };
+    }
 
-macro_rules! test_long {
-    ( $name: ident, $inner: ident ) => {
-        #[test]
-        fn $name() {
-            let pattern: Vec<Segment> = vec![
-                (100..220).into(),
-                (200..300).into(),
-                (300..450).into(),
-                (400..410).into(), // note: this segment is contained in 300..450
-                (500..600).into(),
-                (700..810).into(),
-                (800..900).into(),
-            ];
+    macro_rules! test {
+        ( $name: ident, $inner: ident ) => {
+            #[test]
+            fn $name() {
+                // thresh == 0
+                $inner(
+                    b"abcdefghijklmnopqrstu",
+                    &bind_closed!(4, 2, 0),
+                    &[(3..5).into(), (7..9).into(), (11..13).into(), (15..17).into()],
+                );
+                $inner(
+                    b"abcdefghijklmnopqrstu",
+                    &bind_open!(4, 2, 0),
+                    &[(0..5).into(), (7..9).into(), (11..13).into(), (15..21).into()],
+                );
 
-            test_long_impl!(
-                $inner,
-                &pattern,
-                &[(100..450).into(), (500..600).into(), (700..900).into(),],
-                0
-            );
-            test_long_impl!(
-                $inner,
-                &pattern,
-                &[(100..450).into(), (500..600).into(), (700..900).into(),],
-                49
-            );
-            test_long_impl!($inner, &pattern, &[(100..600).into(), (700..900).into(),], 50);
-            test_long_impl!($inner, &pattern, &[(100..600).into(), (700..900).into(),], 99);
-            test_long_impl!($inner, &pattern, &[(100..900).into(),], 100);
+                $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 4, 0), &[(3..15).into()]);
+                $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 4, 0), &[(0..21).into()]);
+
+                $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 6, 0), &[(3..17).into()]);
+                $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 6, 0), &[(0..21).into()]);
+
+                // thresh == 2
+                $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 2, 2), &[(3..17).into()]);
+                $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 2, 2), &[(0..21).into()]);
+
+                $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 4, 2), &[(3..15).into()]);
+                $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 4, 2), &[(0..21).into()]);
+
+                $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 6, 2), &[(3..17).into()]);
+                $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 6, 2), &[(0..21).into()]);
+
+                // thresh == inf
+                $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 2, usize::MAX), &[(3..17).into()]);
+                $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 2, usize::MAX), &[(0..21).into()]);
+
+                $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 4, usize::MAX), &[(3..15).into()]);
+                $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 4, usize::MAX), &[(0..21).into()]);
+
+                $inner(b"abcdefghijklmnopqrstu", &bind_closed!(4, 6, usize::MAX), &[(3..17).into()]);
+                $inner(b"abcdefghijklmnopqrstu", &bind_open!(4, 6, usize::MAX), &[(0..21).into()]);
+            }
+        };
+    }
+
+    test!(test_merge_all_at_once, test_segment_all_at_once);
+    test!(test_merge_random_len, test_segment_random_len);
+    test!(test_merge_occasional_consume, test_segment_occasional_consume);
+
+    fn repeat_pattern(pattern: &[Segment], pitch: usize, repeat: usize) -> Vec<Segment> {
+        let mut v = Vec::new();
+        for i in 0..repeat {
+            let offset = i * pitch;
+            for p in pattern {
+                v.push(Segment {
+                    pos: p.pos + offset,
+                    len: p.len,
+                });
+            }
         }
-    };
-}
 
-test_long!(test_merge_long_all_at_once, test_segment_all_at_once);
-test_long!(test_merge_long_random_len, test_segment_random_len);
-test_long!(test_merge_long_occasional_consume, test_segment_occasional_consume);
+        v
+    }
+
+    fn gen_guide(pattern: &[Segment], pitch: usize, repeat: usize) -> Vec<u8> {
+        let v = repeat_pattern(pattern, pitch, repeat);
+
+        let mut s = Vec::new();
+        for x in &v {
+            s.extend_from_slice(format!("{:x} {:x} | \n", x.pos, x.len).as_bytes());
+        }
+
+        s
+    }
+
+    macro_rules! test_long_impl {
+        ( $inner: ident, $pattern: expr, $merged: expr, $merge: expr ) => {
+            let pitch = 1000;
+            let repeat = 2;
+
+            let mut rng = rand::thread_rng();
+            let v = (0..pitch * repeat).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
+
+            let guide = gen_guide($pattern, pitch, repeat);
+            let expected = repeat_pattern($merged, pitch, repeat);
+
+            let bind = |x: &[u8]| -> Box<dyn SegmentStream> {
+                let src = Box::new(MockSource::new(x));
+                let guide = Box::new(MockSource::new(&guide));
+                let src = Box::new(GuidedSlicer::new(src, guide));
+                Box::new(MergeStream::new(src, $merge))
+            };
+
+            $inner(&v, &bind, &expected);
+        };
+    }
+
+    macro_rules! test_long {
+        ( $name: ident, $inner: ident ) => {
+            #[test]
+            fn $name() {
+                let pattern: Vec<Segment> = vec![
+                    (100..220).into(),
+                    (200..300).into(),
+                    (300..450).into(),
+                    (400..410).into(), // note: this segment is contained in 300..450
+                    (500..600).into(),
+                    (700..810).into(),
+                    (800..900).into(),
+                ];
+
+                test_long_impl!(
+                    $inner,
+                    &pattern,
+                    &[(100..450).into(), (500..600).into(), (700..900).into(),],
+                    0
+                );
+                test_long_impl!(
+                    $inner,
+                    &pattern,
+                    &[(100..450).into(), (500..600).into(), (700..900).into(),],
+                    49
+                );
+                test_long_impl!($inner, &pattern, &[(100..600).into(), (700..900).into(),], 50);
+                test_long_impl!($inner, &pattern, &[(100..600).into(), (700..900).into(),], 99);
+                test_long_impl!($inner, &pattern, &[(100..900).into(),], 100);
+            }
+        };
+    }
+
+    test_long!(test_merge_long_all_at_once, test_segment_all_at_once);
+    test_long!(test_merge_long_random_len, test_segment_random_len);
+    test_long!(test_merge_long_occasional_consume, test_segment_occasional_consume);
+}
 
 // end of merge.rs

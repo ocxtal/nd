@@ -175,9 +175,9 @@ where
 
 #[cfg(test)]
 pub mod tester {
-    use crate::params::BLOCK_SIZE;
-    use rand::Rng;
-    use std::io::Read;
+    pub use crate::params::{BLOCK_SIZE, MARGIN_SIZE};
+    pub use rand::Rng;
+    pub use std::io::Read;
 
     // n-times repetition of the pattern
     macro_rules! rep {

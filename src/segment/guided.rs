@@ -8,15 +8,6 @@ use crate::text::parser::TextParser;
 use crate::text::InoutFormat;
 use anyhow::Result;
 
-#[cfg(test)]
-use crate::byte::tester::*;
-
-#[cfg(test)]
-use super::tester::*;
-
-#[cfg(test)]
-use rand::Rng;
-
 pub struct GuidedSlicer {
     src: Box<dyn ByteStream>,
     guide: TextParser,
@@ -129,76 +120,82 @@ impl SegmentStream for GuidedSlicer {
 }
 
 #[cfg(test)]
-fn gen_guide(max_len: usize, max_count: usize) -> (Vec<u8>, Vec<Segment>) {
-    let mut rng = rand::thread_rng();
+mod tests {
+    use super::GuidedSlicer;
+    use crate::byte::tester::*;
+    use crate::segment::tester::*;
+    use rand::Rng;
 
-    let mut offset = 0;
-    let mut v = Vec::new();
-
-    while v.len() < max_count {
-        let fwd = rng.gen_range(0..std::cmp::min(1024, (max_len + 1) / 2));
-        let len = rng.gen_range(0..std::cmp::min(1024, (max_len + 1) / 2));
-
-        offset += fwd;
-        if offset >= max_len {
-            break;
-        }
-
-        v.push(Segment {
-            pos: offset,
-            len: std::cmp::min(len, max_len - offset),
-        });
-    }
-
-    v.sort_by_key(|x| (x.pos, x.len));
-
-    let mut s = Vec::new();
-    for x in &v {
-        s.extend_from_slice(format!("{:x} {:x} | \n", x.pos, x.len).as_bytes());
-    }
-
-    (s, v)
-}
-
-#[cfg(test)]
-macro_rules! test_impl {
-    ( $inner: ident, $len: expr, $count: expr ) => {
+    fn gen_guide(max_len: usize, max_count: usize) -> (Vec<u8>, Vec<Segment>) {
         let mut rng = rand::thread_rng();
-        let v = (0..$len).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
-        let (guide, segments) = gen_guide(v.len(), $count);
 
-        let bind = |x: &[u8]| -> Box<dyn SegmentStream> {
-            let stream = Box::new(MockSource::new(x));
-            let guide = Box::new(MockSource::new(&guide));
-            Box::new(GuidedSlicer::new(stream, guide))
-        };
-        $inner(&v, &bind, &segments);
-    };
-}
+        let mut offset = 0;
+        let mut v = Vec::new();
 
-macro_rules! test {
-    ( $name: ident, $inner: ident ) => {
-        #[test]
-        fn $name() {
-            test_impl!($inner, 0, 0);
-            test_impl!($inner, 10, 0);
-            test_impl!($inner, 10, 1);
+        while v.len() < max_count {
+            let fwd = rng.gen_range(0..std::cmp::min(1024, (max_len + 1) / 2));
+            let len = rng.gen_range(0..std::cmp::min(1024, (max_len + 1) / 2));
 
-            test_impl!($inner, 1000, 0);
-            test_impl!($inner, 1000, 1000);
+            offset += fwd;
+            if offset >= max_len {
+                break;
+            }
 
-            // try longer, multiple times
-            test_impl!($inner, 100000, 10000);
-            test_impl!($inner, 100000, 10000);
-            test_impl!($inner, 100000, 10000);
-            test_impl!($inner, 100000, 10000);
-            test_impl!($inner, 100000, 10000);
+            v.push(Segment {
+                pos: offset,
+                len: std::cmp::min(len, max_len - offset),
+            });
         }
-    };
-}
 
-test!(test_guided_all_at_once, test_segment_all_at_once);
-test!(test_guided_random_len, test_segment_random_len);
-test!(test_guided_occasional_consume, test_segment_occasional_consume);
+        v.sort_by_key(|x| (x.pos, x.len));
+
+        let mut s = Vec::new();
+        for x in &v {
+            s.extend_from_slice(format!("{:x} {:x} | \n", x.pos, x.len).as_bytes());
+        }
+
+        (s, v)
+    }
+
+    macro_rules! test_impl {
+        ( $inner: ident, $len: expr, $count: expr ) => {
+            let mut rng = rand::thread_rng();
+            let v = (0..$len).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
+            let (guide, segments) = gen_guide(v.len(), $count);
+
+            let bind = |x: &[u8]| -> Box<dyn SegmentStream> {
+                let stream = Box::new(MockSource::new(x));
+                let guide = Box::new(MockSource::new(&guide));
+                Box::new(GuidedSlicer::new(stream, guide))
+            };
+            $inner(&v, &bind, &segments);
+        };
+    }
+
+    macro_rules! test {
+        ( $name: ident, $inner: ident ) => {
+            #[test]
+            fn $name() {
+                test_impl!($inner, 0, 0);
+                test_impl!($inner, 10, 0);
+                test_impl!($inner, 10, 1);
+
+                test_impl!($inner, 1000, 0);
+                test_impl!($inner, 1000, 1000);
+
+                // try longer, multiple times
+                test_impl!($inner, 100000, 10000);
+                test_impl!($inner, 100000, 10000);
+                test_impl!($inner, 100000, 10000);
+                test_impl!($inner, 100000, 10000);
+                test_impl!($inner, 100000, 10000);
+            }
+        };
+    }
+
+    test!(test_guided_all_at_once, test_segment_all_at_once);
+    test!(test_guided_random_len, test_segment_random_len);
+    test!(test_guided_occasional_consume, test_segment_occasional_consume);
+}
 
 // enf of file.rs

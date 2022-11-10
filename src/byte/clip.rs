@@ -7,12 +7,6 @@ use crate::params::BLOCK_SIZE;
 use anyhow::Result;
 use std::ops::Range;
 
-#[cfg(test)]
-use super::tester::*;
-
-#[cfg(test)]
-use rand::Rng;
-
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ClipperParams {
     // `ClipperParams` describes a sequence of operations below:
@@ -223,78 +217,82 @@ impl ByteStream for ClipStream {
     }
 }
 
-#[allow(unused_macros)]
-macro_rules! test_impl {
-    ( $inner: ident, $input: expr, $clip: expr, $len: expr, $expected: expr ) => {{
-        let params = ClipperParams {
-            pad: (0, 0),
-            clip: $clip,
-            len: $len,
+#[cfg(test)]
+mod tests {
+    use super::{ClipStream, ClipperParams};
+    use crate::byte::tester::*;
+
+    macro_rules! test_impl {
+        ( $inner: ident, $input: expr, $clip: expr, $len: expr, $expected: expr ) => {{
+            let params = ClipperParams {
+                pad: (0, 0),
+                clip: $clip,
+                len: $len,
+            };
+
+            $inner(ClipStream::new(Box::new(MockSource::new($input)), &params, 0), $expected);
+        }};
+    }
+
+    macro_rules! test {
+        ( $name: ident, $inner: ident ) => {
+            #[test]
+            fn $name() {
+                let mut rng = rand::thread_rng();
+                let pattern = (0..32 * 1024).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
+
+                // all
+                test_impl!($inner, &pattern, (0, 0), pattern.len(), &pattern);
+
+                // head clip
+                test_impl!($inner, &pattern, (1, 0), pattern.len(), &pattern[1..]);
+                test_impl!($inner, &pattern, (1000, 0), pattern.len(), &pattern[1000..]);
+
+                // tail clip
+                test_impl!($inner, &pattern, (0, 1), pattern.len(), &pattern[..pattern.len() - 1]);
+                test_impl!($inner, &pattern, (0, 1000), pattern.len(), &pattern[..pattern.len() - 1000]);
+
+                // length limit
+                test_impl!($inner, &pattern, (0, 0), 1, &pattern[..1]);
+                test_impl!($inner, &pattern, (0, 0), 1000, &pattern[..1000]);
+
+                // both
+                test_impl!($inner, &pattern, (1, 1000), 1, &pattern[1..2]);
+                test_impl!($inner, &pattern, (1000, 1000), 100, &pattern[1000..1100]);
+                test_impl!(
+                    $inner,
+                    &pattern,
+                    (3000, 1000),
+                    pattern.len() - 100,
+                    &pattern[3000..pattern.len() - 1000]
+                );
+                test_impl!(
+                    $inner,
+                    &pattern,
+                    (3000, 10000),
+                    pattern.len() - 3000,
+                    &pattern[3000..pattern.len() - 10000]
+                );
+
+                // none
+                test_impl!($inner, &pattern, (0, 0), 0, b"");
+                test_impl!($inner, &pattern, (10, 0), 0, b"");
+                test_impl!($inner, &pattern, (pattern.len(), 0), 0, b"");
+                test_impl!($inner, &pattern, (0, pattern.len()), 0, b"");
+                test_impl!($inner, &pattern, (pattern.len(), pattern.len()), 0, b"");
+
+                // clip longer than the stream
+                test_impl!($inner, &pattern, (pattern.len() + 1, 0), pattern.len(), b"");
+                test_impl!($inner, &pattern, (pattern.len() + 1, 0), usize::MAX, b"");
+                test_impl!($inner, &pattern, (0, pattern.len() + 1), pattern.len(), b"");
+                test_impl!($inner, &pattern, (0, pattern.len() + 1), usize::MAX, b"");
+            }
         };
+    }
 
-        $inner(ClipStream::new(Box::new(MockSource::new($input)), &params, 0), $expected);
-    }};
+    test!(test_clip_random_len, test_stream_random_len);
+    test!(test_clip_random_consume, test_stream_random_consume);
+    test!(test_clip_all_at_once, test_stream_all_at_once);
 }
-
-#[allow(unused_macros)]
-macro_rules! test {
-    ( $name: ident, $inner: ident ) => {
-        #[test]
-        fn $name() {
-            let mut rng = rand::thread_rng();
-            let pattern = (0..32 * 1024).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
-
-            // all
-            test_impl!($inner, &pattern, (0, 0), pattern.len(), &pattern);
-
-            // head clip
-            test_impl!($inner, &pattern, (1, 0), pattern.len(), &pattern[1..]);
-            test_impl!($inner, &pattern, (1000, 0), pattern.len(), &pattern[1000..]);
-
-            // tail clip
-            test_impl!($inner, &pattern, (0, 1), pattern.len(), &pattern[..pattern.len() - 1]);
-            test_impl!($inner, &pattern, (0, 1000), pattern.len(), &pattern[..pattern.len() - 1000]);
-
-            // length limit
-            test_impl!($inner, &pattern, (0, 0), 1, &pattern[..1]);
-            test_impl!($inner, &pattern, (0, 0), 1000, &pattern[..1000]);
-
-            // both
-            test_impl!($inner, &pattern, (1, 1000), 1, &pattern[1..2]);
-            test_impl!($inner, &pattern, (1000, 1000), 100, &pattern[1000..1100]);
-            test_impl!(
-                $inner,
-                &pattern,
-                (3000, 1000),
-                pattern.len() - 100,
-                &pattern[3000..pattern.len() - 1000]
-            );
-            test_impl!(
-                $inner,
-                &pattern,
-                (3000, 10000),
-                pattern.len() - 3000,
-                &pattern[3000..pattern.len() - 10000]
-            );
-
-            // none
-            test_impl!($inner, &pattern, (0, 0), 0, b"");
-            test_impl!($inner, &pattern, (10, 0), 0, b"");
-            test_impl!($inner, &pattern, (pattern.len(), 0), 0, b"");
-            test_impl!($inner, &pattern, (0, pattern.len()), 0, b"");
-            test_impl!($inner, &pattern, (pattern.len(), pattern.len()), 0, b"");
-
-            // clip longer than the stream
-            test_impl!($inner, &pattern, (pattern.len() + 1, 0), pattern.len(), b"");
-            test_impl!($inner, &pattern, (pattern.len() + 1, 0), usize::MAX, b"");
-            test_impl!($inner, &pattern, (0, pattern.len() + 1), pattern.len(), b"");
-            test_impl!($inner, &pattern, (0, pattern.len() + 1), usize::MAX, b"");
-        }
-    };
-}
-
-test!(test_clip_random_len, test_stream_random_len);
-test!(test_clip_random_consume, test_stream_random_consume);
-test!(test_clip_all_at_once, test_stream_all_at_once);
 
 // end of clip.rs

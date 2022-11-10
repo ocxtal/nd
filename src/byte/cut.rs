@@ -7,12 +7,6 @@ use crate::streambuf::StreamBuf;
 use anyhow::Result;
 use std::cmp::Reverse;
 
-#[cfg(test)]
-use super::tester::*;
-
-#[cfg(test)]
-use rand::Rng;
-
 struct Cutter {
     filters: Vec<RangeMapper>,      // filters that both ends are start-anchored
     tail_filters: Vec<RangeMapper>, // filters that have tail-anchored ends
@@ -153,208 +147,211 @@ impl ByteStream for CutStream {
 }
 
 #[cfg(test)]
-macro_rules! test_impl {
-    ( $inner: ident, $input: expr, $exprs: expr, $expected: expr ) => {
-        let src = Box::new(MockSource::new($input));
-        let src = CutStream::new(src, $exprs).unwrap();
-        $inner(src, $expected);
-    };
-}
+mod tests {
+    use super::CutStream;
+    use crate::byte::tester::*;
 
-macro_rules! test {
-    ( $name: ident, $inner: ident ) => {
-        #[test]
-        fn $name() {
-            // pass all
-            test_impl!($inner, b"", "..", b"");
-            test_impl!($inner, b"abcdefghijklmnopqrstu", "..", b"abcdefghijklmnopqrstu");
-
-            // trailing ',' allowed
-            test_impl!($inner, b"abcdefghijklmnopqrstu", "..,", b"abcdefghijklmnopqrstu");
-
-            // pass none
-            test_impl!($inner, b"abcdefghijklmnopqrstu", "s..s", b"");
-            test_impl!($inner, b"abcdefghijklmnopqrstu", "e..e", b"");
-            test_impl!($inner, b"abcdefghijklmnopqrstu", "s - 1..s", b"");
-            test_impl!($inner, b"abcdefghijklmnopqrstu", "s + 1..s", b"");
-            test_impl!($inner, b"abcdefghijklmnopqrstu", "e..e - 1", b"");
-            test_impl!($inner, b"abcdefghijklmnopqrstu", "e..e + 1", b"");
-
-            // left-anchored
-            test_impl!($inner, b"abcdefghijklmnopqrstu", "s..s + 3", b"abc");
-            test_impl!($inner, b"abcdefghijklmnopqrstu", "s + 10..s + 13", b"klm");
-            test_impl!(
-                $inner,
-                b"abcdefghijklmnopqrstu",
-                "s..s + 3,s + 5..s + 10,s + 10..s + 13",
-                b"abcfghijklm"
-            );
-
-            // left-anchored; overlaps
-            test_impl!(
-                $inner,
-                b"abcdefghijklmnopqrstu",
-                "s..s + 3,s + 1..s + 5,s + 10..s + 13,s + 12..s + 15",
-                b"abcdeklmno"
-            );
-            test_impl!(
-                $inner,
-                b"abcdefghijklmnopqrstu",
-                "s + 10..s + 20,s + 12..s + 15",
-                b"klmnopqrst"
-            );
-            test_impl!(
-                $inner,
-                b"abcdefghijklmnopqrstu",
-                "s + 10..s + 20,s + 12..s + 15,s + 17..s + 21",
-                b"klmnopqrstu"
-            );
-
-            // left- and right-anchored
-            test_impl!($inner, b"abcdefghijklmnopqrstu", "s..e - 11", b"abcdefghij");
-            test_impl!($inner, b"abcdefghijklmnopqrstu", "e - 11..s + 13", b"klm");
-            test_impl!($inner, b"abcdefghijklmnopqrstu", "e - 11..e - 8", b"klm");
-            test_impl!(
-                $inner,
-                b"abcdefghijklmnopqrstu",
-                "s..s + 3,e - 16..s + 10,e - 11..e - 8",
-                b"abcfghijklm"
-            );
-        }
-    };
-}
-
-test!(test_cut_random_len, test_stream_random_len);
-test!(test_cut_random_consume, test_stream_random_consume);
-test!(test_cut_all_at_once, test_stream_all_at_once);
-
-#[cfg(test)]
-fn gen_pattern(len: usize, count: usize) -> (Vec<u8>, String, Vec<u8>) {
-    let mut rng = rand::thread_rng();
-
-    // first generate random slices
-    let mut s = String::new();
-    let mut v = Vec::new();
-
-    for _ in 0..count {
-        let pos1 = rng.gen_range(0..len);
-        let pos2 = rng.gen_range(0..len);
-        if pos1 == pos2 {
-            continue;
-        }
-
-        let (start, end) = if pos1 < pos2 { (pos1, pos2) } else { (pos2, pos1) };
-        v.push(start..end);
-
-        let anchor_range = if start < len / 2 { 1 } else { 4 };
-
-        // gen anchors and format string
-        let dup = rng.gen_range(0..10) == 0;
-        let mut push = || match rng.gen_range(0..anchor_range) {
-            0 => s.push_str(&format!("s+{}..s+{},", start, end)),
-            1 => s.push_str(&format!("s+{}..e-{},", start, len - end)),
-            2 => s.push_str(&format!("e-{}..s+{},", len - start, end)),
-            _ => s.push_str(&format!("e-{}..e-{},", len - start, len - end)),
+    macro_rules! test_impl {
+        ( $inner: ident, $input: expr, $exprs: expr, $expected: expr ) => {
+            let src = Box::new(MockSource::new($input));
+            let src = CutStream::new(src, $exprs).unwrap();
+            $inner(src, $expected);
         };
-
-        push();
-        if dup {
-            push();
-        }
     }
-    v.sort_by_key(|x| (x.start, x.end));
-    v.dedup();
 
-    // merge the slices
-    if !v.is_empty() {
-        let mut i = 0;
-        for j in 1..v.len() {
-            if v[i].end < v[j].start {
-                i += 1;
-                v[i] = v[j].clone();
+    macro_rules! test {
+        ( $name: ident, $inner: ident ) => {
+            #[test]
+            fn $name() {
+                // pass all
+                test_impl!($inner, b"", "..", b"");
+                test_impl!($inner, b"abcdefghijklmnopqrstu", "..", b"abcdefghijklmnopqrstu");
+
+                // trailing ',' allowed
+                test_impl!($inner, b"abcdefghijklmnopqrstu", "..,", b"abcdefghijklmnopqrstu");
+
+                // pass none
+                test_impl!($inner, b"abcdefghijklmnopqrstu", "s..s", b"");
+                test_impl!($inner, b"abcdefghijklmnopqrstu", "e..e", b"");
+                test_impl!($inner, b"abcdefghijklmnopqrstu", "s - 1..s", b"");
+                test_impl!($inner, b"abcdefghijklmnopqrstu", "s + 1..s", b"");
+                test_impl!($inner, b"abcdefghijklmnopqrstu", "e..e - 1", b"");
+                test_impl!($inner, b"abcdefghijklmnopqrstu", "e..e + 1", b"");
+
+                // left-anchored
+                test_impl!($inner, b"abcdefghijklmnopqrstu", "s..s + 3", b"abc");
+                test_impl!($inner, b"abcdefghijklmnopqrstu", "s + 10..s + 13", b"klm");
+                test_impl!(
+                    $inner,
+                    b"abcdefghijklmnopqrstu",
+                    "s..s + 3,s + 5..s + 10,s + 10..s + 13",
+                    b"abcfghijklm"
+                );
+
+                // left-anchored; overlaps
+                test_impl!(
+                    $inner,
+                    b"abcdefghijklmnopqrstu",
+                    "s..s + 3,s + 1..s + 5,s + 10..s + 13,s + 12..s + 15",
+                    b"abcdeklmno"
+                );
+                test_impl!(
+                    $inner,
+                    b"abcdefghijklmnopqrstu",
+                    "s + 10..s + 20,s + 12..s + 15",
+                    b"klmnopqrst"
+                );
+                test_impl!(
+                    $inner,
+                    b"abcdefghijklmnopqrstu",
+                    "s + 10..s + 20,s + 12..s + 15,s + 17..s + 21",
+                    b"klmnopqrstu"
+                );
+
+                // left- and right-anchored
+                test_impl!($inner, b"abcdefghijklmnopqrstu", "s..e - 11", b"abcdefghij");
+                test_impl!($inner, b"abcdefghijklmnopqrstu", "e - 11..s + 13", b"klm");
+                test_impl!($inner, b"abcdefghijklmnopqrstu", "e - 11..e - 8", b"klm");
+                test_impl!(
+                    $inner,
+                    b"abcdefghijklmnopqrstu",
+                    "s..s + 3,e - 16..s + 10,e - 11..e - 8",
+                    b"abcfghijklm"
+                );
+            }
+        };
+    }
+
+    test!(test_cut_random_len, test_stream_random_len);
+    test!(test_cut_random_consume, test_stream_random_consume);
+    test!(test_cut_all_at_once, test_stream_all_at_once);
+
+    fn gen_pattern(len: usize, count: usize) -> (Vec<u8>, String, Vec<u8>) {
+        let mut rng = rand::thread_rng();
+
+        // first generate random slices
+        let mut s = String::new();
+        let mut v = Vec::new();
+
+        for _ in 0..count {
+            let pos1 = rng.gen_range(0..len);
+            let pos2 = rng.gen_range(0..len);
+            if pos1 == pos2 {
                 continue;
             }
-            v[i].end = std::cmp::max(v[i].end, v[j].end);
+
+            let (start, end) = if pos1 < pos2 { (pos1, pos2) } else { (pos2, pos1) };
+            v.push(start..end);
+
+            let anchor_range = if start < len / 2 { 1 } else { 4 };
+
+            // gen anchors and format string
+            let dup = rng.gen_range(0..10) == 0;
+            let mut push = || match rng.gen_range(0..anchor_range) {
+                0 => s.push_str(&format!("s+{}..s+{},", start, end)),
+                1 => s.push_str(&format!("s+{}..e-{},", start, len - end)),
+                2 => s.push_str(&format!("e-{}..s+{},", len - start, end)),
+                _ => s.push_str(&format!("e-{}..e-{},", len - start, len - end)),
+            };
+
+            push();
+            if dup {
+                push();
+            }
         }
-        v.truncate(i + 1);
+        v.sort_by_key(|x| (x.start, x.end));
+        v.dedup();
+
+        // merge the slices
+        if !v.is_empty() {
+            let mut i = 0;
+            for j in 1..v.len() {
+                if v[i].end < v[j].start {
+                    i += 1;
+                    v[i] = v[j].clone();
+                    continue;
+                }
+                v[i].end = std::cmp::max(v[i].end, v[j].end);
+            }
+            v.truncate(i + 1);
+        }
+
+        // generate random string
+        let t = (0..len).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
+
+        // slice and concatenate the string
+        let mut u = Vec::new();
+        for r in &v {
+            u.extend_from_slice(&t[r.clone()]);
+        }
+
+        (t, s, u)
     }
 
-    // generate random string
-    let t = (0..len).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
-
-    // slice and concatenate the string
-    let mut u = Vec::new();
-    for r in &v {
-        u.extend_from_slice(&t[r.clone()]);
+    macro_rules! test_long_impl {
+        ( $inner: ident, $len: expr, $count: expr ) => {
+            let (input, exprs, expected) = gen_pattern($len, $count);
+            let src = Box::new(MockSource::new(&input));
+            let src = CutStream::new(src, &exprs).unwrap();
+            $inner(src, &expected);
+        };
     }
 
-    (t, s, u)
-}
+    macro_rules! test_long {
+        ( $name: ident, $inner: ident ) => {
+            #[test]
+            fn $name() {
+                test_long_impl!($inner, 0, 0);
+                test_long_impl!($inner, 10, 0);
+                test_long_impl!($inner, 10, 1);
 
-#[cfg(test)]
-macro_rules! test_long_impl {
-    ( $inner: ident, $len: expr, $count: expr ) => {
-        let (input, exprs, expected) = gen_pattern($len, $count);
-        let src = Box::new(MockSource::new(&input));
-        let src = CutStream::new(src, &exprs).unwrap();
-        $inner(src, &expected);
-    };
-}
+                test_long_impl!($inner, 1000, 0);
+                test_long_impl!($inner, 1000, 10);
 
-macro_rules! test_long {
-    ( $name: ident, $inner: ident ) => {
-        #[test]
-        fn $name() {
-            test_long_impl!($inner, 0, 0);
-            test_long_impl!($inner, 10, 0);
-            test_long_impl!($inner, 10, 1);
+                // try longer, multiple times
+                test_long_impl!($inner, 100000, 100);
+                test_long_impl!($inner, 100000, 100);
+                test_long_impl!($inner, 100000, 100);
+                test_long_impl!($inner, 100000, 100);
+                test_long_impl!($inner, 100000, 100);
+            }
+        };
+    }
 
-            test_long_impl!($inner, 1000, 0);
-            test_long_impl!($inner, 1000, 10);
+    test_long!(test_cut_long_random_len, test_stream_random_len);
+    test_long!(test_cut_long_random_consume, test_stream_random_consume);
+    test_long!(test_cut_long_all_at_once, test_stream_all_at_once);
 
-            // try longer, multiple times
-            test_long_impl!($inner, 100000, 100);
-            test_long_impl!($inner, 100000, 100);
-            test_long_impl!($inner, 100000, 100);
-            test_long_impl!($inner, 100000, 100);
-            test_long_impl!($inner, 100000, 100);
-        }
-    };
-}
+    macro_rules! test_inf_impl {
+        ( $exprs: expr, $expected: expr ) => {
+            let src = Box::new(std::fs::File::open("/dev/zero").unwrap());
+            let src = Box::new(RawStream::new(src, 1, 0));
+            let mut src = Box::new(CutStream::new(src, $exprs).unwrap());
 
-test_long!(test_cut_long_random_len, test_stream_random_len);
-test_long!(test_cut_long_random_consume, test_stream_random_consume);
-test_long!(test_cut_long_all_at_once, test_stream_all_at_once);
+            let mut v = Vec::new();
+            loop {
+                let (is_eof, bytes) = src.fill_buf(1).unwrap();
+                if is_eof && bytes == 0 {
+                    break;
+                }
 
-#[cfg(test)]
-macro_rules! test_inf_impl {
-    ( $exprs: expr, $expected: expr ) => {
-        let src = Box::new(std::fs::File::open("/dev/zero").unwrap());
-        let src = Box::new(RawStream::new(src, 1, 0));
-        let mut src = Box::new(CutStream::new(src, $exprs).unwrap());
+                let stream = src.as_slice();
+                v.extend_from_slice(&stream[..bytes]);
 
-        let mut v = Vec::new();
-        loop {
-            let (is_eof, bytes) = src.fill_buf(1).unwrap();
-            if is_eof && bytes == 0 {
-                break;
+                src.consume(bytes);
             }
 
-            let stream = src.as_slice();
-            v.extend_from_slice(&stream[..bytes]);
+            assert_eq!(v.len(), $expected);
+        };
+    }
 
-            src.consume(bytes);
-        }
-
-        assert_eq!(v.len(), $expected);
-    };
+    #[test]
+    fn test_cut_inf() {
+        test_inf_impl!("0..16", 16);
+        test_inf_impl!("100..116", 16);
+        test_inf_impl!("10000..10016", 16);
+        test_inf_impl!("1000000..1000016", 16);
+    }
 }
 
-#[test]
-fn test_cut_inf() {
-    test_inf_impl!("0..16", 16);
-    test_inf_impl!("100..116", 16);
-    test_inf_impl!("10000..10016", 16);
-    test_inf_impl!("1000000..1000016", 16);
-}
 // end of cut.rs

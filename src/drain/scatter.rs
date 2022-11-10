@@ -12,12 +12,6 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 
-#[cfg(test)]
-use crate::byte::tester::*;
-
-#[cfg(test)]
-use crate::segment::ConstSlicer;
-
 enum Drain {
     File(File),
     Template(Template),
@@ -194,43 +188,50 @@ impl ByteStream for ScatterDrain {
 }
 
 #[cfg(test)]
-macro_rules! test_impl {
-    ( $inner: ident, $pattern: expr, $drain: expr, $expected: expr ) => {
-        let src = Box::new(MockSource::new($pattern));
-        let src = Box::new(ConstSlicer::from_raw(src, (0, -3), (false, false), 4, 6));
-        let src = ScatterDrain::new(src, $drain, &InoutFormat::from_str("b").unwrap()).unwrap();
+mod tests {
+    use super::ScatterDrain;
+    use crate::byte::tester::*;
+    use crate::segment::ConstSlicer;
+    use crate::text::InoutFormat;
 
-        $inner(src, $expected);
-    };
+    macro_rules! test_impl {
+        ( $inner: ident, $pattern: expr, $drain: expr, $expected: expr ) => {
+            let src = Box::new(MockSource::new($pattern));
+            let src = Box::new(ConstSlicer::from_raw(src, (0, -3), (false, false), 4, 6));
+            let src = ScatterDrain::new(src, $drain, &InoutFormat::from_str("b").unwrap()).unwrap();
+
+            $inner(src, $expected);
+        };
+    }
+
+    macro_rules! test {
+        ( $name: ident, $inner: ident ) => {
+            #[test]
+            fn $name() {
+                // "" is treated as stdout
+                test_impl!($inner, b"", "", b"");
+                test_impl!($inner, b"0123456789a", "", b"01234545678989a");
+
+                // "-" is treated as stdout as well
+                test_impl!($inner, b"", "-", b"");
+                test_impl!($inner, b"0123456789a", "-", b"01234545678989a");
+
+                // /dev/null
+                test_impl!($inner, b"", "/dev/null", b"");
+                test_impl!($inner, b"0123456789a", "/dev/null", b"");
+
+                // tempfile
+                let file = tempfile::NamedTempFile::new().unwrap();
+                test_impl!($inner, b"0123456789a", file.path().to_str().unwrap(), b"");
+
+                // TODO: test template rendering
+            }
+        };
+    }
+
+    test!(test_scatter_all_at_once, test_stream_all_at_once);
+    test!(test_scatter_random_len, test_stream_random_len);
+    test!(test_scatter_occasional_consume, test_stream_random_consume);
 }
-
-macro_rules! test {
-    ( $name: ident, $inner: ident ) => {
-        #[test]
-        fn $name() {
-            // "" is treated as stdout
-            test_impl!($inner, b"", "", b"");
-            test_impl!($inner, b"0123456789a", "", b"01234545678989a");
-
-            // "-" is treated as stdout as well
-            test_impl!($inner, b"", "-", b"");
-            test_impl!($inner, b"0123456789a", "-", b"01234545678989a");
-
-            // /dev/null
-            test_impl!($inner, b"", "/dev/null", b"");
-            test_impl!($inner, b"0123456789a", "/dev/null", b"");
-
-            // tempfile
-            let file = tempfile::NamedTempFile::new().unwrap();
-            test_impl!($inner, b"0123456789a", file.path().to_str().unwrap(), b"");
-
-            // TODO: test template rendering
-        }
-    };
-}
-
-test!(test_scatter_all_at_once, test_stream_all_at_once);
-test!(test_scatter_random_len, test_stream_random_len);
-test!(test_scatter_occasional_consume, test_stream_random_consume);
 
 // end of scatter.rs

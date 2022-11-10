@@ -6,9 +6,6 @@ use super::ByteStream;
 use crate::params::{BLOCK_SIZE, MARGIN_SIZE};
 use anyhow::Result;
 
-#[cfg(test)]
-use super::tester::*;
-
 pub struct ZeroStream {
     offset: usize,
     len: usize,
@@ -63,30 +60,34 @@ impl ByteStream for ZeroStream {
     }
 }
 
-#[allow(unused_macros)]
-macro_rules! test_impl {
-    ( $inner: ident, $len: expr ) => {{
-        let mut v = Vec::new();
-        v.resize($len, 0);
-        $inner(ZeroStream::new($len, 0), &v);
-    }};
-}
+#[cfg(test)]
+mod tests {
+    use super::ZeroStream;
+    use crate::byte::tester::*;
 
-#[allow(unused_macros)]
-macro_rules! test {
-    ( $name: ident, $inner: ident ) => {
-        #[test]
-        fn $name() {
-            test_impl!($inner, 0);
-            test_impl!($inner, 31);
-            test_impl!($inner, 3000);
-            test_impl!($inner, 100100);
-        }
-    };
-}
+    macro_rules! test_impl {
+        ( $inner: ident, $len: expr ) => {{
+            let mut v = Vec::new();
+            v.resize($len, 0);
+            $inner(ZeroStream::new($len, 0), &v);
+        }};
+    }
 
-test!(test_zero_source_random_len, test_stream_random_len);
-test!(test_zero_source_random_consume, test_stream_random_consume);
-test!(test_zero_source_all_at_once, test_stream_all_at_once);
+    macro_rules! test {
+        ( $name: ident, $inner: ident ) => {
+            #[test]
+            fn $name() {
+                test_impl!($inner, 0);
+                test_impl!($inner, 31);
+                test_impl!($inner, 3000);
+                test_impl!($inner, 100100);
+            }
+        };
+    }
+
+    test!(test_zero_source_random_len, test_stream_random_len);
+    test!(test_zero_source_random_consume, test_stream_random_consume);
+    test!(test_zero_source_all_at_once, test_stream_all_at_once);
+}
 
 // end of zero.rs

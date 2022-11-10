@@ -15,15 +15,6 @@ use std::io::Read;
 use self::Node::*;
 use self::NodeClass::*;
 
-#[cfg(test)]
-use crate::byte::tester::*;
-
-#[cfg(test)]
-use crate::streambuf::StreamBuf;
-
-#[cfg(test)]
-use crate::params::BLOCK_SIZE;
-
 fn parse_const_slicer_params(s: &str) -> Result<ConstSlicerParams> {
     let v = s.split(',').map(|x| x.to_string()).collect::<Vec<_>>();
     assert!(!v.is_empty());
@@ -423,88 +414,97 @@ impl Pipeline {
     }
 }
 
-#[test]
-fn test_pipeline() {
-    macro_rules! test {
-        ( $args: expr, $inputs: expr, $expected: expr ) => {
-            let args = PipelineArgs::parse_from($args.split_whitespace());
-            let pipeline = Pipeline::from_args(&args).unwrap();
+#[cfg(test)]
+mod tests {
+    use super::{Pipeline, PipelineArgs};
+    use crate::byte::tester::*;
+    use crate::streambuf::StreamBuf;
+    use clap::Parser;
+    use std::io::Read;
 
-            let inputs: Vec<Box<dyn Read + Send>> = $inputs
-                .iter()
-                .map(|x| {
-                    let x: Box<dyn Read + Send> = Box::new(MockSource::new(x));
-                    x
+    #[test]
+    fn test_pipeline() {
+        macro_rules! test {
+            ( $args: expr, $inputs: expr, $expected: expr ) => {
+                let args = PipelineArgs::parse_from($args.split_whitespace());
+                let pipeline = Pipeline::from_args(&args).unwrap();
+
+                let inputs: Vec<Box<dyn Read + Send>> = $inputs
+                    .iter()
+                    .map(|x| {
+                        let x: Box<dyn Read + Send> = Box::new(MockSource::new(x));
+                        x
+                    })
+                    .collect();
+                let mut stream = Pipeline::spawn_stream(&pipeline, inputs).unwrap();
+
+                let mut buf = StreamBuf::new();
+                buf.fill_buf(BLOCK_SIZE, |request, buf| {
+                    let (is_eof, bytes) = stream.fill_buf(request)?;
+                    let slice = stream.as_slice();
+                    buf.extend_from_slice(&slice[..bytes]);
+                    stream.consume(bytes);
+
+                    Ok(is_eof)
                 })
-                .collect();
-            let mut stream = Pipeline::spawn_stream(&pipeline, inputs).unwrap();
+                .unwrap();
 
-            let mut buf = StreamBuf::new();
-            buf.fill_buf(BLOCK_SIZE, |request, buf| {
-                let (is_eof, bytes) = stream.fill_buf(request)?;
-                let slice = stream.as_slice();
-                buf.extend_from_slice(&slice[..bytes]);
-                stream.consume(bytes);
+                let len = buf.len();
+                let slice = buf.as_slice();
 
-                Ok(is_eof)
-            })
-            .unwrap();
+                assert_eq!(len, $expected.len());
+                assert_eq!(&slice[..len], $expected);
+            };
+        }
 
-            let len = buf.len();
-            let slice = buf.as_slice();
+        test!("nd", [b"".as_slice()], b"");
+        test!("nd --out-format=b", [b"".as_slice()], b"");
+        test!("nd --out-format=b", [b"0123456789".as_slice()], b"0123456789");
 
-            assert_eq!(len, $expected.len());
-            assert_eq!(&slice[..len], $expected);
-        };
+        test!(
+            "nd --out-format=b --pad=3,5",
+            [b"0123456789".as_slice()],
+            b"\0\0\00123456789\0\0\0\0\0"
+        );
+        test!(
+            "nd --out-format=b --pad=3,5 --filler=0x0a",
+            [b"0123456789".as_slice()],
+            b"\n\n\n0123456789\n\n\n\n\n"
+        );
+
+        test!(
+            "nd --out-format=b --cat=4",
+            [b"0123456789".as_slice(), b"0123456789".as_slice()],
+            b"0123456789\0\00123456789\0\0"
+        );
+        test!(
+            "nd --out-format=b --cat=4 --filler=0x0a",
+            [b"0123456789".as_slice(), b"0123456789".as_slice()],
+            b"0123456789\n\n0123456789\n\n"
+        );
+
+        test!(
+            "nd --out-format=b --zip=4",
+            [b"0123456789".as_slice(), b"0123456789".as_slice()],
+            b"012301234567456789\0\089\0\0"
+        );
+        test!(
+            "nd --out-format=b --zip=4 --filler=0x0a",
+            [b"0123456789".as_slice(), b"0123456789".as_slice()],
+            b"012301234567456789\n\n89\n\n"
+        );
+
+        test!(
+            "nd --out-format=b --in-format=x",
+            [b"0004 0004 | 31 32 33 34\n000a 0000 | 61 62 63".as_slice()],
+            b"\0\0\0\01234\0\0abc"
+        );
+        test!(
+            "nd --out-format=b --in-format=x --filler=0x0a",
+            [b"0004 0004 | 31 32 33 34\n000a 0000 | 61 62 63".as_slice()],
+            b"\n\n\n\n1234\n\nabc"
+        );
     }
-
-    test!("nd", [b"".as_slice()], b"");
-    test!("nd --out-format=b", [b"".as_slice()], b"");
-    test!("nd --out-format=b", [b"0123456789".as_slice()], b"0123456789");
-
-    test!(
-        "nd --out-format=b --pad=3,5",
-        [b"0123456789".as_slice()],
-        b"\0\0\00123456789\0\0\0\0\0"
-    );
-    test!(
-        "nd --out-format=b --pad=3,5 --filler=0x0a",
-        [b"0123456789".as_slice()],
-        b"\n\n\n0123456789\n\n\n\n\n"
-    );
-
-    test!(
-        "nd --out-format=b --cat=4",
-        [b"0123456789".as_slice(), b"0123456789".as_slice()],
-        b"0123456789\0\00123456789\0\0"
-    );
-    test!(
-        "nd --out-format=b --cat=4 --filler=0x0a",
-        [b"0123456789".as_slice(), b"0123456789".as_slice()],
-        b"0123456789\n\n0123456789\n\n"
-    );
-
-    test!(
-        "nd --out-format=b --zip=4",
-        [b"0123456789".as_slice(), b"0123456789".as_slice()],
-        b"012301234567456789\0\089\0\0"
-    );
-    test!(
-        "nd --out-format=b --zip=4 --filler=0x0a",
-        [b"0123456789".as_slice(), b"0123456789".as_slice()],
-        b"012301234567456789\n\n89\n\n"
-    );
-
-    test!(
-        "nd --out-format=b --in-format=x",
-        [b"0004 0004 | 31 32 33 34\n000a 0000 | 61 62 63".as_slice()],
-        b"\0\0\0\01234\0\0abc"
-    );
-    test!(
-        "nd --out-format=b --in-format=x --filler=0x0a",
-        [b"0004 0004 | 31 32 33 34\n000a 0000 | 61 62 63".as_slice()],
-        b"\n\n\n\n1234\n\nabc"
-    );
 }
 
 // end of pipeline.rs
