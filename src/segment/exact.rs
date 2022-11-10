@@ -46,14 +46,7 @@ impl ExactMatchSlicer {
 
 impl SegmentStream for ExactMatchSlicer {
     fn fill_segment_buf(&mut self) -> Result<(bool, usize, usize, usize)> {
-        let (is_eof, bytes) = loop {
-            let (is_eof, bytes) = self.src.fill_buf(BLOCK_SIZE)?;
-            if is_eof || bytes >= self.pattern.len() {
-                break (is_eof, bytes);
-            }
-
-            self.src.consume(0);
-        };
+        let (is_eof, bytes) = self.src.fill_buf(BLOCK_SIZE)?;
 
         // no need to scan the bytes when the pattern is empty
         if self.pattern.is_empty() {
