@@ -8,20 +8,17 @@ use std::collections::HashMap;
 
 use crate::eval::{Rpn, VarAttr};
 
-#[allow(dead_code)]
 #[derive(Debug)]
 struct TemplateElement {
     fixed: String,
     var: Option<(Rpn, NumFmt)>,
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct Template {
     elems: Vec<TemplateElement>,
 }
 
-#[allow(dead_code)]
 impl Template {
     pub fn from_str(input: &str, vars: Option<&HashMap<&[u8], VarAttr>>) -> Result<Self> {
         // parsing std::fmt-style formatter string
