@@ -9,10 +9,8 @@ use std::ops::Range;
 
 use crate::eval::Token::*;
 
-#[allow(dead_code)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Token {
-    Nop,
     Val(i64),
     Op(char),
     Prefix(char), // unary op; '+', '-', '!', '~' (TODO: add deref operator '*')
@@ -1170,7 +1168,7 @@ where
     Ok(result)
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn to_string(tokens: &[(Token, usize)], vars: &HashMap<usize, &[u8]>, v: &mut String) {
     let root = tokens.len() - 1;
 
@@ -1262,7 +1260,6 @@ impl Rpn {
         Ok(Rpn { rpn })
     }
 
-    #[allow(dead_code)]
     pub fn tokens(&self) -> Vec<Token> {
         self.rpn.iter().map(|x| x.0).collect::<Vec<_>>()
     }
