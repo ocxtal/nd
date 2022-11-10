@@ -8,15 +8,6 @@ use crate::params::BLOCK_SIZE;
 use crate::streambuf::StreamBuf;
 use anyhow::Result;
 
-#[cfg(test)]
-use super::tester::*;
-
-#[cfg(test)]
-use super::RawStream;
-
-#[cfg(test)]
-use rand::Rng;
-
 struct Zipper {
     srcs: Vec<Box<dyn ByteStream>>,
     ptrs: Vec<*const u8>, // pointer cache (only for use in the fill_buf_impl function)
@@ -173,329 +164,331 @@ impl ByteStream for ZipStream {
     }
 }
 
-#[allow(unused_macros)]
-macro_rules! test_impl {
-    ( $inner: ident, $word_size: expr, $inputs: expr, $expected: expr ) => {{
-        let wrap = |x: &[u8]| -> Box<dyn ByteStream> {
-            // make the source aligned to word_size
-            Box::new(RawStream::new(Box::new(MockSource::new(x)), $word_size, 0))
-        };
-
-        let srcs = $inputs.iter().map(|x| wrap(*x)).collect::<Vec<Box<dyn ByteStream>>>();
-        let src = ZipStream::new(srcs, $word_size);
-        $inner(src, $expected);
-    }};
-}
-
-#[allow(unused_macros)]
-macro_rules! test_clamped_impl {
-    ( $inner: ident, $word_size: expr, $inputs: expr, $expected: expr ) => {{
-        let wrap = |x: &[u8]| -> Box<dyn ByteStream> {
-            // the source is not aligned to word_size
-            Box::new(MockSource::new(x))
-        };
-
-        let srcs = $inputs.iter().map(|x| wrap(*x)).collect::<Vec<Box<dyn ByteStream>>>();
-        let src = ZipStream::new(srcs, $word_size);
-        $inner(src, $expected);
-    }};
-}
-
-#[allow(unused_macros)]
-macro_rules! test {
-    ( $name: ident, $inner: ident ) => {
-        #[test]
-        fn $name() {
-            // ZipStream clips the output at the end of the shortest input
-            test_impl!($inner, 1, [b"".as_slice()], b"");
-            test_impl!($inner, 2, [b"".as_slice()], b"");
-            test_impl!($inner, 3, [b"".as_slice()], b"");
-            test_impl!($inner, 4, [b"".as_slice()], b"");
-            test_impl!($inner, 5, [b"".as_slice()], b"");
-            test_impl!($inner, 6, [b"".as_slice()], b"");
-            test_impl!($inner, 7, [b"".as_slice()], b"");
-            test_impl!($inner, 8, [b"".as_slice()], b"");
-            test_impl!($inner, 9, [b"".as_slice()], b"");
-            test_impl!($inner, 10, [b"".as_slice()], b"");
-            test_impl!($inner, 11, [b"".as_slice()], b"");
-            test_impl!($inner, 12, [b"".as_slice()], b"");
-            test_impl!($inner, 13, [b"".as_slice()], b"");
-            test_impl!($inner, 14, [b"".as_slice()], b"");
-            test_impl!($inner, 15, [b"".as_slice()], b"");
-            test_impl!($inner, 16, [b"".as_slice()], b"");
-            test_impl!($inner, 33, [b"".as_slice()], b"");
-
-            test_impl!($inner, 1, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_impl!($inner, 2, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_impl!($inner, 3, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_impl!($inner, 4, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_impl!($inner, 7, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_impl!($inner, 8, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_impl!($inner, 9, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_impl!($inner, 16, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_impl!($inner, 33, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
-
-            test_impl!($inner, 1, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_impl!($inner, 2, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_impl!($inner, 3, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_impl!($inner, 4, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_impl!($inner, 7, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_impl!($inner, 8, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_impl!($inner, 9, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_impl!($inner, 16, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_impl!($inner, 33, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
-
-            // eight-byte streams
-            test_impl!(
-                $inner,
-                1,
-                [
-                    [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07].as_slice(),
-                    [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17].as_slice(),
-                    [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27].as_slice(),
-                ],
-                &[
-                    0x00, 0x10, 0x20, 0x01, 0x11, 0x21, 0x02, 0x12, 0x22, 0x03, 0x13, 0x23, 0x04, 0x14, 0x24, 0x05, 0x15, 0x25, 0x06, 0x16,
-                    0x26, 0x07, 0x17, 0x27
-                ]
-            );
-            test_impl!(
-                $inner,
-                2,
-                [
-                    [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07].as_slice(),
-                    [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17].as_slice(),
-                    [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27].as_slice(),
-                ],
-                &[
-                    0x00, 0x01, 0x10, 0x11, 0x20, 0x21, 0x02, 0x03, 0x12, 0x13, 0x22, 0x23, 0x04, 0x05, 0x14, 0x15, 0x24, 0x25, 0x06, 0x07,
-                    0x16, 0x17, 0x26, 0x27
-                ]
-            );
-            test_impl!(
-                $inner,
-                3,
-                [
-                    [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07].as_slice(),
-                    [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17].as_slice(),
-                    [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27].as_slice(),
-                ],
-                &[
-                    0x00, 0x01, 0x02, 0x10, 0x11, 0x12, 0x20, 0x21, 0x22, 0x03, 0x04, 0x05, 0x13, 0x14, 0x15, 0x23, 0x24, 0x25, 0x06, 0x07,
-                    0x00, 0x16, 0x17, 0x00, 0x26, 0x27, 0x00
-                ]
-            );
-            test_impl!(
-                $inner,
-                4,
-                [
-                    [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07].as_slice(),
-                    [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17].as_slice(),
-                    [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27].as_slice(),
-                ],
-                &[
-                    0x00, 0x01, 0x02, 0x03, 0x10, 0x11, 0x12, 0x13, 0x20, 0x21, 0x22, 0x23, 0x04, 0x05, 0x06, 0x07, 0x14, 0x15, 0x16, 0x17,
-                    0x24, 0x25, 0x26, 0x27
-                ]
-            );
-            test_impl!(
-                $inner,
-                5,
-                [
-                    [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07].as_slice(),
-                    [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17].as_slice(),
-                    [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27].as_slice(),
-                ],
-                &[
-                    0x00, 0x01, 0x02, 0x03, 0x04, 0x10, 0x11, 0x12, 0x13, 0x14, 0x20, 0x21, 0x22, 0x23, 0x24, 0x05, 0x06, 0x07, 0x00, 0x00,
-                    0x15, 0x16, 0x17, 0x00, 0x00, 0x25, 0x26, 0x27, 0x00, 0x00
-                ]
-            );
-            test_impl!(
-                $inner,
-                8,
-                [
-                    [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07].as_slice(),
-                    [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17].as_slice(),
-                    [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27].as_slice(),
-                ],
-                &[
-                    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x20, 0x21, 0x22, 0x23,
-                    0x24, 0x25, 0x26, 0x27
-                ]
-            );
-
-            // clips the first input
-            test_impl!(
-                $inner,
-                1,
-                [
-                    [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08].as_slice(),
-                    [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17].as_slice(),
-                    [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27].as_slice(),
-                ],
-                &[
-                    0x00, 0x10, 0x20, 0x01, 0x11, 0x21, 0x02, 0x12, 0x22, 0x03, 0x13, 0x23, 0x04, 0x14, 0x24, 0x05, 0x15, 0x25, 0x06, 0x16,
-                    0x26, 0x07, 0x17, 0x27
-                ]
-            );
-
-            // TODO: longer steam
-        }
-    };
-}
-
-#[allow(unused_macros)]
-macro_rules! test_clamped {
-    ( $name: ident, $inner: ident ) => {
-        #[test]
-        fn $name() {
-            test_clamped_impl!($inner, 1, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_clamped_impl!($inner, 3, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_clamped_impl!($inner, 8, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_clamped_impl!($inner, 9, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_clamped_impl!($inner, 33, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
-
-            test_clamped_impl!($inner, 2, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_clamped_impl!($inner, 4, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_clamped_impl!($inner, 7, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_clamped_impl!($inner, 16, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
-            test_clamped_impl!($inner, 33, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
-
-            // eight-byte streams
-            test_clamped_impl!(
-                $inner,
-                2,
-                [
-                    [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08].as_slice(),
-                    [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18].as_slice(),
-                    [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28].as_slice(),
-                ],
-                &[
-                    0x00, 0x01, 0x10, 0x11, 0x20, 0x21, 0x02, 0x03, 0x12, 0x13, 0x22, 0x23, 0x04, 0x05, 0x14, 0x15, 0x24, 0x25, 0x06, 0x07,
-                    0x16, 0x17, 0x26, 0x27
-                ]
-            );
-            test_clamped_impl!(
-                $inner,
-                3,
-                [
-                    [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07].as_slice(),
-                    [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17].as_slice(),
-                    [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27].as_slice(),
-                ],
-                &[0x00, 0x01, 0x02, 0x10, 0x11, 0x12, 0x20, 0x21, 0x22, 0x03, 0x04, 0x05, 0x13, 0x14, 0x15, 0x23, 0x24, 0x25]
-            );
-            test_clamped_impl!(
-                $inner,
-                4,
-                [
-                    [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06].as_slice(),
-                    [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16].as_slice(),
-                    [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26].as_slice(),
-                ],
-                &[0x00, 0x01, 0x02, 0x03, 0x10, 0x11, 0x12, 0x13, 0x20, 0x21, 0x22, 0x23]
-            );
-            test_clamped_impl!(
-                $inner,
-                5,
-                [
-                    [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07].as_slice(),
-                    [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17].as_slice(),
-                    [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27].as_slice(),
-                ],
-                &[0x00, 0x01, 0x02, 0x03, 0x04, 0x10, 0x11, 0x12, 0x13, 0x14, 0x20, 0x21, 0x22, 0x23, 0x24]
-            );
-        }
-    };
-}
-
-test!(test_zip_random_len, test_stream_random_len);
-test!(test_zip_random_consume, test_stream_random_consume);
-test!(test_zip_all_at_once, test_stream_all_at_once);
-
-test_clamped!(test_zip_clampled_random_len, test_stream_random_len);
-test_clamped!(test_zip_clampled_random_consume, test_stream_random_consume);
-test_clamped!(test_zip_clampled_all_at_once, test_stream_all_at_once);
-
 #[cfg(test)]
-fn gen_pattern(word_size: usize, len: usize, count: usize, clamp: bool) -> (Vec<Vec<u8>>, Vec<u8>) {
-    let mut rng = rand::thread_rng();
+mod tests {
+    use super::ZipStream;
+    use crate::byte::tester::*;
+    use crate::byte::RawStream;
+    use rand::Rng;
 
-    // first generate random bytes for the sources
-    let mut srcs = Vec::new();
-    for _ in 0..count {
-        let s = (0..len).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
-        srcs.push(s);
+    macro_rules! test_impl {
+        ( $inner: ident, $word_size: expr, $inputs: expr, $expected: expr ) => {{
+            let wrap = |x: &[u8]| -> Box<dyn ByteStream> {
+                // make the source aligned to word_size
+                Box::new(RawStream::new(Box::new(MockSource::new(x)), $word_size, 0))
+            };
+
+            let srcs = $inputs.iter().map(|x| wrap(*x)).collect::<Vec<Box<dyn ByteStream>>>();
+            let src = ZipStream::new(srcs, $word_size);
+            $inner(src, $expected);
+        }};
     }
 
-    // zip them
-    let mut zipped = Vec::new();
-    let chunks = len / word_size;
-    for i in 0..chunks {
-        let offset = i * word_size;
-        for s in &srcs {
-            zipped.extend_from_slice(&s[offset..offset + word_size]);
-        }
+    macro_rules! test_clamped_impl {
+        ( $inner: ident, $word_size: expr, $inputs: expr, $expected: expr ) => {{
+            let wrap = |x: &[u8]| -> Box<dyn ByteStream> {
+                // the source is not aligned to word_size
+                Box::new(MockSource::new(x))
+            };
+
+            let srcs = $inputs.iter().map(|x| wrap(*x)).collect::<Vec<Box<dyn ByteStream>>>();
+            let src = ZipStream::new(srcs, $word_size);
+            $inner(src, $expected);
+        }};
     }
 
-    if !clamp && (len % word_size) != 0 {
-        let offset = chunks * word_size;
-        for s in &srcs {
-            let tail = zipped.len();
-            zipped.extend_from_slice(&s[offset..len]);
-            zipped.resize(tail + word_size, 0);
-        }
+    macro_rules! test {
+        ( $name: ident, $inner: ident ) => {
+            #[test]
+            fn $name() {
+                // ZipStream clips the output at the end of the shortest input
+                test_impl!($inner, 1, [b"".as_slice()], b"");
+                test_impl!($inner, 2, [b"".as_slice()], b"");
+                test_impl!($inner, 3, [b"".as_slice()], b"");
+                test_impl!($inner, 4, [b"".as_slice()], b"");
+                test_impl!($inner, 5, [b"".as_slice()], b"");
+                test_impl!($inner, 6, [b"".as_slice()], b"");
+                test_impl!($inner, 7, [b"".as_slice()], b"");
+                test_impl!($inner, 8, [b"".as_slice()], b"");
+                test_impl!($inner, 9, [b"".as_slice()], b"");
+                test_impl!($inner, 10, [b"".as_slice()], b"");
+                test_impl!($inner, 11, [b"".as_slice()], b"");
+                test_impl!($inner, 12, [b"".as_slice()], b"");
+                test_impl!($inner, 13, [b"".as_slice()], b"");
+                test_impl!($inner, 14, [b"".as_slice()], b"");
+                test_impl!($inner, 15, [b"".as_slice()], b"");
+                test_impl!($inner, 16, [b"".as_slice()], b"");
+                test_impl!($inner, 33, [b"".as_slice()], b"");
+
+                test_impl!($inner, 1, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
+                test_impl!($inner, 2, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
+                test_impl!($inner, 3, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
+                test_impl!($inner, 4, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
+                test_impl!($inner, 7, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
+                test_impl!($inner, 8, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
+                test_impl!($inner, 9, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
+                test_impl!($inner, 16, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
+                test_impl!($inner, 33, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
+
+                test_impl!($inner, 1, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
+                test_impl!($inner, 2, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
+                test_impl!($inner, 3, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
+                test_impl!($inner, 4, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
+                test_impl!($inner, 7, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
+                test_impl!($inner, 8, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
+                test_impl!($inner, 9, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
+                test_impl!($inner, 16, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
+                test_impl!($inner, 33, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
+
+                // eight-byte streams
+                test_impl!(
+                    $inner,
+                    1,
+                    [
+                        [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07].as_slice(),
+                        [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17].as_slice(),
+                        [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27].as_slice(),
+                    ],
+                    &[
+                        0x00, 0x10, 0x20, 0x01, 0x11, 0x21, 0x02, 0x12, 0x22, 0x03, 0x13, 0x23, 0x04, 0x14, 0x24, 0x05, 0x15, 0x25, 0x06,
+                        0x16, 0x26, 0x07, 0x17, 0x27
+                    ]
+                );
+                test_impl!(
+                    $inner,
+                    2,
+                    [
+                        [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07].as_slice(),
+                        [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17].as_slice(),
+                        [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27].as_slice(),
+                    ],
+                    &[
+                        0x00, 0x01, 0x10, 0x11, 0x20, 0x21, 0x02, 0x03, 0x12, 0x13, 0x22, 0x23, 0x04, 0x05, 0x14, 0x15, 0x24, 0x25, 0x06,
+                        0x07, 0x16, 0x17, 0x26, 0x27
+                    ]
+                );
+                test_impl!(
+                    $inner,
+                    3,
+                    [
+                        [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07].as_slice(),
+                        [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17].as_slice(),
+                        [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27].as_slice(),
+                    ],
+                    &[
+                        0x00, 0x01, 0x02, 0x10, 0x11, 0x12, 0x20, 0x21, 0x22, 0x03, 0x04, 0x05, 0x13, 0x14, 0x15, 0x23, 0x24, 0x25, 0x06,
+                        0x07, 0x00, 0x16, 0x17, 0x00, 0x26, 0x27, 0x00
+                    ]
+                );
+                test_impl!(
+                    $inner,
+                    4,
+                    [
+                        [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07].as_slice(),
+                        [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17].as_slice(),
+                        [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27].as_slice(),
+                    ],
+                    &[
+                        0x00, 0x01, 0x02, 0x03, 0x10, 0x11, 0x12, 0x13, 0x20, 0x21, 0x22, 0x23, 0x04, 0x05, 0x06, 0x07, 0x14, 0x15, 0x16,
+                        0x17, 0x24, 0x25, 0x26, 0x27
+                    ]
+                );
+                test_impl!(
+                    $inner,
+                    5,
+                    [
+                        [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07].as_slice(),
+                        [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17].as_slice(),
+                        [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27].as_slice(),
+                    ],
+                    &[
+                        0x00, 0x01, 0x02, 0x03, 0x04, 0x10, 0x11, 0x12, 0x13, 0x14, 0x20, 0x21, 0x22, 0x23, 0x24, 0x05, 0x06, 0x07, 0x00,
+                        0x00, 0x15, 0x16, 0x17, 0x00, 0x00, 0x25, 0x26, 0x27, 0x00, 0x00
+                    ]
+                );
+                test_impl!(
+                    $inner,
+                    8,
+                    [
+                        [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07].as_slice(),
+                        [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17].as_slice(),
+                        [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27].as_slice(),
+                    ],
+                    &[
+                        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x20, 0x21, 0x22,
+                        0x23, 0x24, 0x25, 0x26, 0x27
+                    ]
+                );
+
+                // clips the first input
+                test_impl!(
+                    $inner,
+                    1,
+                    [
+                        [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08].as_slice(),
+                        [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17].as_slice(),
+                        [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27].as_slice(),
+                    ],
+                    &[
+                        0x00, 0x10, 0x20, 0x01, 0x11, 0x21, 0x02, 0x12, 0x22, 0x03, 0x13, 0x23, 0x04, 0x14, 0x24, 0x05, 0x15, 0x25, 0x06,
+                        0x16, 0x26, 0x07, 0x17, 0x27
+                    ]
+                );
+
+                // TODO: longer steam
+            }
+        };
     }
 
-    (srcs, zipped)
-}
+    macro_rules! test_clamped {
+        ( $name: ident, $inner: ident ) => {
+            #[test]
+            fn $name() {
+                test_clamped_impl!($inner, 1, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
+                test_clamped_impl!($inner, 3, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
+                test_clamped_impl!($inner, 8, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
+                test_clamped_impl!($inner, 9, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
+                test_clamped_impl!($inner, 33, [b"".as_slice(), b"".as_slice(), b"".as_slice()], b"");
 
-#[allow(unused_macros)]
-macro_rules! test_long_impl {
-    ( $inner: ident, $word_size: expr, $len: expr, $count: expr ) => {
-        let (srcs, zipped) = gen_pattern($word_size, $len, $count, false);
-        let srcs: Vec<_> = srcs.iter().map(|x| x.as_slice()).collect();
-        test_impl!($inner, $word_size, &srcs, &zipped);
+                test_clamped_impl!($inner, 2, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
+                test_clamped_impl!($inner, 4, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
+                test_clamped_impl!($inner, 7, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
+                test_clamped_impl!($inner, 16, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
+                test_clamped_impl!($inner, 33, [[0u8].as_slice(), b"".as_slice(), b"".as_slice()], b"");
 
-        let (srcs, zipped) = gen_pattern($word_size, $len, $count, true);
-        let srcs: Vec<_> = srcs.iter().map(|x| x.as_slice()).collect();
-        test_clamped_impl!($inner, $word_size, &srcs, &zipped);
-    };
-}
+                // eight-byte streams
+                test_clamped_impl!(
+                    $inner,
+                    2,
+                    [
+                        [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08].as_slice(),
+                        [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18].as_slice(),
+                        [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28].as_slice(),
+                    ],
+                    &[
+                        0x00, 0x01, 0x10, 0x11, 0x20, 0x21, 0x02, 0x03, 0x12, 0x13, 0x22, 0x23, 0x04, 0x05, 0x14, 0x15, 0x24, 0x25, 0x06,
+                        0x07, 0x16, 0x17, 0x26, 0x27
+                    ]
+                );
+                test_clamped_impl!(
+                    $inner,
+                    3,
+                    [
+                        [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07].as_slice(),
+                        [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17].as_slice(),
+                        [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27].as_slice(),
+                    ],
+                    &[0x00, 0x01, 0x02, 0x10, 0x11, 0x12, 0x20, 0x21, 0x22, 0x03, 0x04, 0x05, 0x13, 0x14, 0x15, 0x23, 0x24, 0x25]
+                );
+                test_clamped_impl!(
+                    $inner,
+                    4,
+                    [
+                        [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06].as_slice(),
+                        [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16].as_slice(),
+                        [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26].as_slice(),
+                    ],
+                    &[0x00, 0x01, 0x02, 0x03, 0x10, 0x11, 0x12, 0x13, 0x20, 0x21, 0x22, 0x23]
+                );
+                test_clamped_impl!(
+                    $inner,
+                    5,
+                    [
+                        [0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07].as_slice(),
+                        [0x10u8, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17].as_slice(),
+                        [0x20u8, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27].as_slice(),
+                    ],
+                    &[0x00, 0x01, 0x02, 0x03, 0x04, 0x10, 0x11, 0x12, 0x13, 0x14, 0x20, 0x21, 0x22, 0x23, 0x24]
+                );
+            }
+        };
+    }
 
-#[allow(unused_macros)]
-macro_rules! test_long {
-    ( $name: ident, $inner: ident ) => {
-        #[test]
-        fn $name() {
-            test_long_impl!($inner, 1, 0, 5);
-            test_long_impl!($inner, 3, 0, 5);
-            test_long_impl!($inner, 9, 0, 5);
+    test!(test_zip_random_len, test_stream_random_len);
+    test!(test_zip_random_consume, test_stream_random_consume);
+    test!(test_zip_all_at_once, test_stream_all_at_once);
 
-            test_long_impl!($inner, 1, 10, 5);
-            test_long_impl!($inner, 3, 10, 5);
-            test_long_impl!($inner, 9, 10, 5);
+    test_clamped!(test_zip_clampled_random_len, test_stream_random_len);
+    test_clamped!(test_zip_clampled_random_consume, test_stream_random_consume);
+    test_clamped!(test_zip_clampled_all_at_once, test_stream_all_at_once);
 
-            test_long_impl!($inner, 1, 100, 5);
-            test_long_impl!($inner, 3, 100, 5);
-            test_long_impl!($inner, 4, 100, 5);
-            test_long_impl!($inner, 9, 100, 5);
-            test_long_impl!($inner, 33, 100, 5);
+    #[cfg(test)]
+    fn gen_pattern(word_size: usize, len: usize, count: usize, clamp: bool) -> (Vec<Vec<u8>>, Vec<u8>) {
+        let mut rng = rand::thread_rng();
 
-            test_long_impl!($inner, 1, 10000, 5);
-            test_long_impl!($inner, 3, 10000, 5);
-            test_long_impl!($inner, 4, 10000, 5);
-            test_long_impl!($inner, 8, 10000, 5);
-            test_long_impl!($inner, 9, 10000, 5);
-            test_long_impl!($inner, 15, 10000, 5);
-            test_long_impl!($inner, 33, 10000, 5);
+        // first generate random bytes for the sources
+        let mut srcs = Vec::new();
+        for _ in 0..count {
+            let s = (0..len).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
+            srcs.push(s);
         }
-    };
-}
 
-test_long!(test_zip_long_random_len, test_stream_random_len);
-test_long!(test_zip_long_random_consume, test_stream_random_consume);
-test_long!(test_zip_long_all_at_once, test_stream_all_at_once);
+        // zip them
+        let mut zipped = Vec::new();
+        let chunks = len / word_size;
+        for i in 0..chunks {
+            let offset = i * word_size;
+            for s in &srcs {
+                zipped.extend_from_slice(&s[offset..offset + word_size]);
+            }
+        }
+
+        if !clamp && (len % word_size) != 0 {
+            let offset = chunks * word_size;
+            for s in &srcs {
+                let tail = zipped.len();
+                zipped.extend_from_slice(&s[offset..len]);
+                zipped.resize(tail + word_size, 0);
+            }
+        }
+
+        (srcs, zipped)
+    }
+
+    macro_rules! test_long_impl {
+        ( $inner: ident, $word_size: expr, $len: expr, $count: expr ) => {
+            let (srcs, zipped) = gen_pattern($word_size, $len, $count, false);
+            let srcs: Vec<_> = srcs.iter().map(|x| x.as_slice()).collect();
+            test_impl!($inner, $word_size, &srcs, &zipped);
+
+            let (srcs, zipped) = gen_pattern($word_size, $len, $count, true);
+            let srcs: Vec<_> = srcs.iter().map(|x| x.as_slice()).collect();
+            test_clamped_impl!($inner, $word_size, &srcs, &zipped);
+        };
+    }
+
+    macro_rules! test_long {
+        ( $name: ident, $inner: ident ) => {
+            #[test]
+            fn $name() {
+                test_long_impl!($inner, 1, 0, 5);
+                test_long_impl!($inner, 3, 0, 5);
+                test_long_impl!($inner, 9, 0, 5);
+
+                test_long_impl!($inner, 1, 10, 5);
+                test_long_impl!($inner, 3, 10, 5);
+                test_long_impl!($inner, 9, 10, 5);
+
+                test_long_impl!($inner, 1, 100, 5);
+                test_long_impl!($inner, 3, 100, 5);
+                test_long_impl!($inner, 4, 100, 5);
+                test_long_impl!($inner, 9, 100, 5);
+                test_long_impl!($inner, 33, 100, 5);
+
+                test_long_impl!($inner, 1, 10000, 5);
+                test_long_impl!($inner, 3, 10000, 5);
+                test_long_impl!($inner, 4, 10000, 5);
+                test_long_impl!($inner, 8, 10000, 5);
+                test_long_impl!($inner, 9, 10000, 5);
+                test_long_impl!($inner, 15, 10000, 5);
+                test_long_impl!($inner, 33, 10000, 5);
+            }
+        };
+    }
+
+    test_long!(test_zip_long_random_len, test_stream_random_len);
+    test_long!(test_zip_long_random_consume, test_stream_random_consume);
+    test_long!(test_zip_long_all_at_once, test_stream_all_at_once);
+}
 
 // end of zip.rs

@@ -9,9 +9,6 @@ use crate::streambuf::StreamBuf;
 use anyhow::Result;
 use std::io::Read;
 
-#[cfg(test)]
-use super::tester::*;
-
 pub struct RawStream {
     src: Box<dyn Read + Send>,
     buf: StreamBuf,
@@ -44,31 +41,35 @@ impl ByteStream for RawStream {
     }
 }
 
-#[allow(unused_macros)]
-macro_rules! test_impl {
-    ( $inner: ident, $pattern: expr ) => {{
-        let pattern = $pattern;
-        let src = Box::new(MockSource::new(&pattern));
-        let src = RawStream::new(src, 1, 0);
-        $inner(src, &pattern);
-    }};
-}
+#[cfg(test)]
+mod tests {
+    use super::RawStream;
+    use crate::byte::tester::*;
 
-#[allow(unused_macros)]
-macro_rules! test {
-    ( $name: ident, $inner: ident ) => {
-        #[test]
-        fn $name() {
-            test_impl!($inner, rep!(b"a", 3000));
-            test_impl!($inner, rep!(b"abc", 3000));
-            test_impl!($inner, rep!(b"abcbc", 3000));
-            test_impl!($inner, rep!(b"abcbcdefghijklmno", 1001));
-        }
-    };
-}
+    macro_rules! test_impl {
+        ( $inner: ident, $pattern: expr ) => {{
+            let pattern = $pattern;
+            let src = Box::new(MockSource::new(&pattern));
+            let src = RawStream::new(src, 1, 0);
+            $inner(src, &pattern);
+        }};
+    }
 
-test!(test_raw_stream_random_len, test_stream_random_len);
-test!(test_raw_stream_random_consume, test_stream_random_consume);
-test!(test_raw_stream_all_at_once, test_stream_all_at_once);
+    macro_rules! test {
+        ( $name: ident, $inner: ident ) => {
+            #[test]
+            fn $name() {
+                test_impl!($inner, rep!(b"a", 3000));
+                test_impl!($inner, rep!(b"abc", 3000));
+                test_impl!($inner, rep!(b"abcbc", 3000));
+                test_impl!($inner, rep!(b"abcbcdefghijklmno", 1001));
+            }
+        };
+    }
+
+    test!(test_raw_stream_random_len, test_stream_random_len);
+    test!(test_raw_stream_random_consume, test_stream_random_consume);
+    test!(test_raw_stream_all_at_once, test_stream_all_at_once);
+}
 
 // end of raw.rs
