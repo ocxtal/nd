@@ -14,68 +14,6 @@ use crate::byte::tester::*;
 #[cfg(test)]
 use super::tester::*;
 
-struct StreamFeeder {
-    src: Box<dyn ByteStream>,
-    last: (bool, usize),
-}
-
-impl StreamFeeder {
-    fn new(src: Box<dyn ByteStream>) -> Self {
-        StreamFeeder { src, last: (false, 0) }
-    }
-
-    fn fill_buf(&mut self, request: usize) -> Result<(bool, usize)> {
-        if self.last.1 >= request {
-            return Ok(self.last);
-        }
-
-        loop {
-            self.last = self.src.fill_buf(request)?;
-
-            // is_eof || bytes >= request
-            if self.last.0 || self.last.1 >= request {
-                return Ok(self.last);
-            }
-            self.src.consume(0);
-        }
-    }
-
-    fn as_slice(&self) -> &[u8] {
-        self.src.as_slice()
-    }
-
-    fn consume(&mut self, amount: usize) {
-        self.src.consume(amount);
-        self.last.1 -= amount;
-    }
-
-    fn get_array_element(&mut self, skip: usize, elem_size: usize, index: i64) -> i64 {
-        debug_assert!((1..=8).contains(&elem_size) && elem_size.is_power_of_two());
-
-        if index < 0 {
-            panic!("slice index being negative (got: {}).", index);
-        }
-
-        let offset = skip + index as usize * elem_size;
-        let min_fill_bytes = offset + elem_size;
-
-        let (_, bytes) = self.fill_buf(min_fill_bytes).expect("failed to feed the input stream");
-        if bytes < min_fill_bytes {
-            return bytes as i64;
-        }
-
-        // always in the little endian for now
-        // FIXME: explicit big / little endian with "bb", "hb", "wb", ..., and "bl", "hl", "wl", ...
-        let stream = self.src.as_slice();
-        let stream = &stream[offset..offset + 8];
-
-        // leave the lower typesize bits (8 bits for "b", 16 bits for "h", ...)
-        let val = i64::from_le_bytes(stream.try_into().unwrap());
-        let shift = 64 - 8 * elem_size;
-        (val << shift) >> shift
-    }
-}
-
 struct SpanFetcher {
     expr: String,
     rpn: Rpn,
@@ -100,8 +38,35 @@ impl SpanFetcher {
         }
     }
 
-    fn get_next_span(&self, skip: usize, src: &mut StreamFeeder) -> usize {
-        let getter = |id: usize, val: i64| -> i64 { src.get_array_element(skip, id, val) };
+    fn get_array_element(skip: usize, elem_size: usize, index: i64, src: &mut Box<dyn ByteStream>) -> i64 {
+        debug_assert!((1..=8).contains(&elem_size) && elem_size.is_power_of_two());
+
+        if index < 0 {
+            panic!("slice index being negative (got: {}).", index);
+        }
+
+        let offset = skip + index as usize * elem_size;
+        let min_fill_bytes = offset + elem_size;
+
+        let (_, bytes) = src.fill_buf(min_fill_bytes).expect("failed to feed the input stream");
+        if bytes < min_fill_bytes {
+            return 0;
+        }
+
+        // always in the little endian for now
+        // FIXME: explicit big / little endian with "bb", "hb", "wb", ..., and "bl", "hl", "wl", ...
+        let stream = src.as_slice();
+        let stream = &stream[offset..offset + 8];
+
+        // leave the lower typesize bits (8 bits for "b", 16 bits for "h", ...)
+        let val = i64::from_le_bytes(stream.try_into().unwrap());
+        let shift = 64 - 8 * elem_size;
+        (val << shift) >> shift
+    }
+
+    fn get_next_span(&self, skip: usize, src: &mut Box<dyn ByteStream>) -> usize {
+        let getter = |id: usize, val: i64| -> i64 { Self::get_array_element(skip, id, val, src) };
+
         let val = self.rpn.evaluate(getter);
         if val.is_err() {
             panic!("failed on evaluating expression: {:?}", &self.expr);
@@ -119,7 +84,7 @@ impl SpanFetcher {
 }
 
 pub struct WalkSlicer {
-    feeder: StreamFeeder,
+    src: Box<dyn ByteStream>,
     fetchers: Vec<SpanFetcher>,
     spans: Vec<usize>,
     segments: Vec<Segment>,
@@ -135,7 +100,7 @@ impl WalkSlicer {
         let spans: Vec<_> = (0..fetchers.len()).map(|_| 0).collect();
 
         WalkSlicer {
-            feeder: StreamFeeder::new(src),
+            src,
             fetchers,
             spans,
             segments: Vec::new(),
@@ -146,7 +111,7 @@ impl WalkSlicer {
     fn calc_next_chunk_len(&mut self) -> usize {
         let mut chunk_len = 0;
         for (i, f) in self.fetchers.iter().enumerate() {
-            let span = f.get_next_span(self.pos, &mut self.feeder);
+            let span = f.get_next_span(self.pos, &mut self.src);
             self.spans[i] = span;
 
             chunk_len += span;
@@ -155,7 +120,7 @@ impl WalkSlicer {
     }
 
     fn extend_segment_buf(&mut self, chunk_len: usize) -> Result<(bool, usize)> {
-        let (is_eof, bytes) = self.feeder.fill_buf(chunk_len)?;
+        let (is_eof, bytes) = self.src.fill_buf(chunk_len)?;
         if is_eof && bytes < chunk_len {
             // TODO: use logger
             eprintln!("chunk clipped (request = {}, remaining bytes = {})", chunk_len, bytes);
@@ -181,7 +146,7 @@ impl WalkSlicer {
 impl SegmentStream for WalkSlicer {
     fn fill_segment_buf(&mut self) -> Result<(bool, usize, usize, usize)> {
         let request = std::cmp::max(BLOCK_SIZE, 2 * self.pos);
-        let (is_eof, bytes) = self.feeder.fill_buf(request)?;
+        let (is_eof, bytes) = self.src.fill_buf(request)?;
 
         if is_eof && self.pos >= bytes {
             let count = self.segments.len();
@@ -207,13 +172,13 @@ impl SegmentStream for WalkSlicer {
     }
 
     fn as_slices(&self) -> (&[u8], &[Segment]) {
-        let stream = self.feeder.as_slice();
+        let stream = self.src.as_slice();
         (stream, &self.segments)
     }
 
     fn consume(&mut self, bytes: usize) -> Result<(usize, usize)> {
         let bytes = std::cmp::min(bytes, self.pos);
-        self.feeder.consume(bytes);
+        self.src.consume(bytes);
 
         let from = self.segments.partition_point(|x| x.pos < bytes);
         let to = self.segments.len();

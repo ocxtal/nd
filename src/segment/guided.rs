@@ -40,7 +40,7 @@ impl GuidedSlicer {
         }
     }
 
-    fn extend_segment_buf(&mut self, is_eof: bool, bytes: usize) -> Result<bool> {
+    fn extend_segment_buf(&mut self, is_eof: bool, bytes: usize) -> Result<()> {
         // if the stream is not enough for the next segment, try again
         if let Some(last) = self.segments.last() {
             if last.tail() > bytes {
@@ -48,7 +48,7 @@ impl GuidedSlicer {
                     self.max_consume = last.pos;
                 }
                 self.guide_consumed = self.segments.len() - 1;
-                return Ok(false);
+                return Ok(());
             }
         }
 
@@ -88,29 +88,18 @@ impl GuidedSlicer {
                 break;
             }
         }
-        Ok(self.max_consume > 0)
+        Ok(())
     }
 }
 
 impl SegmentStream for GuidedSlicer {
     fn fill_segment_buf(&mut self) -> Result<(bool, usize, usize, usize)> {
         let request = std::cmp::max(BLOCK_SIZE, self.segments.last().map_or(0, |x| x.tail()));
+        let (is_eof, bytes) = self.src.fill_buf(request)?;
 
-        let mut prev_bytes = 0;
-        loop {
-            let (is_eof, bytes) = self.src.fill_buf(request)?;
-            if is_eof && bytes == 0 {
-                return Ok((true, 0, 0, 0));
-            }
+        self.extend_segment_buf(is_eof, bytes)?;
 
-            let needs_extend = (is_eof && bytes == prev_bytes) || bytes >= request;
-            if needs_extend && self.extend_segment_buf(is_eof, bytes)? {
-                return Ok((is_eof, bytes, self.guide_consumed, self.max_consume));
-            }
-
-            self.src.consume(0);
-            prev_bytes = bytes;
-        }
+        Ok((is_eof, bytes, self.guide_consumed, self.max_consume))
     }
 
     fn as_slices(&self) -> (&[u8], &[Segment]) {

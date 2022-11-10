@@ -428,16 +428,10 @@ impl ConstSlicer {
 
 impl SegmentStream for ConstSlicer {
     fn fill_segment_buf(&mut self) -> Result<(bool, usize, usize, usize)> {
-        loop {
-            let (is_eof, len) = self.src.fill_buf(self.segments.min_fill_len())?;
-            if !is_eof && len < self.segments.min_fill_len() {
-                self.src.consume(0);
-                continue;
-            }
+        let (is_eof, len) = self.src.fill_buf(self.segments.min_fill_len())?;
+        let (max_fwd, count) = self.segments.fill_segment_buf(is_eof, len)?;
 
-            let (max_fwd, count) = self.segments.fill_segment_buf(is_eof, len)?;
-            return Ok((is_eof, len, count, max_fwd));
-        }
+        Ok((is_eof, len, count, max_fwd))
     }
 
     fn as_slices(&self) -> (&[u8], &[Segment]) {
