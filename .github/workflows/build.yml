@@ -35,7 +35,7 @@ jobs:
           command: install
           args: check-links
 
-      - run: check-links
+      - run: check-links --timeout 10
 
   nightly-x86_64-unknown-linux-gnu:
     runs-on: ubuntu-latest
