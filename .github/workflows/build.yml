@@ -43,13 +43,13 @@ jobs:
           command: clippy
           args: -- -D warnings
         env:
-          RUSTFLAGS: "-C target-cpu=native"
+          RUSTFLAGS: "-C target-cpu=x86-64-v3"
       - uses: actions-rs/cargo@v1
         name: cargo test
         with:
           command: test
         env:
-          RUSTFLAGS: "-C target-cpu=native"
+          RUSTFLAGS: "-C target-cpu=x86-64-v3"
 
   nightly-aarch64-unknown-linux-gnu:
     runs-on: ubuntu-latest
@@ -128,13 +128,13 @@ jobs:
           command: clippy
           args: -- -D warnings -A unknown-lints
         env:
-          RUSTFLAGS: "-C target-cpu=native"
+          RUSTFLAGS: "-C target-cpu=x86-64-v3"
       - uses: actions-rs/cargo@v1
         name: cargo test
         with:
           command: test
         env:
-          RUSTFLAGS: "-C target-cpu=native"
+          RUSTFLAGS: "-C target-cpu=x86-64-v3"
 
   stable-aarch64-unknown-linux-gnu:
     runs-on: ubuntu-latest
