@@ -3,112 +3,174 @@ on:
     types: [opened, synchronize]
   schedule:
     - cron: "0 0 * * 0"
+  workflow_dispatch:
+
 jobs:
-  amd64-linux-nightly:
-    name: amd64-linux-nightly
+  nightly-x86_64-unknown-linux-gnu:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v3
+
+      - uses: actions/cache@v3
+        id: cache-cargo
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ~/.rustup/
+            target/
+          key: nightly-x86_64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
+
+      - if: steps.cache-cargo.outputs.cache-hit != 'true'
+        uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: nightly
           override: true
-      - run: rustup component add rustfmt clippy
+      - if: steps.cache-cargo.outputs.cache-hit != 'true'
+        run: rustup component add rustfmt clippy
+
       - uses: actions-rs/cargo@v1
-        name: Run cargo fmt --all -- --check
+        name: cargo fmt
         with:
           command: fmt
           args: --all -- --check
       - uses: actions-rs/cargo@v1
-        name: Run cargo clippy
+        name: cargo clippy
         with:
           command: clippy
           args: -- -D warnings
         env:
           RUSTFLAGS: "-C target-cpu=native"
       - uses: actions-rs/cargo@v1
-        name: Run cargo test
+        name: cargo test
         with:
           command: test
         env:
           RUSTFLAGS: "-C target-cpu=native"
 
-  aarch64-linux-nightly:
-    name: aarch64-linux-nightly
+  nightly-aarch64-unknown-linux-gnu:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v3
+
+      - uses: actions/cache@v3
+        id: cache-cargo
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ~/.rustup/
+            target/
+          key: nightly-aarch64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
+
+      - if: steps.cache-cargo.outputs.cache-hit != 'true'
+        uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: nightly
           target: aarch64-unknown-linux-gnu
           override: true
-      - run: rustup component add clippy
+      - if: steps.cache-cargo.outputs.cache-hit != 'true'
+        run: rustup component add clippy
+
       - uses: actions-rs/cargo@v1
-        name: Run cargo clippy
+        name: cargo clippy
         with:
           use-cross: true
           command: clippy
           args: --target aarch64-unknown-linux-gnu -- -D warnings
       - uses: actions-rs/cargo@v1
-        name: Run cargo test
+        name: cargo test
         with:
           use-cross: true
           command: test
           args: --target aarch64-unknown-linux-gnu
 
-  amd64-linux-stable:
-    name: amd64-linux-stable
+  stable-x86_64-unknown-linux-gnu:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v3
+
+      - uses: actions/cache@v3
+        id: cache-cargo
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ~/.rustup/
+            target/
+          key: stable-x86_64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
+
+      - if: steps.cache-cargo.outputs.cache-hit != 'true'
+        uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: stable
           override: true
-      - run: rustup component add rustfmt clippy
+      - if: steps.cache-cargo.outputs.cache-hit != 'true'
+        run: rustup component add rustfmt clippy
+
       - uses: actions-rs/cargo@v1
-        name: Run cargo fmt --all -- --check
+        name: cargo fmt --all -- --check
         with:
           command: fmt
           args: --all -- --check
       - uses: actions-rs/cargo@v1
-        name: Run cargo clippy
+        name: cargo clippy
         with:
           command: clippy
           args: -- -D warnings -A unknown-lints
         env:
           RUSTFLAGS: "-C target-cpu=native"
       - uses: actions-rs/cargo@v1
-        name: Run cargo test
+        name: cargo test
         with:
           command: test
         env:
           RUSTFLAGS: "-C target-cpu=native"
 
-  aarch64-linux-stable:
-    name: aarch64-linux-stable
+  stable-aarch64-unknown-linux-gnu:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v3
+
+      - uses: actions/cache@v3
+        id: cache-cargo
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ~/.rustup/
+            target/
+          key: stable-aarch64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
+
+      - if: steps.cache-cargo.outputs.cache-hit != 'true'
+        uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: stable
           target: aarch64-unknown-linux-gnu
           override: true
-      - run: rustup component add clippy
+      - if: steps.cache-cargo.outputs.cache-hit != 'true'
+        run: rustup component add clippy
+
       - uses: actions-rs/cargo@v1
-        name: Run cargo clippy
+        name: cargo clippy
         with:
           use-cross: true
           command: clippy
           args: --target aarch64-unknown-linux-gnu -- -D warnings -A unknown-lints
       - uses: actions-rs/cargo@v1
-        name: Run cargo test
+        name: cargo test
         with:
           use-cross: true
           command: test
