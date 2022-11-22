@@ -92,7 +92,7 @@ struct Args {
 }
 
 fn main() -> Result<()> {
-    // comment
+    // comment2
     let mut command = Args::command()
         .name("nd")
         .version("0.0.1")
