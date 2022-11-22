@@ -6,6 +6,37 @@ on:
   workflow_dispatch:
 
 jobs:
+  check-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/cache@v3
+        id: cache-cargo
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ~/.rustup/
+            target/
+          key: check-docs-${{ hashFiles('**/Cargo.lock') }}
+
+      - if: steps.cache-cargo.outputs.cache-hit != 'true'
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - if: steps.cache-cargo.outputs.cache-hit != 'true'
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: check-links
+
+      - run: check-links --timeout 10
+
   nightly-x86_64-unknown-linux-gnu:
     runs-on: ubuntu-latest
     steps:
