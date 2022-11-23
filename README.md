@@ -1,5 +1,4 @@
 
-
 # nd − streamed blob manipulator
 
 **nd** is an experimental tool that implements the concept of **"hexdump is also a binary patch"** in an easy-to-use and concise way. nd behaves as a common hexdump utility, while it can also apply its output to the original file as a patch. Combined with Unix text-processing commands and general text editors, nd provides handy and practical blob editing without compromising the scalability of text-processing commands and the flexibility of editors.

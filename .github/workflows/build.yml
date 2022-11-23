@@ -76,14 +76,13 @@ jobs:
         name: cargo clippy
         with:
           command: clippy
-          args: --release --no-deps -- -D warnings
+          args: --no-deps -- -D warnings
         env:
           RUSTFLAGS: '-C target-cpu=x86-64-v3'
       - uses: actions-rs/cargo@v1
         name: cargo test
         with:
           command: test
-          args: --release
         env:
           RUSTFLAGS: '-C target-cpu=x86-64-v3'
 
@@ -119,13 +118,13 @@ jobs:
         with:
           use-cross: true
           command: clippy
-          args: --release --no-deps --target aarch64-unknown-linux-gnu -- -D warnings
+          args: --no-deps --target aarch64-unknown-linux-gnu -- -D warnings
       - uses: actions-rs/cargo@v1
         name: cargo test
         with:
           use-cross: true
           command: test
-          args: --release --target aarch64-unknown-linux-gnu
+          args: --target aarch64-unknown-linux-gnu
 
   stable-x86_64-unknown-linux-gnu:
     runs-on: ubuntu-latest
@@ -162,14 +161,13 @@ jobs:
         name: cargo clippy
         with:
           command: clippy
-          args: --release --no-deps -- -D warnings -A unknown-lints
+          args: --no-deps -- -D warnings -A unknown-lints
         env:
           RUSTFLAGS: '-C target-cpu=x86-64-v3'
       - uses: actions-rs/cargo@v1
         name: cargo test
         with:
           command: test
-          args: --release
         env:
           RUSTFLAGS: '-C target-cpu=x86-64-v3'
 
@@ -205,10 +203,10 @@ jobs:
         with:
           use-cross: true
           command: clippy
-          args: --release --no-deps --target aarch64-unknown-linux-gnu -- -D warnings -A unknown-lints
+          args: --no-deps --target aarch64-unknown-linux-gnu -- -D warnings -A unknown-lints
       - uses: actions-rs/cargo@v1
         name: cargo test
         with:
           use-cross: true
           command: test
-          args: --release --target aarch64-unknown-linux-gnu
+          args: --target aarch64-unknown-linux-gnu
