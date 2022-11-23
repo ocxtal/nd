@@ -39,7 +39,7 @@ jobs:
               - "**/*.md"
 
       - if: steps.changes.outputs.md == "true"
-        run: check-links --timeout 10
+        run: check-links --timeout 20
 
   nightly-x86_64-unknown-linux-gnu:
     runs-on: ubuntu-latest
