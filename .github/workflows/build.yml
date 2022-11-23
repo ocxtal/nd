@@ -18,19 +18,28 @@ jobs:
             ~/.cargo/bin/
           key: check-docs
 
-      - if: steps.cache-check-docs.outputs.cache-hit != 'true'
+      - if: steps.cache-check-docs.outputs.cache-hit != "true"
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: stable
           override: true
-      - if: steps.cache-check-docs.outputs.cache-hit != 'true'
+      - if: steps.cache-check-docs.outputs.cache-hit != "true"
         uses: actions-rs/cargo@v1
         with:
           command: install
           args: check-links
 
-      - run: check-links --timeout 10
+      - uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            md:
+              - "*.md"
+              - "**/*.md"
+
+      - if: steps.changes.outputs.md == "true"
+        run: check-links --timeout 10
 
   nightly-x86_64-unknown-linux-gnu:
     runs-on: ubuntu-latest
@@ -47,15 +56,15 @@ jobs:
             ~/.cargo/git/db/
             ~/.rustup/
             target/
-          key: nightly-x86_64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
+          key: nightly-x86_64-unknown-linux-gnu-${{ hashFiles("**/Cargo.lock") }}
 
-      - if: steps.cache-cargo.outputs.cache-hit != 'true'
+      - if: steps.cache-cargo.outputs.cache-hit != "true"
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: nightly
           override: true
-      - if: steps.cache-cargo.outputs.cache-hit != 'true'
+      - if: steps.cache-cargo.outputs.cache-hit != "true"
         run: rustup component add rustfmt clippy
 
       - uses: actions-rs/cargo@v1
@@ -93,16 +102,16 @@ jobs:
             ~/.cargo/git/db/
             ~/.rustup/
             target/
-          key: nightly-aarch64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
+          key: nightly-aarch64-unknown-linux-gnu-${{ hashFiles("**/Cargo.lock") }}
 
-      - if: steps.cache-cargo.outputs.cache-hit != 'true'
+      - if: steps.cache-cargo.outputs.cache-hit != "true"
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: nightly
           target: aarch64-unknown-linux-gnu
           override: true
-      - if: steps.cache-cargo.outputs.cache-hit != 'true'
+      - if: steps.cache-cargo.outputs.cache-hit != "true"
         run: rustup component add clippy
 
       - uses: actions-rs/cargo@v1
@@ -133,15 +142,15 @@ jobs:
             ~/.cargo/git/db/
             ~/.rustup/
             target/
-          key: stable-x86_64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
+          key: stable-x86_64-unknown-linux-gnu-${{ hashFiles("**/Cargo.lock") }}
 
-      - if: steps.cache-cargo.outputs.cache-hit != 'true'
+      - if: steps.cache-cargo.outputs.cache-hit != "true"
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: stable
           override: true
-      - if: steps.cache-cargo.outputs.cache-hit != 'true'
+      - if: steps.cache-cargo.outputs.cache-hit != "true"
         run: rustup component add rustfmt clippy
 
       - uses: actions-rs/cargo@v1
@@ -179,16 +188,16 @@ jobs:
             ~/.cargo/git/db/
             ~/.rustup/
             target/
-          key: stable-aarch64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
+          key: stable-aarch64-unknown-linux-gnu-${{ hashFiles("**/Cargo.lock") }}
 
-      - if: steps.cache-cargo.outputs.cache-hit != 'true'
+      - if: steps.cache-cargo.outputs.cache-hit != "true"
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: stable
           target: aarch64-unknown-linux-gnu
           override: true
-      - if: steps.cache-cargo.outputs.cache-hit != 'true'
+      - if: steps.cache-cargo.outputs.cache-hit != "true"
         run: rustup component add clippy
 
       - uses: actions-rs/cargo@v1
