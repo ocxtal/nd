@@ -2,7 +2,7 @@ on:
   pull_request:
     types: [opened, synchronize]
   schedule:
-    - cron: "0 0 * * 0"
+    - cron: '0 0 * * 0'
   workflow_dispatch:
 
 jobs:
@@ -30,7 +30,16 @@ jobs:
           command: install
           args: check-links
 
-      - run: check-links --timeout 10
+      - uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            md:
+              - '*.md'
+              - '**/*.md'
+
+      - if: steps.changes.outputs.md == 'true'
+        run: check-links --timeout 20
 
   nightly-x86_64-unknown-linux-gnu:
     runs-on: ubuntu-latest
@@ -67,15 +76,15 @@ jobs:
         name: cargo clippy
         with:
           command: clippy
-          args: -- -D warnings
+          args: --no-deps -- -D warnings
         env:
-          RUSTFLAGS: "-C target-cpu=x86-64-v3"
+          RUSTFLAGS: '-C target-cpu=x86-64-v3'
       - uses: actions-rs/cargo@v1
         name: cargo test
         with:
           command: test
         env:
-          RUSTFLAGS: "-C target-cpu=x86-64-v3"
+          RUSTFLAGS: '-C target-cpu=x86-64-v3'
 
   nightly-aarch64-unknown-linux-gnu:
     runs-on: ubuntu-latest
@@ -109,7 +118,7 @@ jobs:
         with:
           use-cross: true
           command: clippy
-          args: --target aarch64-unknown-linux-gnu -- -D warnings
+          args: --no-deps --target aarch64-unknown-linux-gnu -- -D warnings
       - uses: actions-rs/cargo@v1
         name: cargo test
         with:
@@ -152,15 +161,15 @@ jobs:
         name: cargo clippy
         with:
           command: clippy
-          args: -- -D warnings -A unknown-lints
+          args: --no-deps -- -D warnings -A unknown-lints
         env:
-          RUSTFLAGS: "-C target-cpu=x86-64-v3"
+          RUSTFLAGS: '-C target-cpu=x86-64-v3'
       - uses: actions-rs/cargo@v1
         name: cargo test
         with:
           command: test
         env:
-          RUSTFLAGS: "-C target-cpu=x86-64-v3"
+          RUSTFLAGS: '-C target-cpu=x86-64-v3'
 
   stable-aarch64-unknown-linux-gnu:
     runs-on: ubuntu-latest
@@ -194,7 +203,7 @@ jobs:
         with:
           use-cross: true
           command: clippy
-          args: --target aarch64-unknown-linux-gnu -- -D warnings -A unknown-lints
+          args: --no-deps --target aarch64-unknown-linux-gnu -- -D warnings -A unknown-lints
       - uses: actions-rs/cargo@v1
         name: cargo test
         with:
