@@ -67,7 +67,7 @@ jobs:
         name: cargo clippy
         with:
           command: clippy
-          args: -- -D warnings
+          args: --no-deps -- -D warnings
         env:
           RUSTFLAGS: "-C target-cpu=x86-64-v3"
       - uses: actions-rs/cargo@v1
@@ -109,7 +109,7 @@ jobs:
         with:
           use-cross: true
           command: clippy
-          args: --target aarch64-unknown-linux-gnu -- -D warnings
+          args: --no-deps --target aarch64-unknown-linux-gnu -- -D warnings
       - uses: actions-rs/cargo@v1
         name: cargo test
         with:
@@ -152,7 +152,7 @@ jobs:
         name: cargo clippy
         with:
           command: clippy
-          args: -- -D warnings -A unknown-lints
+          args: --no-deps -- -D warnings -A unknown-lints
         env:
           RUSTFLAGS: "-C target-cpu=x86-64-v3"
       - uses: actions-rs/cargo@v1
@@ -194,7 +194,7 @@ jobs:
         with:
           use-cross: true
           command: clippy
-          args: --target aarch64-unknown-linux-gnu -- -D warnings -A unknown-lints
+          args: --no-deps --target aarch64-unknown-linux-gnu -- -D warnings -A unknown-lints
       - uses: actions-rs/cargo@v1
         name: cargo test
         with:
