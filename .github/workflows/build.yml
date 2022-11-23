@@ -6,6 +6,58 @@ on:
   workflow_dispatch:
 
 jobs:
+  setup-nightly-toolchain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      # cache nightly toolchain installation
+      - uses: actions/cache@v3
+        id: cache-cargo
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ~/.rustup/
+          key: nightly-toolchain-${{ hashFiles('**/Cargo.lock') }}
+
+      - if: steps.cache-cargo.outputs.cache-hit != 'true'
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+      - if: steps.cache-cargo.outputs.cache-hit != 'true'
+        run: rustup component add rustfmt clippy
+
+  setup-stable-toolchain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      # cache stable toolchain installation
+      - uses: actions/cache@v3
+        id: cache-cargo
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ~/.rustup/
+          key: stable-toolchain-${{ hashFiles('**/Cargo.lock') }}
+
+      - if: steps.cache-cargo.outputs.cache-hit != 'true'
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - if: steps.cache-cargo.outputs.cache-hit != 'true'
+        run: rustup component add rustfmt clippy
+
   check-docs:
     runs-on: ubuntu-latest
     steps:
@@ -37,6 +89,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      # restore toolchain installation
       - uses: actions/cache@v3
         id: cache-cargo
         with:
@@ -46,8 +99,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             ~/.rustup/
-            target/
-          key: nightly-x86_64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
+          key: nightly-toolchain-${{ hashFiles('**/Cargo.lock') }}
 
       - if: steps.cache-cargo.outputs.cache-hit != 'true'
         uses: actions-rs/toolchain@v1
@@ -58,6 +110,15 @@ jobs:
       - if: steps.cache-cargo.outputs.cache-hit != 'true'
         run: rustup component add rustfmt clippy
 
+      # restore prebuilt objects
+      - uses: actions/cache@v3
+        id: cache-objects
+        with:
+          path: |
+            target/
+          key: nightly-x86_64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
+
+      # fmt -> clippy -> test
       - uses: actions-rs/cargo@v1
         name: cargo fmt
         with:
@@ -82,6 +143,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      # restore toolchain installation
       - uses: actions/cache@v3
         id: cache-cargo
         with:
@@ -91,8 +153,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             ~/.rustup/
-            target/
-          key: nightly-aarch64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
+          key: nightly-toolchain-${{ hashFiles('**/Cargo.lock') }}
 
       - if: steps.cache-cargo.outputs.cache-hit != 'true'
         uses: actions-rs/toolchain@v1
@@ -104,6 +165,15 @@ jobs:
       - if: steps.cache-cargo.outputs.cache-hit != 'true'
         run: rustup component add clippy
 
+      # restore prebuilt objects
+      - uses: actions/cache@v3
+        id: cache-objects
+        with:
+          path: |
+            target/
+          key: nightly-x86_64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
+
+      # clippy -> test
       - uses: actions-rs/cargo@v1
         name: cargo clippy
         with:
@@ -122,6 +192,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      # restore toolchain installation
       - uses: actions/cache@v3
         id: cache-cargo
         with:
@@ -131,8 +202,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             ~/.rustup/
-            target/
-          key: stable-x86_64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
+          key: stable-toolchain-${{ hashFiles('**/Cargo.lock') }}
 
       - if: steps.cache-cargo.outputs.cache-hit != 'true'
         uses: actions-rs/toolchain@v1
@@ -143,6 +213,15 @@ jobs:
       - if: steps.cache-cargo.outputs.cache-hit != 'true'
         run: rustup component add rustfmt clippy
 
+      # restore prebuilt objects
+      - uses: actions/cache@v3
+        id: cache-objects
+        with:
+          path: |
+            target/
+          key: stable-x86_64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
+
+      # fmt -> clippy -> test
       - uses: actions-rs/cargo@v1
         name: cargo fmt --all -- --check
         with:
@@ -167,6 +246,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      # restore toolchain installation
       - uses: actions/cache@v3
         id: cache-cargo
         with:
@@ -176,8 +256,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             ~/.rustup/
-            target/
-          key: stable-aarch64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
+          key: stable-toolchain-${{ hashFiles('**/Cargo.lock') }}
 
       - if: steps.cache-cargo.outputs.cache-hit != 'true'
         uses: actions-rs/toolchain@v1
@@ -189,6 +268,15 @@ jobs:
       - if: steps.cache-cargo.outputs.cache-hit != 'true'
         run: rustup component add clippy
 
+      # restore prebuilt objects
+      - uses: actions/cache@v3
+        id: cache-objects
+        with:
+          path: |
+            target/
+          key: stable-aarch64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
+
+      # clippy -> test
       - uses: actions-rs/cargo@v1
         name: cargo clippy
         with:
