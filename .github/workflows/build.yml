@@ -53,12 +53,6 @@ jobs:
 
       # if they have any change, build nd for use in sanity check of examples
       - if: steps.changes.outputs.md == 'true'
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - if: steps.changes.outputs.md == 'true'
         uses: actions-rs/cargo@v1
         name: cargo build
         with:
