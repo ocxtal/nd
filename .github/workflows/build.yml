@@ -59,6 +59,7 @@ jobs:
           toolchain: stable
           override: true
       - if: steps.changes.outputs.md == 'true'
+        uses: actions-rs/cargo@v1
         name: cargo build
         with:
           command: build
