@@ -11,6 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      # restore exec-commands and check-links
       - uses: actions/cache@v3
         id: cache-check-docs
         with:
@@ -18,6 +19,7 @@ jobs:
             ~/.cargo/bin/
           key: check-docs
 
+      # install exec-commands and check-links in ~/.cargo/bin when the cache is not available
       - if: steps.cache-check-docs.outputs.cache-hit != 'true'
         uses: actions-rs/toolchain@v1
         with:
@@ -28,8 +30,19 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: install
-          args: check-links
+          args: --git https://github.com/ocxtal/exec-commands.git
+      - if: steps.cache-check-docs.outputs.cache-hit != 'true'
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: --git https://github.com/epwalsh/check-links.git
+      - if: steps.cache-check-docs.outputs.cache-hit != 'true'
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: cargo-msrv
 
+      # check if *.md files have changed from master
       - uses: dorny/paths-filter@v2
         id: changes
         with:
@@ -38,6 +51,16 @@ jobs:
               - '*.md'
               - '**/*.md'
 
+      # if they have any change, build nd for use in sanity check of examples
+      - if: steps.changes.outputs.md == 'true'
+        uses: actions-rs/cargo@v1
+        name: cargo build
+        with:
+          command: build
+
+      # check examples and links
+      - if: steps.changes.outputs.md == 'true'
+        run: exec-commands --diff
       - if: steps.changes.outputs.md == 'true'
         run: check-links --timeout 20
 
@@ -46,6 +69,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      # restore toolchain and previoud build
       - uses: actions/cache@v3
         id: cache-cargo
         with:
@@ -58,6 +82,7 @@ jobs:
             target/
           key: nightly-x86_64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
 
+      # install toolchain when the cache is not available
       - if: steps.cache-cargo.outputs.cache-hit != 'true'
         uses: actions-rs/toolchain@v1
         with:
@@ -67,6 +92,7 @@ jobs:
       - if: steps.cache-cargo.outputs.cache-hit != 'true'
         run: rustup component add rustfmt clippy
 
+      # fmt -> clippy -> test
       - uses: actions-rs/cargo@v1
         name: cargo fmt
         with:
@@ -91,6 +117,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      # restore toolchain and previoud build
       - uses: actions/cache@v3
         id: cache-cargo
         with:
@@ -103,6 +130,7 @@ jobs:
             target/
           key: nightly-aarch64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
 
+      # install toolchain when the cache is not available
       - if: steps.cache-cargo.outputs.cache-hit != 'true'
         uses: actions-rs/toolchain@v1
         with:
@@ -113,6 +141,7 @@ jobs:
       - if: steps.cache-cargo.outputs.cache-hit != 'true'
         run: rustup component add clippy
 
+      # clippy -> test (fmt skipped for aarch64)
       - uses: actions-rs/cargo@v1
         name: cargo clippy
         with:
@@ -131,6 +160,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      # restore toolchain and previoud build
       - uses: actions/cache@v3
         id: cache-cargo
         with:
@@ -143,6 +173,7 @@ jobs:
             target/
           key: stable-x86_64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
 
+      # install toolchain when the cache is not available
       - if: steps.cache-cargo.outputs.cache-hit != 'true'
         uses: actions-rs/toolchain@v1
         with:
@@ -152,6 +183,7 @@ jobs:
       - if: steps.cache-cargo.outputs.cache-hit != 'true'
         run: rustup component add rustfmt clippy
 
+      # fmt -> clippy -> test
       - uses: actions-rs/cargo@v1
         name: cargo fmt --all -- --check
         with:
@@ -176,6 +208,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      # restore toolchain and previoud build
       - uses: actions/cache@v3
         id: cache-cargo
         with:
@@ -188,6 +221,7 @@ jobs:
             target/
           key: stable-aarch64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
 
+      # install toolchain when the cache is not available
       - if: steps.cache-cargo.outputs.cache-hit != 'true'
         uses: actions-rs/toolchain@v1
         with:
@@ -198,6 +232,7 @@ jobs:
       - if: steps.cache-cargo.outputs.cache-hit != 'true'
         run: rustup component add clippy
 
+      # clippy -> test (fmt skipped for aarch64)
       - uses: actions-rs/cargo@v1
         name: cargo clippy
         with:

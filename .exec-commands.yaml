@@ -1,0 +1,19 @@
+inputs:
+  - README.md
+
+pwd: "test/"
+path: "target/debug"
+
+alt:
+  - raw: "EDITOR=vim nd --inplace --patch-back=vipe quick.txt"
+    alt: "nd --inplace --patch patch.txt quick.txt"
+  - raw: "cargo install --git https://github.com/ocxtal/nd.git"
+    alt: ":"
+
+hooks:
+  pre_block:
+    - "git clean -f -d"
+    - "git checkout HEAD ."
+  post_file:
+    - "git clean -f -d"
+    - "git checkout HEAD ."

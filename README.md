@@ -94,7 +94,6 @@ It's tested with the latest Ubuntu Linux for {x86\_64, aarch64} x {stable, night
 
 ```console
 $ cargo msrv --output-format=minimal
-1.60.0
 ```
 
 ## Options and pipeline structure
