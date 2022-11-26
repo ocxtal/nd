@@ -30,17 +30,17 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: install
-          args: --git https://github.com/ocxtal/exec-commands.git
+          args: exec-commands --git https://github.com/ocxtal/exec-commands.git
       - if: steps.cache-check-docs.outputs.cache-hit != 'true'
         uses: actions-rs/cargo@v1
         with:
           command: install
-          args: --git https://github.com/epwalsh/check-links.git
+          args: check-links --git https://github.com/epwalsh/check-links.git
       - if: steps.cache-check-docs.outputs.cache-hit != 'true'
         uses: actions-rs/cargo@v1
         with:
           command: install
-          args: cargo-msrv
+          args: cargo-msrv --git https://github.com/foresterre/cargo-msrv.git
 
       # check if *.md files have changed from master
       - uses: dorny/paths-filter@v2
