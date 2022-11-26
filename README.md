@@ -95,7 +95,7 @@ It's tested with the latest Ubuntu Linux for {x86\_64, aarch64} x {stable, night
 ```console
 $ which cargo-msrv
 $ cargo msrv --help
-$ cargo msrv --output-format=minimal
+$ cargo msrv --output-format=minimal --log-target=stdout --log-level=debug
 1.60.0
 ```
 
