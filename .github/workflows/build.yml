@@ -30,17 +30,17 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: install
+          args: cargo-msrv --git https://github.com/foresterre/cargo-msrv.git
+      - if: steps.cache-check-docs.outputs.cache-hit != 'true'
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
           args: exec-commands --git https://github.com/ocxtal/exec-commands.git
       - if: steps.cache-check-docs.outputs.cache-hit != 'true'
         uses: actions-rs/cargo@v1
         with:
           command: install
           args: check-links --git https://github.com/epwalsh/check-links.git
-      - if: steps.cache-check-docs.outputs.cache-hit != 'true'
-        uses: actions-rs/cargo@v1
-        with:
-          command: install
-          args: cargo-msrv --git https://github.com/foresterre/cargo-msrv.git
 
       # check if *.md files have changed from master
       - uses: dorny/paths-filter@v2
@@ -51,7 +51,13 @@ jobs:
               - '*.md'
               - '**/*.md'
 
-      # if they have any change, build nd for use in sanity check of examples
+      # determine MSRV before running exec-commands
+      - if: steps.changes.outputs.md == 'true'
+        run: cargo-msrv --log-target=stdout --log-level=debug
+      - if: steps.changes.outputs.md == 'true'
+        run: cargo-msrv --output-format=minimal > msrv.txt
+
+      # rebuild nd for use in sanity check of examples
       - if: steps.changes.outputs.md == 'true'
         uses: actions-rs/cargo@v1
         name: cargo build

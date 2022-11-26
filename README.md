@@ -93,9 +93,7 @@ $ cargo install --git https://github.com/ocxtal/nd.git
 It's tested with the latest Ubuntu Linux for {x86\_64, aarch64} x {stable, nightly} for now. The minimum supported Rust version for the stable toolchain is:
 
 ```console
-$ which cargo-msrv
-$ cargo msrv --help
-$ cargo msrv --output-format=minimal --log-target=stdout --log-level=debug
+$ cargo msrv --output-format=minimal
 1.60.0
 ```
 

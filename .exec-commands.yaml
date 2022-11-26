@@ -9,6 +9,8 @@ alt:
     alt: "nd --inplace --patch patch.txt quick.txt"
   - raw: "cargo install --git https://github.com/ocxtal/nd.git"
     alt: ":"
+  - raw: "cargo msrv --output-format=minimal"
+    alt: "cat ../msrv.txt"
 
 hooks:
   pre_block:
