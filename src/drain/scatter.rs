@@ -118,7 +118,7 @@ impl ScatterDrain {
         self.drain.fill_buf(request, |_, buf| {
             let (is_eof, bytes, count, max_consume) = self.src.fill_segment_buf()?;
             if is_eof {
-                assert_eq!(bytes, max_consume);
+                debug_assert!(bytes == max_consume);
             }
 
             let (stream, segments) = self.src.as_slices();
@@ -130,7 +130,7 @@ impl ScatterDrain {
             // consumed bytes and count
             let (bytes, count) = self.src.consume(max_consume)?;
             if is_eof {
-                assert_eq!(bytes, max_consume);
+                debug_assert!(bytes == max_consume);
             }
 
             self.src_consumed -= count;
