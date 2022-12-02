@@ -70,22 +70,6 @@ impl InoutFormat {
         Self::from_str_with_columns(config, 16)
     }
 
-    // pub fn input_default() -> Self {
-    //     InoutFormat {
-    //         offset: b'n',
-    //         span: b'n',
-    //         body: b'b',
-    //     }
-    // }
-
-    // pub fn output_default() -> Self {
-    //     InoutFormat {
-    //         offset: b'x',
-    //         span: b'x',
-    //         body: b'x',
-    //     }
-    // }
-
     pub fn is_gapless(&self) -> bool {
         self.offset == b'n' && self.span == b'n'
     }
@@ -93,10 +77,6 @@ impl InoutFormat {
     pub fn is_binary(&self) -> bool {
         self.is_gapless() && self.body == b'b'
     }
-
-    // pub fn has_location(&self) -> bool {
-    //     self.offset != b'n' && self.span != b'n'
-    // }
 }
 
 // end of mod.rs
