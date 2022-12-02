@@ -71,11 +71,27 @@ fn test_parse_hex_single_impl(f: &dyn Fn(&[u8]) -> Option<(u64, usize)>) {
     test!("abcdef01\n                       ", Some((0xabcdef01, 8)));
     test!("abcdef01 \n                      ", Some((0xabcdef01, 8)));
 
+    test!(":                               ", Some((0, 0)));
+    test!("4:                              ", Some((4, 1)));
+    test!("4:|                             ", Some((4, 1)));
+    test!("4: |                            ", Some((4, 1)));
+    test!("4:  |                           ", Some((4, 1)));
+    test!("abcdef01:                       ", Some((0xabcdef01, 8)));
+    test!("abcdef01 :                      ", Some((0xabcdef01, 8)));
+
     test!("/bcdef01                        ", None);
-    test!("abcde:01                        ", None);
+    test!("abcde;01                        ", None);
     test!("abcde@01                        ", None);
     test!("abcGef01                        ", None);
     test!("abcde@01                        ", None);
+    test!("abcgef01                        ", None);
+    test!("abcqef01                        ", None);
+
+    test!("`bcdef01                        ", None);
+    test!("abcde`01                        ", None);
+    test!("abcde`01                        ", None);
+    test!("abcGef01                        ", None);
+    test!("abcde`01                        ", None);
     test!("abcgef01                        ", None);
     test!("abcqef01                        ", None);
 

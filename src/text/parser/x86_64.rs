@@ -11,11 +11,14 @@ unsafe fn to_hex(x: __m128i) -> (__m128i, u64, u64) {
     //
     // note: this implementation recognizes '\n' (0x0a) and ' ' (0x20) as spaces
     //
-    let lb = [0x0bu8, 0, 0x21, 0x30, 0x41, 0, 0x61, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let lb = [0x0au8, 0, 0x20, 0x30, 0x41, 0, 0x61, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let lb = _mm_loadu_si128(lb.as_ptr() as *const __m128i);
 
     let ub = [0x0au8, 0, 0x20, 0x3a, 0x47, 0, 0x67, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let ub = _mm_loadu_si128(ub.as_ptr() as *const __m128i);
+
+    let sp = [0x0bu8, 0, 0x21, 0x3b, 0x47, 0, 0x67, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let sp = _mm_loadu_si128(sp.as_ptr() as *const __m128i);
 
     let base = [
         0xffu8, 0xff, 0xff, 0x30, 0x37, 0xff, 0x57, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -26,12 +29,14 @@ unsafe fn to_hex(x: __m128i) -> (__m128i, u64, u64) {
     let h = _mm_and_si128(_mm_srli_epi16(x, 4), mask);
     let lb = _mm_shuffle_epi8(lb, h);
     let ub = _mm_shuffle_epi8(ub, h);
+    let sp = _mm_shuffle_epi8(sp, h);
     let base = _mm_shuffle_epi8(base, h);
 
     let l = _mm_cmpgt_epi8(lb, x);
     let u = _mm_cmpgt_epi8(ub, x);
+    let s = _mm_cmpgt_epi8(sp, x);
     let is_valid = _mm_andnot_si128(l, u);
-    let is_space = _mm_andnot_si128(u, l);
+    let is_space = _mm_andnot_si128(u, s);
 
     let is_valid = _mm_movemask_epi8(is_valid) as u64;
     let is_space = _mm_movemask_epi8(is_space) as u64;

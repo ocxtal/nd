@@ -77,11 +77,14 @@ unsafe fn to_hex(x: uint8x16_t) -> (uint8x16_t, uint8x16_t, uint8x16_t) {
     //
     // note: this implementation recognizes '\n' (0x0a) and ' ' (0x20) as spaces
     //
-    let lb = [0x0bu8, 0, 0x21, 0x30, 0x41, 0, 0x61, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let lb = [0x0au8, 0, 0x20, 0x30, 0x41, 0, 0x61, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let lb = vld1q_u8(lb.as_ptr());
 
     let ub = [0x0au8, 0, 0x20, 0x3a, 0x47, 0, 0x67, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let ub = vld1q_u8(ub.as_ptr());
+
+    let sp = [0x0bu8, 0, 0x21, 0x3b, 0x47, 0, 0x67, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let sp = vld1q_u8(sp.as_ptr());
 
     let base = [
         0xffu8, 0xff, 0xff, 0x30, 0x37, 0xff, 0x57, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -91,12 +94,14 @@ unsafe fn to_hex(x: uint8x16_t) -> (uint8x16_t, uint8x16_t, uint8x16_t) {
     let h = vshrq_n_u8(x, 4);
     let lb = vqtbl1q_u8(lb, h);
     let ub = vqtbl1q_u8(ub, h);
+    let sp = vqtbl1q_u8(sp, h);
     let base = vqtbl1q_u8(base, h);
 
     let l = vcgeq_u8(x, lb);
     let u = vcgeq_u8(x, ub);
+    let s = vcgeq_u8(x, sp);
     let is_valid = vbicq_u8(l, u);
-    let is_space = vbicq_u8(u, l);
+    let is_space = vbicq_u8(u, s);
 
     // '0' ~ '9' -> 0x00 ~ 0x09, 'A' ~ 'F' -> 0x0a ~ 0x0f, 'a' ~ 'f' -> 0x0a ~ 0x0f
     // and all the others -> 0x00
