@@ -4,7 +4,8 @@
 
 use anyhow::{anyhow, Context, Result};
 
-fn split_prefix<'a>(arr: &'a [u8]) -> Option<(usize, &'a [u8])> {
+#[allow(dead_code)]
+fn split_prefix(arr: &[u8]) -> Option<(usize, &[u8])> {
     // splits numeric prefix that precedes non-numeric character
     // if the input `arr` is empty it returns None
     if arr.is_empty() {
@@ -51,6 +52,7 @@ fn test_split_prefix() {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
+#[allow(dead_code)]
 enum ElemType {
     None,
     Boolean,
@@ -71,6 +73,7 @@ struct ElemAttr {
     count: usize,
 }
 
+#[allow(dead_code)]
 fn parse_sig(sig: &str) -> Result<Vec<ElemAttr>> {
     if sig.is_empty() {
         return Err(anyhow!("empty signature found."));
