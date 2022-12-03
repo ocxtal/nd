@@ -3,7 +3,6 @@
 // @brief python struct-style unpacker
 
 use anyhow::{anyhow, Context, Result};
-use half::f16;
 
 fn split_prefix<'a>(arr: &'a [u8]) -> Option<(usize, &'a [u8])> {
     // splits numeric prefix that precedes non-numeric character
