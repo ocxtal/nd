@@ -3,6 +3,7 @@
 // @brief formatter implementations
 
 mod hex;
+mod unpacker;
 
 use self::hex::format_line;
 use super::InoutFormat;
