@@ -115,7 +115,7 @@ where
         assert_eq!(&stream[..len], &pattern[len_acc..len_acc + len]);
 
         // pos must be strong-monotonic increasing between different fill_segment_buf units
-        if segments.len() > 0 {
+        if !segments.is_empty() {
             assert!(segments[0].pos as isize > last_spos);
         }
 
@@ -176,7 +176,7 @@ where
         assert_eq!(&stream[..len], &pattern[len_acc..len_acc + len]);
 
         // pos must be strong-monotonic increasing between different fill_segment_buf units
-        if segments.len() > 0 {
+        if !segments.is_empty() {
             assert!(segments[0].pos as isize > last_spos);
         }
 

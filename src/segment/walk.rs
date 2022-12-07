@@ -25,7 +25,7 @@ impl SpanFetcher {
         .map(|(x, y)| (x.as_slice(), *y))
         .collect();
 
-        let rpn = Rpn::new(expr, Some(&vars)).unwrap_or_else(|_| panic!("failed to parse expression: {:?}.", expr));
+        let rpn = Rpn::new(expr, Some(&vars)).unwrap_or_else(|_| panic!("failed to parse expression: {expr:?}."));
         SpanFetcher {
             expr: expr.to_string(),
             rpn,
@@ -36,7 +36,7 @@ impl SpanFetcher {
         debug_assert!((1..=8).contains(&elem_size) && elem_size.is_power_of_two());
 
         if index < 0 {
-            panic!("slice index being negative (got: {}).", index);
+            panic!("slice index being negative (got: {index}).");
         }
 
         let offset = skip + index as usize * elem_size;
@@ -117,7 +117,7 @@ impl WalkSlicer {
         let (is_eof, bytes) = self.src.fill_buf(chunk_len)?;
         if is_eof && bytes < chunk_len {
             // TODO: use logger
-            eprintln!("chunk clipped (request = {}, remaining bytes = {})", chunk_len, bytes);
+            eprintln!("chunk clipped (request = {chunk_len}, remaining bytes = {bytes})");
         }
 
         for span in &self.spans {
@@ -127,7 +127,7 @@ impl WalkSlicer {
 
             let len = std::cmp::min(self.pos + span, bytes) - self.pos;
             if len < *span {
-                eprintln!("slice clipped (span = {}, remaining bytes = {}).", span, len);
+                eprintln!("slice clipped (span = {span}, remaining bytes = {len}).");
             }
 
             self.segments.push(Segment { pos: self.pos, len });

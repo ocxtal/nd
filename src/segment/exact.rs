@@ -23,7 +23,7 @@ impl ExactMatchSlicer {
 
         let mut buf = vec![0u8; 64];
         let ((_, parsed), filled) =
-            parse_hex_body(false, &pattern, &mut buf).with_context(|| format!("failed to parse {:?} into bytes", pattern))?;
+            parse_hex_body(false, &pattern, &mut buf).with_context(|| format!("failed to parse {pattern:?} into bytes"))?;
         if parsed >= 4 * 48 {
             return Err(anyhow!("ARRAY must not be longer than 64 bytes"));
         }

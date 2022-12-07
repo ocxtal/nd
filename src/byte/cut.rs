@@ -248,7 +248,7 @@ mod tests {
             // gen anchors and format string
             let dup = rng.gen_range(0..10) == 0;
             let mut push = || match rng.gen_range(0..anchor_range) {
-                0 => s.push_str(&format!("s+{}..s+{},", start, end)),
+                0 => s.push_str(&format!("s+{start}..s+{end},")),
                 1 => s.push_str(&format!("s+{}..e-{},", start, len - end)),
                 2 => s.push_str(&format!("e-{}..s+{},", len - start, end)),
                 _ => s.push_str(&format!("e-{}..e-{},", len - start, len - end)),
