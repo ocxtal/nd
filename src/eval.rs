@@ -255,13 +255,13 @@ fn tokenize(input: &str, vars: Option<&HashMap<&[u8], VarAttr>>) -> Result<Vec<T
                 tokens.push(Paren(x));
             }
             '+' | '-' | '~' | '!' | '*' | '/' | '%' | '&' | '|' | '^' | '<' | '>' | '@' => {
-                tokens.push(parse_op(x, &mut it).with_context(|| format!("parsing failed at an operator in {:?}", input))?);
+                tokens.push(parse_op(x, &mut it).with_context(|| format!("parsing failed at an operator in {input:?}"))?);
             }
             '0'..='9' => {
-                tokens.push(parse_val(x, &mut it).with_context(|| format!("parsing failed at a value in {:?}", input))?);
+                tokens.push(parse_val(x, &mut it).with_context(|| format!("parsing failed at a value in {input:?}"))?);
             }
             x @ ('a'..='z' | 'A'..='Z') => {
-                tokens.push(parse_var(x, vars, &mut it).with_context(|| format!("parsing failed at a variable in {:?}", input))?);
+                tokens.push(parse_var(x, vars, &mut it).with_context(|| format!("parsing failed at a variable in {input:?}"))?);
             }
             _ => {
                 return Err(anyhow!("unexpected char {:?} found in {:?}", x, input));
@@ -415,7 +415,7 @@ fn apply_prefix(c: char, x: i64) -> i64 {
         '-' => -x,
         '!' => !x,
         'G' => (x >= 0) as i64,
-        _ => panic!("unknown op: {:?}", c),
+        _ => panic!("unknown op: {c:?}"),
     }
 }
 
@@ -452,7 +452,7 @@ fn apply_op(c: char, x: i64, y: i64) -> i64 {
                 0
             }
         } // FIXME
-        _ => panic!("unknown op: {:?}", c),
+        _ => panic!("unknown op: {c:?}"),
     }
 }
 
@@ -488,7 +488,7 @@ fn fuse_sign2(s1: char, s2: char) -> char {
         ('+', '-') => '-',
         ('-', '+') => '-',
         ('-', '-') => '+',
-        _ => panic!("unexpected ops: {}, {}.", s1, s2),
+        _ => panic!("unexpected ops: {s1}, {s2}."),
     }
 }
 
@@ -507,7 +507,7 @@ fn fuse_sign_op(s: char, op: char) -> char {
         ('-', '-') => '~',
         ('-', '#') => '+',
         ('-', '~') => '-',
-        _ => panic!("unexpected ops: {}, {}.", s, op),
+        _ => panic!("unexpected ops: {s}, {op}."),
     }
 }
 
@@ -524,7 +524,7 @@ fn peel_sign_from_op(op: char) -> (char, char) {
         '-' => ('+', '-'),
         '#' => ('-', '+'),
         '~' => ('-', '-'),
-        _ => panic!("unexpected ops: {}.", op),
+        _ => panic!("unexpected ops: {op}."),
     }
 }
 
@@ -536,7 +536,7 @@ fn peel_rhs_sign_from_op(op: char) -> (char, char) {
         '-' => ('-', '+'),
         '#' => ('+', '#'),
         '~' => ('-', '#'),
-        _ => panic!("unexpected ops: {}.", op),
+        _ => panic!("unexpected ops: {op}."),
     }
 }
 
@@ -1250,9 +1250,9 @@ impl Rpn {
         }
 
         let mut tokens = tokenize(input, vars)?;
-        mark_prefices(&mut tokens).with_context(|| format!("invalid token order found in {:?}", input))?;
+        mark_prefices(&mut tokens).with_context(|| format!("invalid token order found in {input:?}"))?;
 
-        let mut rpn = sort_into_rpn(&tokens).with_context(|| format!("parenthes not balanced in {:?}", input))?;
+        let mut rpn = sort_into_rpn(&tokens).with_context(|| format!("parenthes not balanced in {input:?}"))?;
 
         let len = canonize_rpn(&mut rpn).context("failed to canonize rpn (internal error)")?;
         rpn.truncate(len);
@@ -1572,7 +1572,7 @@ pub fn parse_range(s: &str) -> Result<Range<usize>> {
             "negative values are not allowed for this option ({:?} gave {:?} and {:?}).",
             s,
             vals[0].unwrap_or(0),
-            vals[1].map_or("inf".to_string(), |x| format!("{}", x)),
+            vals[1].map_or("inf".to_string(), |x| format!("{x}")),
         ));
     }
 

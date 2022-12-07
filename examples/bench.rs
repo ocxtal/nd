@@ -40,7 +40,7 @@ fn body(out: &mut impl Write, results: &[Option<f64>]) {
 fn lat(cmd: &str) -> Result<Option<f64>> {
     let start = Instant::now();
 
-    let status = Command::new("bash").args(["-c", &cmd]).status()?;
+    let status = Command::new("bash").args(["-c", cmd]).status()?;
     if !status.success() {
         return Err(anyhow!("\"bash -c {}\" returned an error or aborted", &cmd));
     }
@@ -62,7 +62,7 @@ fn bench_format(out: &mut impl Write) -> Result<()> {
     let blob_size = 256 * 1024 * 1024;
     let widths = [2, 6, 16, 48, 128, 384, 1024, 3072, 8192, 24576, 65536];
 
-    let (_file, name) = setup_file(&format!("cat /dev/urandom | head -c {}", blob_size))?;
+    let (_file, name) = setup_file(&format!("cat /dev/urandom | head -c {blob_size}"))?;
 
     header(out, &["width", "nd", "xxd -g1", "od -tx1", "hexdump -C"]);
 
@@ -72,11 +72,11 @@ fn bench_format(out: &mut impl Write) -> Result<()> {
             out,
             &[
                 Some(w as f64),
-                thr(&format!("./target/release/nd -w{} {} > /dev/null", w, name), blob_size)?,
-                thr(&format!("xxd -g1 -c{} {} > /dev/null", w, name), blob_size)?,
-                thr(&format!("od -tx1 -w{} {} > /dev/null", w, name), blob_size)?,
+                thr(&format!("./target/release/nd -w{w} {name} > /dev/null"), blob_size)?,
+                thr(&format!("xxd -g1 -c{w} {name} > /dev/null"), blob_size)?,
+                thr(&format!("od -tx1 -w{w} {name} > /dev/null"), blob_size)?,
                 if w == 16 {
-                    thr(&format!("hexdump -C {} > /dev/null", name), blob_size)?
+                    thr(&format!("hexdump -C {name} > /dev/null"), blob_size)?
                 } else {
                     None
                 },
@@ -94,12 +94,12 @@ fn bench_parse(out: &mut impl Write) -> Result<()> {
     header(out, &["width", "nd -Fx -fb", "xxd -g1 -r"]);
     for w in widths {
         let nd = {
-            let (_file, name) = setup_file(&format!("cat /dev/urandom | head -c{} | ./target/release/nd -w{}", blob_size, w))?;
+            let (_file, name) = setup_file(&format!("cat /dev/urandom | head -c{blob_size} | ./target/release/nd -w{w}"))?;
             thr(&format!("./target/release/nd -Fx -fb {} > /dev/null", &name), blob_size as f64)?
         };
 
         let xxd = if w <= 256 {
-            let (_file, name) = setup_file(&format!("cat /dev/urandom | head -c{} | xxd -g1 -c{}", blob_size, w))?;
+            let (_file, name) = setup_file(&format!("cat /dev/urandom | head -c{blob_size} | xxd -g1 -c{w}"))?;
             thr(&format!("xxd -g1 -r -c{} {} > /dev/null", w, &name), blob_size as f64)?
         } else {
             None

@@ -62,7 +62,7 @@ impl Read for MockSource {
         let src = &self.v[self.offset..self.len];
         let len = std::cmp::min(len, src.len());
 
-        (&mut buf[..len]).copy_from_slice(&src[..len]);
+        buf[..len].copy_from_slice(&src[..len]);
         self.offset += len;
 
         Ok(len)
