@@ -146,7 +146,7 @@ where
 }
 
 fn parse_char(c: char) -> Option<i64> {
-    if ('0'..='9').contains(&c) {
+    if c.is_ascii_digit() {
         return Some((c as i64) - ('0' as i64));
     }
     if ('a'..='f').contains(&c) {
@@ -182,7 +182,7 @@ where
     I: Iterator<Item = char>,
 {
     let tolower = |c: char| {
-        if ('A'..='Z').contains(&c) {
+        if c.is_ascii_uppercase() {
             std::char::from_u32(c as u32 - ('A' as u32) + ('a' as u32)).unwrap()
         } else {
             c
