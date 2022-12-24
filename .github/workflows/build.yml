@@ -113,14 +113,15 @@ jobs:
           tar xf grcov-x86_64-unknown-linux-musl.tar.bz2
           cp ./grcov ~/.cargo/bin/.
 
-      # target-specific setup
+      # install cross-compiling toolchain for aarch64 targets
       - if: matrix.arch == 'aarch64'
-        run: |
-          sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu qemu-user-static
-          echo "RUSTFLAGS=-C target-cpu=cortex-x2 -C instrument-coverage" >> $GITHUB_ENV
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu qemu-user-static
+
+      # target-specific environment variables
+      - if: matrix.arch == 'aarch64'
+        run: echo "RUSTFLAGS=-C target-cpu=cortex-x2 -C instrument-coverage" >> $GITHUB_ENV
       - if: matrix.arch == 'x86_64'
-        run: |
-          echo "RUSTFLAGS=-C target-cpu=x86-64-v3 -C instrument-coverage" >> $GITHUB_ENV
+        run: echo "RUSTFLAGS=-C target-cpu=x86-64-v3 -C instrument-coverage" >> $GITHUB_ENV
 
       # run rustfmt
       - if: matrix.arch == 'x86_64' && matrix.toolchain == 'stable'
