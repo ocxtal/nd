@@ -62,9 +62,7 @@ impl TextFeeder {
 
     fn fill_buf(&mut self) -> Result<(bool, usize)> {
         // offset is set usize::MAX once the source reached EOF
-        if self.offset == usize::MAX {
-            return Ok((true, 0));
-        }
+        // debug_assert!(self.offset != usize::MAX);
 
         // flush the current buffer, then read the next line
         self.buf.clear();
@@ -118,6 +116,10 @@ impl ByteStream for TextStream {
             if fwd_len == BLOCK_SIZE {
                 return Ok(false);
             }
+
+            // if there is no more line, fwd_len always becomes BLOCK_SIZE
+            // note: line.offset == usize::MAX there
+            debug_assert!(self.line.offset != usize::MAX);
 
             // patch
             buf.extend_from_slice(&self.line.buf);
