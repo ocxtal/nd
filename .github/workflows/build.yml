@@ -57,7 +57,7 @@ jobs:
       - if: steps.changes.outputs.md == 'true'
         name: "Scan markdown files"
         run: |
-          cargo build --debug
+          cargo build
           exec-commands --diff
           check-links --timeout 20
 
