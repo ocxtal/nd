@@ -146,7 +146,6 @@ jobs:
           rustup default ${{ matrix.toolchain }}
           cargo clippy --target ${{ matrix.arch }}-unknown-linux-gnu --no-deps -- -D warnings
           cargo test   --target ${{ matrix.arch }}-unknown-linux-gnu
-          ls -al
           grcov . --binary-path ./target/${{ matrix.arch }}-unknown-linux-gnu/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "../*" --ignore "/*" -o ${{ matrix.arch }}-${{ matrix.toolchain }}.info
 
       # update coverage report for merge in the later step
@@ -196,7 +195,3 @@ jobs:
       - uses: codecov/codecov-action@v3
         with:
           files: coverage.info
-      # - uses: actions/upload-artifact@v3
-      #   with:
-      #     name: final-coverage-report
-      #     path: coverage.info
