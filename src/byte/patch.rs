@@ -28,9 +28,7 @@ impl PatchFeeder {
 
     fn fill_buf(&mut self) -> Result<(usize, usize)> {
         // offset is set usize::MAX once the source reached EOF
-        if self.offset == usize::MAX {
-            return Ok((usize::MAX, 0));
-        }
+        // debug_assert!(self.patch.offset != usize::MAX);
 
         // flush the current buffer, then read the next line
         self.buf.clear();
@@ -119,9 +117,12 @@ impl ByteStream for PatchStream {
                 let (fwd_stream, rem_stream) = stream.split_at(fwd_len);
                 buf.extend_from_slice(fwd_stream);
 
+                // if there is no remaining patch line, rem_len always becomes 0
+                // note: patch.offset == usize::MAX there
                 if rem_len == 0 {
                     break false;
                 }
+                debug_assert!(self.patch.offset != usize::MAX);
 
                 // region that is overwritten by patch
                 let patch_span = self.patch.feed(self.offset, buf)?;
@@ -242,7 +243,7 @@ mod tests {
                 );
 
                 let (patch, raw) = (0..64).fold(
-                    (b"008000 0a | ".to_vec(), Vec::new()),
+                    (b"008000 004000 | ".to_vec(), Vec::new()),
                     |(mut p, mut r), _| {
                         p.extend_from_slice(b"01 02 03 04 05 06 07 08 09 0a ");
                         r.extend_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
@@ -253,7 +254,7 @@ mod tests {
                     $inner,
                     vec![0; 65536],
                     &patch,
-                    [[0; 32768].as_slice(), &raw, [0; 32758].as_slice()].concat()
+                    [[0; 32768].as_slice(), &raw, [0; 16384].as_slice()].concat()
                 );
             }
         };
