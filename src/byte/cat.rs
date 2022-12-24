@@ -41,10 +41,7 @@ impl CatStream {
 
         let mut is_eof = is_eof;
         self.cache.fill_buf(request, |request, buf| {
-            if self.i >= self.srcs.len() {
-                debug_assert!(self.dup == 0);
-                return Ok(true);
-            }
+            debug_assert!(self.i < self.srcs.len());
 
             // consume the last stream
             self.srcs[self.i].consume(self.dup);
