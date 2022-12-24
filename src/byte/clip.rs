@@ -282,15 +282,20 @@ mod tests {
                 let d = [[0u8; 100].as_slice(), &p, [0u8; 100].as_slice()].concat();
 
                 // padded-all
-                test_impl!($inner, &p, (100, 100), (0, 0), usize::MAX, &d);
+                test_impl!($inner, &p, (0, 100), (0, 0), usize::MAX, &d[100..]);
+                test_impl!($inner, &p, (100, 0), (0, 0), usize::MAX, &d[..d.len() - 100]);
 
                 // padded-headclip
-                test_impl!($inner, &p, (100, 100), (1, 0), usize::MAX, &d[1..]);
-                test_impl!($inner, &p, (100, 100), (1000, 0), usize::MAX, &d[1000..]);
+                test_impl!($inner, &p, (0, 100), (1, 0), usize::MAX, &d[101..]);
+                test_impl!($inner, &p, (0, 100), (1000, 0), usize::MAX, &d[1100..]);
+                test_impl!($inner, &p, (100, 0), (1, 0), usize::MAX, &d[1..d.len() - 100]);
+                test_impl!($inner, &p, (100, 0), (1000, 0), usize::MAX, &d[1000..d.len() - 100]);
 
                 // padded-tailclip
-                test_impl!($inner, &p, (100, 100), (0, 1), usize::MAX, &d[..d.len() - 1]);
-                test_impl!($inner, &p, (100, 100), (0, 1000), usize::MAX, &d[..d.len() - 1000]);
+                test_impl!($inner, &p, (0, 100), (0, 1), usize::MAX, &d[100..d.len() - 1]);
+                test_impl!($inner, &p, (0, 100), (0, 1000), usize::MAX, &d[100..d.len() - 1000]);
+                test_impl!($inner, &p, (100, 0), (0, 1), usize::MAX, &d[..d.len() - 101]);
+                test_impl!($inner, &p, (100, 0), (0, 1000), usize::MAX, &d[..d.len() - 1100]);
             }
         };
     }
