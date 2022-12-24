@@ -32,19 +32,17 @@ impl Accumulator {
         self.end = end;
     }
 
-    fn pop(&mut self) -> Option<Segment> {
+    fn pop(&mut self) -> Segment {
         let pos = self.start;
         let tail = self.end;
+        debug_assert!(pos < tail);
 
         // clear the current state
         self.count = 0;
         self.start = usize::MAX;
         self.end = usize::MAX;
 
-        if pos >= tail {
-            return None;
-        }
-        Some(Segment { pos, len: tail - pos })
+        Segment { pos, len: tail - pos }
     }
 
     fn resume(&mut self, segment: &Segment) -> bool {
@@ -60,13 +58,13 @@ impl Accumulator {
     }
 
     fn append(&mut self, segment: &Segment) -> Option<Segment> {
+        // we always have at least one segment in the accumulator because
+        //   1. the next segment is pushed right after calling `pop` in this function, or
+        //   2. the first segment is pushed in the `resume` function.
+        debug_assert!(self.count > 0);
+
         let start = segment.pos;
         let end = segment.tail();
-
-        if self.count == 0 {
-            self.init(start, end);
-            return None;
-        }
         debug_assert!(start >= self.start);
 
         // merge if the distance is small enough, or
@@ -80,7 +78,7 @@ impl Accumulator {
         let popped = self.pop();
         self.init(start, end);
 
-        popped
+        Some(popped)
     }
 
     fn suspend(&mut self, is_eof: bool, max_consume: usize) -> Option<Segment> {
@@ -92,7 +90,8 @@ impl Accumulator {
         }
 
         // the next segment cannot be merged into the accumulator; pop it
-        self.pop()
+        // note: count can be zero here
+        Some(self.pop())
     }
 
     fn unwind(&mut self, bytes: usize) {
