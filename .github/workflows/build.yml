@@ -7,8 +7,12 @@ on:
 
 jobs:
   check-docs:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
+      - name: "Setup PATH"
+        run: echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
+
+      # checkout repository
       - uses: actions/checkout@v3
 
       # restore exec-commands and check-links
@@ -27,20 +31,11 @@ jobs:
           toolchain: stable
           override: true
       - if: steps.cache-check-docs.outputs.cache-hit != 'true'
-        uses: actions-rs/cargo@v1
-        with:
-          command: install
-          args: cargo-msrv --git https://github.com/foresterre/cargo-msrv.git
-      - if: steps.cache-check-docs.outputs.cache-hit != 'true'
-        uses: actions-rs/cargo@v1
-        with:
-          command: install
-          args: exec-commands --git https://github.com/ocxtal/exec-commands.git
-      - if: steps.cache-check-docs.outputs.cache-hit != 'true'
-        uses: actions-rs/cargo@v1
-        with:
-          command: install
-          args: check-links --git https://github.com/epwalsh/check-links.git
+        name: "Install tools"
+        run: |
+          cargo install cargo-msrv    --git https://github.com/foresterre/cargo-msrv.git
+          cargo install exec-commands --git https://github.com/ocxtal/exec-commands.git
+          cargo install check-links   --git https://github.com/epwalsh/check-links.git
 
       # check if *.md files have changed from master
       - uses: dorny/paths-filter@v2
@@ -53,26 +48,39 @@ jobs:
 
       # determine MSRV before running exec-commands
       - if: steps.changes.outputs.md == 'true'
-        run: cargo-msrv --log-target=stdout --log-level=debug
-      - if: steps.changes.outputs.md == 'true'
-        run: cargo-msrv --output-format=minimal > msrv.txt
+        name: "Determine MSRV"
+        run: |
+          cargo-msrv --log-target=stdout --log-level=debug
+          cargo-msrv --output-format=minimal > msrv.txt
 
-      # rebuild nd for use in sanity check of examples
+      # rebuild nd for use in sanity check of examples; then check examples and links
       - if: steps.changes.outputs.md == 'true'
-        uses: actions-rs/cargo@v1
-        name: cargo build
-        with:
-          command: build
+        name: "Scan markdown files"
+        run: |
+          cargo build --debug
+          exec-commands --diff
+          check-links --timeout 20
 
-      # check examples and links
-      - if: steps.changes.outputs.md == 'true'
-        run: exec-commands --diff
-      - if: steps.changes.outputs.md == 'true'
-        run: check-links --timeout 20
+  cargo-test-all:
+    runs-on: ubuntu-22.04
 
-  nightly-x86_64-unknown-linux-gnu:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: ["aarch64", "x86_64"]
+        toolchain: ["nightly", "stable"]
+
     steps:
+      - name: "Setup PATH"
+        run: echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
+
+      # print info; for debugging
+      - name: "Print target information"
+        run: |
+          echo "arch: ${{ matrix.arch }}"
+          echo "toolchain: ${{ matrix.toolchain }}"
+          echo "target triple: ${{ matrix.toolchain }}-${{ matrix.arch }}-unknown-linux-gnu"
+
+      # checkout repository
       - uses: actions/checkout@v3
 
       # restore toolchain and previoud build
@@ -86,98 +94,7 @@ jobs:
             ~/.cargo/git/db/
             ~/.rustup/
             target/
-          key: nightly-x86_64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
-
-      # install toolchain when the cache is not available
-      - if: steps.cache-cargo.outputs.cache-hit != 'true'
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: nightly
-          override: true
-      - if: steps.cache-cargo.outputs.cache-hit != 'true'
-        run: rustup component add rustfmt clippy
-
-      # fmt -> clippy -> test
-      - uses: actions-rs/cargo@v1
-        name: cargo fmt
-        with:
-          command: fmt
-          args: --all -- --check
-      - uses: actions-rs/cargo@v1
-        name: cargo clippy
-        with:
-          command: clippy
-          args: --no-deps -- -D warnings
-        env:
-          RUSTFLAGS: '-C target-cpu=x86-64-v3'
-      - uses: actions-rs/cargo@v1
-        name: cargo test
-        with:
-          command: test
-        env:
-          RUSTFLAGS: '-C target-cpu=x86-64-v3'
-
-  nightly-aarch64-unknown-linux-gnu:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      # restore toolchain and previoud build
-      - uses: actions/cache@v3
-        id: cache-cargo
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            ~/.rustup/
-            target/
-          key: nightly-aarch64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
-
-      # install toolchain when the cache is not available
-      - if: steps.cache-cargo.outputs.cache-hit != 'true'
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: nightly
-          target: aarch64-unknown-linux-gnu
-          override: true
-      - if: steps.cache-cargo.outputs.cache-hit != 'true'
-        run: rustup component add clippy
-
-      # clippy -> test (fmt skipped for aarch64)
-      - uses: actions-rs/cargo@v1
-        name: cargo clippy
-        with:
-          use-cross: true
-          command: clippy
-          args: --no-deps --target aarch64-unknown-linux-gnu -- -D warnings
-      - uses: actions-rs/cargo@v1
-        name: cargo test
-        with:
-          use-cross: true
-          command: test
-          args: --target aarch64-unknown-linux-gnu
-
-  stable-x86_64-unknown-linux-gnu:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      # restore toolchain and previoud build
-      - uses: actions/cache@v3
-        id: cache-cargo
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            ~/.rustup/
-            target/
-          key: stable-x86_64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ matrix.toolchain }}-${{ matrix.arch }}-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
 
       # install toolchain when the cache is not available
       - if: steps.cache-cargo.outputs.cache-hit != 'true'
@@ -185,69 +102,87 @@ jobs:
         with:
           profile: minimal
           toolchain: stable
-          override: true
       - if: steps.cache-cargo.outputs.cache-hit != 'true'
-        run: rustup component add rustfmt clippy
+        name: "Setup toolchain"
+        run: |
+          rustup target add ${{ matrix.arch }}-unknown-linux-gnu
+          rustup toolchain install --target=${{ matrix.arch }}-unknown-linux-gnu ${{ matrix.toolchain }}
+          rustup component add --toolchain ${{ matrix.toolchain }} clippy llvm-tools-preview
+          rustup component add llvm-tools-preview
+          curl -OL https://github.com/mozilla/grcov/releases/download/v0.8.13/grcov-x86_64-unknown-linux-musl.tar.bz2
+          tar xf grcov-x86_64-unknown-linux-musl.tar.bz2
+          cp ./grcov ~/.cargo/bin/.
 
-      # fmt -> clippy -> test
-      - uses: actions-rs/cargo@v1
-        name: cargo fmt --all -- --check
-        with:
-          command: fmt
-          args: --all -- --check
-      - uses: actions-rs/cargo@v1
-        name: cargo clippy
-        with:
-          command: clippy
-          args: --no-deps -- -D warnings -A unknown-lints
-        env:
-          RUSTFLAGS: '-C target-cpu=x86-64-v3'
-      - uses: actions-rs/cargo@v1
-        name: cargo test
-        with:
-          command: test
-        env:
-          RUSTFLAGS: '-C target-cpu=x86-64-v3'
+      # install cross-compiling toolchain for aarch64 targets
+      - if: matrix.arch == 'aarch64'
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu qemu-user-static
 
-  stable-aarch64-unknown-linux-gnu:
-    runs-on: ubuntu-latest
+      # target-specific environment variables
+      - if: matrix.arch == 'aarch64'
+        run: echo "RUSTFLAGS=-C target-cpu=cortex-x2 -C instrument-coverage" >> $GITHUB_ENV
+      - if: matrix.arch == 'x86_64'
+        run: echo "RUSTFLAGS=-C target-cpu=x86-64-v3 -C instrument-coverage" >> $GITHUB_ENV
+
+      # run rustfmt
+      - if: matrix.arch == 'x86_64' && matrix.toolchain == 'stable'
+        run: |
+          rustup component add rustfmt
+          cargo fmt --all -- --check
+
+      # run cargo clippy and cargo test on all confs
+      - name: "Run cargo clippy -> cargo test"
+        run: |
+          export CARGO_INCREMENTAL=0
+          export LLVM_PROFILE_FILE="cargo-test-%p-%m.profraw"
+          rustup default ${{ matrix.toolchain }}
+          cargo clippy --target ${{ matrix.arch }}-unknown-linux-gnu --no-deps -- -D warnings
+          cargo test   --target ${{ matrix.arch }}-unknown-linux-gnu
+          grcov . --binary-path ./target/${{ matrix.arch }}-unknown-linux-gnu/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "../*" --ignore "/*" -o ${{ matrix.arch }}-${{ matrix.toolchain }}.info
+
+      # update coverage report for merge in the later step
+      - if: matrix.toolchain == 'nightly'
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.arch }}-${{ matrix.toolchain }}-coverage-report
+          path: ${{ matrix.arch }}-${{ matrix.toolchain }}.info
+
+  merge-coverage-reports:
+    needs: cargo-test-all
+    runs-on: ubuntu-22.04
     steps:
+      - name: "Setup PATH"
+        run: echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
+
+      # checkout repository
       - uses: actions/checkout@v3
 
-      # restore toolchain and previoud build
+      # download all artifacts
+      - uses: actions/download-artifact@v3
+        with:
+          name: aarch64-nightly-coverage-report
+      - uses: actions/download-artifact@v3
+        with:
+          name: x86_64-nightly-coverage-report
+
+      # restore grcov
       - uses: actions/cache@v3
-        id: cache-cargo
+        id: cache-grcov
         with:
           path: |
             ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            ~/.rustup/
-            target/
-          key: stable-aarch64-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
+          key: grcov
 
-      # install toolchain when the cache is not available
-      - if: steps.cache-cargo.outputs.cache-hit != 'true'
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          target: aarch64-unknown-linux-gnu
-          override: true
-      - if: steps.cache-cargo.outputs.cache-hit != 'true'
-        run: rustup component add clippy
+      # install exec-commands and check-links in ~/.cargo/bin when the cache is not available
+      - if: steps.cache-grcov.outputs.cache-hit != 'true'
+        name: "Install tools"
+        run: |
+          curl -OL https://github.com/mozilla/grcov/releases/download/v0.8.13/grcov-x86_64-unknown-linux-musl.tar.bz2
+          tar xf grcov-x86_64-unknown-linux-musl.tar.bz2
+          mkdir -p ~/.cargo/bin/ && cp ./grcov ~/.cargo/bin/.
 
-      # clippy -> test (fmt skipped for aarch64)
-      - uses: actions-rs/cargo@v1
-        name: cargo clippy
+      # merge coverage information
+      - run: |
+          grcov . -s . -t lcov --branch --ignore-not-existing --ignore '../*' --ignore "/*" -o coverage.info
+      - uses: codecov/codecov-action@v3
         with:
-          use-cross: true
-          command: clippy
-          args: --no-deps --target aarch64-unknown-linux-gnu -- -D warnings -A unknown-lints
-      - uses: actions-rs/cargo@v1
-        name: cargo test
-        with:
-          use-cross: true
-          command: test
-          args: --target aarch64-unknown-linux-gnu
+          files: coverage.info
