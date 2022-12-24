@@ -5,7 +5,6 @@ use super::{Segment, SegmentStream};
 use anyhow::Result;
 
 // working variable; segments are accumulated onto this
-#[derive(Copy, Clone, Debug)]
 struct Accumulator {
     // states for the current segment pile
     count: usize,
