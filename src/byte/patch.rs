@@ -174,7 +174,7 @@ mod tests {
             let input = Box::new(MockSource::new($input.as_slice()));
             let patch = Box::new(MockSource::new($patch.as_slice()));
             let src = PatchStream::new(input, patch, &InoutFormat::from_str("xxx").unwrap());
-            $inner(src, $expected);
+            $inner(src, $expected.as_slice());
         }};
     }
 
@@ -186,22 +186,22 @@ mod tests {
                 // TODO: non-hex streams
                 test_impl!($inner, b"", b"0000 00 | \n", b"");
                 test_impl!($inner, b"", b"0000 01 | \n", b"");
-                test_impl!($inner, [0x80u8], b"0000 01 | 00\n", &[0x00u8]);
+                test_impl!($inner, [0x80u8], b"0000 01 | 00\n", [0x00u8]);
                 test_impl!($inner, [0x80u8], b"0000 01 | \n", b"");
 
-                test_impl!($inner, [0x80u8, 0x81, 0x82, 0x83], b"0000 01 | 00\n", &[0u8, 0x81, 0x82, 0x83]);
-                test_impl!($inner, [0x80u8, 0x81, 0x82, 0x83], b"0001 01 | 00\n", &[0x80u8, 0, 0x82, 0x83]);
-                test_impl!($inner, [0x80u8, 0x81, 0x82, 0x83], b"0002 00 | 00\n", &[0x80u8, 0x81, 0, 0x82, 0x83]);
-                test_impl!($inner, [0x80u8, 0x81, 0x82, 0x83], b"0000 03 | 00\n", &[0u8, 0x83]);
-                test_impl!($inner, [0x80u8, 0x81, 0x82, 0x83], b"0002 04 | 00\n", &[0x80u8, 0x81, 0]);
+                test_impl!($inner, [0x80u8, 0x81, 0x82, 0x83], b"0000 01 | 00\n", [0u8, 0x81, 0x82, 0x83]);
+                test_impl!($inner, [0x80u8, 0x81, 0x82, 0x83], b"0001 01 | 00\n", [0x80u8, 0, 0x82, 0x83]);
+                test_impl!($inner, [0x80u8, 0x81, 0x82, 0x83], b"0002 00 | 00\n", [0x80u8, 0x81, 0, 0x82, 0x83]);
+                test_impl!($inner, [0x80u8, 0x81, 0x82, 0x83], b"0000 03 | 00\n", [0u8, 0x83]);
+                test_impl!($inner, [0x80u8, 0x81, 0x82, 0x83], b"0002 04 | 00\n", [0x80u8, 0x81, 0]);
 
-                test_impl!($inner, [0x80u8, 0x81, 0x82, 0x83], b"0002 00 | 00 01 02\n", &[0x80u8, 0x81, 0, 1, 2, 0x82, 0x83]);
-                test_impl!($inner, [0x80u8, 0x81, 0x82, 0x83], b"0000 03 | 00 01 02\n", &[0u8, 1, 2, 0x83]);
-                test_impl!($inner, [0x80u8, 0x81, 0x82, 0x83], b"0002 04 | 00 01 02\n", &[0x80u8, 0x81, 0, 1, 2]);
+                test_impl!($inner, [0x80u8, 0x81, 0x82, 0x83], b"0002 00 | 00 01 02\n", [0x80u8, 0x81, 0, 1, 2, 0x82, 0x83]);
+                test_impl!($inner, [0x80u8, 0x81, 0x82, 0x83], b"0000 03 | 00 01 02\n", [0u8, 1, 2, 0x83]);
+                test_impl!($inner, [0x80u8, 0x81, 0x82, 0x83], b"0002 04 | 00 01 02\n", [0x80u8, 0x81, 0, 1, 2]);
 
-                test_impl!($inner, [0x80u8, 0x81, 0x82, 0x83], b"0002 00 | \n", &[0x80u8, 0x81, 0x82, 0x83]);
-                test_impl!($inner, [0x80u8, 0x81, 0x82, 0x83], b"0000 03 | \n", &[0x83u8]);
-                test_impl!($inner, [0x80u8, 0x81, 0x82, 0x83], b"0002 04 | \n", &[0x80u8, 0x81]);
+                test_impl!($inner, [0x80u8, 0x81, 0x82, 0x83], b"0002 00 | \n", [0x80u8, 0x81, 0x82, 0x83]);
+                test_impl!($inner, [0x80u8, 0x81, 0x82, 0x83], b"0000 03 | \n", [0x83u8]);
+                test_impl!($inner, [0x80u8, 0x81, 0x82, 0x83], b"0002 04 | \n", [0x80u8, 0x81]);
 
                 test_impl!(
                     $inner,
@@ -215,7 +215,7 @@ mod tests {
                       01c 03\n\
                       020 08 | 80 81 82 83 84\n\
                       02a 01 | \n",
-                    &[
+                    [
                         0x00u8, 0x01, 0x02, 0x03, 0x04,
                         0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0xcc, 0xcd, 0xce, 0xcf,
                         0x20, 0x21, 0x22, 0x23, 0x24,
@@ -227,7 +227,34 @@ mod tests {
                     ]
                 );
 
-                // TODO: longer streams
+                // longer
+                test_impl!(
+                    $inner,
+                    vec![0; 65536],
+                    b"000000 0a | 01 02 03 04 05 06 07 08 09 0a ",
+                    [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].as_slice(), [0; 65526].as_slice()].concat()
+                );
+                test_impl!(
+                    $inner,
+                    vec![0; 65536],
+                    b"008000 0a | 01 02 03 04 05 06 07 08 09 0a ",
+                    [[0; 32768].as_slice(), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].as_slice(), [0; 32758].as_slice()].concat()
+                );
+
+                let (patch, raw) = (0..64).fold(
+                    (b"008000 0a | ".to_vec(), Vec::new()),
+                    |(mut p, mut r), _| {
+                        p.extend_from_slice(b"01 02 03 04 05 06 07 08 09 0a ");
+                        r.extend_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+                        (p, r)
+                    }
+                );
+                test_impl!(
+                    $inner,
+                    vec![0; 65536],
+                    &patch,
+                    [[0; 32768].as_slice(), &raw, [0; 32758].as_slice()].concat()
+                );
             }
         };
     }
