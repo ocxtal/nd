@@ -99,6 +99,9 @@ fn test_parse_hex_single_impl(f: &dyn Fn(&[u8]) -> Option<(u64, usize)>) {
     test!("a-cdef01                        ", None);
     test!("abc|ef01                        ", None);
     test!("abcdef01|                       ", None);
+
+    test!("abcdef01abcdef01abcdef01abcdef01", None);
+    test!("abcdefxyabcdefxyabcdefxyabcdefxy", None);
 }
 
 #[test]

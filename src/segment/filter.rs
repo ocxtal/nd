@@ -144,7 +144,7 @@ impl SegmentStream for FilterStream {
             .accumulate(self.src_scanned, self.src_consumed, is_eof, count, segments, &mut self.segments)?;
 
         let (is_eof, bytes) = if self.cutter.is_empty() {
-            let bytes = self.segments.last().map_or(0, |x| x.tail());
+            let bytes = self.segments.last().map_or(self.max_consume, |x| x.tail());
             (true, bytes)
         } else {
             (is_eof, bytes)
