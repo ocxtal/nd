@@ -94,18 +94,6 @@ jobs:
             ~/.cargo/git/db/
             ~/.rustup/
             target/
-            /lib/aarch64-linux-gnu/
-            /lib/binfmt-support/
-            /lib/gcc-cross/
-            /usr/lib/aarch64-linux-gnu/
-            /usr/lib/gcc-cross/
-            /usr/lib/x86_64-linux-gnu/
-            /usr/aarch64-linux-gnu/
-            /usr/bin/aarch64-linux-gnu-*
-            /usr/bin/qemu-*
-            /usr/libexec/qemu-binfmt/
-            /usr/sbin/qemu-debootstrap
-            /usr/share/binfmts/qemu-*
           key: ${{ matrix.toolchain }}-${{ matrix.arch }}-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
 
       # install toolchain when the cache is not available
@@ -117,7 +105,6 @@ jobs:
       - if: steps.cache-cargo.outputs.cache-hit != 'true'
         name: "Setup toolchain"
         run: |
-          sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu qemu-user-static
           rustup target add ${{ matrix.arch }}-unknown-linux-gnu
           rustup toolchain install --target=${{ matrix.arch }}-unknown-linux-gnu ${{ matrix.toolchain }}
           rustup component add --toolchain ${{ matrix.toolchain }} clippy llvm-tools-preview
@@ -126,19 +113,22 @@ jobs:
           tar xf grcov-x86_64-unknown-linux-musl.tar.bz2
           cp ./grcov ~/.cargo/bin/.
 
-      # target-specific build flags
+      # target-specific setup
       - if: matrix.arch == 'aarch64'
-        run: echo "RUSTFLAGS=-C target-cpu=cortex-x2 -C instrument-coverage" >> $GITHUB_ENV
+        run: |
+          sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu qemu-user-static
+          echo "RUSTFLAGS=-C target-cpu=cortex-x2 -C instrument-coverage" >> $GITHUB_ENV
       - if: matrix.arch == 'x86_64'
-        run: echo "RUSTFLAGS=-C target-cpu=x86-64-v3 -C instrument-coverage" >> $GITHUB_ENV
+        run: |
+          echo "RUSTFLAGS=-C target-cpu=x86-64-v3 -C instrument-coverage" >> $GITHUB_ENV
 
-      # rustfmt
+      # run rustfmt
       - if: matrix.arch == 'x86_64' && matrix.toolchain == 'stable'
         run: |
           rustup component add rustfmt
           cargo fmt --all -- --check
 
-      # run all
+      # run cargo clippy and cargo test on all confs
       - name: "Run cargo clippy -> cargo test"
         run: |
           export CARGO_INCREMENTAL=0
