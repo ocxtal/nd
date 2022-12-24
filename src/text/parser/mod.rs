@@ -536,6 +536,32 @@ impl TextParser {
 }
 
 #[test]
+fn test_text_parser_hex_err() {
+    macro_rules! test {
+        ( $input: expr ) => {{
+            let input = Box::new(MockSource::new($input));
+            let mut parser = TextParser::new(input, &InoutFormat::from_str("xxx").unwrap());
+            let mut buf = Vec::new();
+            assert!(parser.read_line(&mut buf).is_err());
+        }};
+    }
+
+    // test!(b"0001 02\n"); // not an error; treated as an empty array
+    test!(b"0001 02 \n");
+    test!(b"0001 02|\n");
+    test!(b"0001 02  |\n");
+    test!(b"0001 02| \n");
+    test!(b"0001 02  | \n");
+
+    test!(b"0001 02; 10 11 12\n");
+    test!(b"0001 02; 10 11 12 |\n");
+    test!(b"0001 02; 10 11 12 | \n");
+    test!(b"0001 02 ; 10 11 12\n");
+    test!(b"0001 02 ; 10 11 12 |\n");
+    test!(b"0001 02 ; 10 11 12 | \n");
+}
+
+#[test]
 fn test_text_parser_hex() {
     macro_rules! test {
         ( $input: expr, $expected_ret: expr, $expected_arr: expr ) => {{
