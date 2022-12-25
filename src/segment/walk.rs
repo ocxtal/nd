@@ -14,7 +14,7 @@ struct SpanFetcher {
 }
 
 impl SpanFetcher {
-    fn new(expr: &str) -> Self {
+    fn new(expr: &str) -> Result<Self> {
         let vars: HashMap<&[u8], VarAttr> = [
             (b"b", VarAttr { is_array: true, id: 1 }),
             (b"h", VarAttr { is_array: true, id: 2 }),
@@ -25,11 +25,10 @@ impl SpanFetcher {
         .map(|(x, y)| (x.as_slice(), *y))
         .collect();
 
-        let rpn = Rpn::new(expr, Some(&vars)).unwrap_or_else(|_| panic!("failed to parse expression: {expr:?}."));
-        SpanFetcher {
-            expr: expr.to_string(),
-            rpn,
-        }
+        let rpn = Rpn::new(expr, Some(&vars))?;
+        let expr = expr.to_string();
+
+        Ok(SpanFetcher { expr, rpn })
     }
 
     fn get_array_element(skip: usize, elem_size: usize, index: i64, src: &mut Box<dyn ByteStream>) -> i64 {
@@ -86,20 +85,24 @@ pub struct WalkSlicer {
 }
 
 impl WalkSlicer {
-    pub fn new<T>(src: Box<dyn ByteStream>, exprs: &[T]) -> Self
-    where
-        T: AsRef<str>,
-    {
-        let fetchers: Vec<_> = exprs.iter().map(|x| SpanFetcher::new(x.as_ref())).collect();
-        let spans: Vec<_> = (0..fetchers.len()).map(|_| 0).collect();
+    pub fn new(src: Box<dyn ByteStream>, exprs: &str) -> Result<Self> {
+        let mut fetchers = Vec::new();
+        let mut spans = Vec::new();
 
-        WalkSlicer {
+        for expr in exprs.strip_suffix(',').unwrap_or(exprs).split(',') {
+            fetchers.push(SpanFetcher::new(expr.as_ref())?);
+            spans.push(0);
+        }
+
+        let segments = Vec::new();
+
+        Ok(WalkSlicer {
             src,
             fetchers,
             spans,
-            segments: Vec::new(),
+            segments,
             pos: 0,
-        }
+        })
     }
 
     fn calc_next_chunk_len(&mut self) -> usize {
@@ -196,12 +199,10 @@ mod tests {
     use crate::segment::tester::*;
 
     macro_rules! bind {
-        ( $expr: expr ) => {
+        ( $exprs: expr ) => {
             |input: &[u8]| -> Box<dyn SegmentStream> {
                 let src = Box::new(MockSource::new(input));
-                let exprs: Vec<_> = $expr.split(',').map(|x| x.to_string()).collect();
-
-                Box::new(WalkSlicer::new(src, &exprs))
+                Box::new(WalkSlicer::new(src, $exprs).unwrap())
             }
         };
     }
@@ -276,6 +277,70 @@ mod tests {
     test!(test_walk_all_at_once, test_segment_all_at_once);
     test!(test_walk_random_len, test_segment_random_len);
     test!(test_walk_occasional_consume, test_segment_occasional_consume);
+
+    fn gen_pattern(n_payloads: usize, max_len: usize, rep: usize) -> (Vec<u8>, Vec<Segment>) {
+        let mut rng = rand::thread_rng();
+
+        let mut stream = Vec::new();
+        let mut segments = Vec::new();
+
+        let mut pos = 0;
+        let mut push_segment = |len: usize| {
+            segments.push(Segment { pos, len });
+            pos += len;
+        };
+
+        for _ in 0..rep {
+            let lengths = (0..n_payloads).map(|_| rng.gen_range(1..=max_len)).collect::<Vec<_>>();
+
+            // collect segments
+            push_segment(4 * n_payloads); // header
+            for &len in &lengths {
+                push_segment(len); // payload
+            }
+
+            // append header
+            for &len in &lengths {
+                stream.extend_from_slice((len as i32).to_le_bytes().as_slice());
+            }
+
+            // append payloads
+            let tail = stream.len() + lengths.iter().sum::<usize>();
+            stream.resize(tail, 0xff);
+        }
+
+        (stream, segments)
+    }
+
+    macro_rules! test_long_impl {
+        ( $inner: ident, $n_payloads: expr, $max_len: expr, $rep: expr ) => {
+            let exprs = (0..$n_payloads).fold(format!("{},", 4 * $n_payloads), |mut s, i| {
+                s.push_str(&format!("i[{i}],"));
+                s
+            });
+            let (stream, segments) = gen_pattern($n_payloads, $max_len, $rep);
+
+            let bind = |x: &[u8]| -> Box<dyn SegmentStream> {
+                let src = Box::new(MockSource::new(x));
+                Box::new(WalkSlicer::new(src, exprs.as_str()).unwrap())
+            };
+
+            $inner(&stream, &bind, &segments);
+        };
+    }
+
+    macro_rules! test_long {
+        ( $name: ident, $inner: ident ) => {
+            #[test]
+            fn $name() {
+                test_long_impl!($inner, 1, 10, 10);
+            }
+        };
+    }
+
+    test_long!(test_walk_long_all_at_once, test_segment_all_at_once);
+    test_long!(test_walk_long_random_len, test_segment_random_len);
+    test_long!(test_walk_long_occasional_consume, test_segment_occasional_consume);
 }
 
 // end of walk.rs

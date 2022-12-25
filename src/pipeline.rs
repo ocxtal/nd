@@ -111,7 +111,7 @@ pub enum Node {
     Find(String),
     Slice(String),
     Guide(String),
-    Walk(Vec<String>),
+    Walk(String),
     // SegmentFilters: SegmentStream -> SegmentStream
     Regex(String),
     Bridge(String),
@@ -220,7 +220,7 @@ impl Pipeline {
         let (cols, node) = match (m.width, &m.find, &m.walk, &m.slice, &m.guide) {
             (Some(width), None, None, None, None) => (width.columns(), Width(width)),
             (None, Some(pattern), None, None, None) => (0, Find(pattern.to_string())),
-            (None, None, Some(exprs), None, None) => (0, Walk(exprs.split(',').map(|x| x.to_string()).collect::<Vec<_>>())),
+            (None, None, Some(exprs), None, None) => (0, Walk(exprs.to_string())),
             (None, None, None, Some(exprs), None) => (0, Slice(exprs.to_string())),
             (None, None, None, None, Some(file)) => (0, Guide(file.to_string())),
             (None, None, None, None, None) => (16, Width(ConstSlicerParams::from_raw(16, None)?)),
@@ -371,7 +371,7 @@ impl Pipeline {
                     (cache, NodeInstance::Segment(next))
                 }
                 (Walk(exprs), NodeInstance::Byte(prev)) => {
-                    let next = Box::new(WalkSlicer::new(prev, exprs));
+                    let next = Box::new(WalkSlicer::new(prev, exprs)?);
                     (cache, NodeInstance::Segment(next))
                 }
                 (Regex(pattern), NodeInstance::Segment(prev)) => {
