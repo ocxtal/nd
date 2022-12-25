@@ -107,12 +107,11 @@ impl ExtendStream {
         let (_, segments) = self.src.as_slices();
 
         // first map all the source segment pairs with `mappers`
-        if count > self.src_scanned {
-            for next in &segments[self.src_scanned..count] {
-                for mapper in &self.mappers {
-                    if let Some(s) = map_segment(mapper, next) {
-                        self.sorter.push(Reverse(s));
-                    }
+        debug_assert!(count >= self.src_scanned);
+        for next in &segments[self.src_scanned..count] {
+            for mapper in &self.mappers {
+                if let Some(s) = map_segment(mapper, next) {
+                    self.sorter.push(Reverse(s));
                 }
             }
         }
@@ -123,9 +122,7 @@ impl ExtendStream {
         // then sort the mapped segments into `self.segments` array
         let tail = if is_eof { usize::MAX } else { bytes };
         while let Some(&Reverse(s)) = self.sorter.peek() {
-            if s.original_end > tail {
-                break;
-            }
+            debug_assert!(s.original_end <= tail);
 
             let s = self.sorter.pop().unwrap().0;
             self.segments.push(s.into());
