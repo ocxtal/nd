@@ -375,7 +375,7 @@ impl Pipeline {
                     (cache, NodeInstance::Segment(next))
                 }
                 (Regex(pattern), NodeInstance::Segment(prev)) => {
-                    let next = Box::new(RegexSlicer::new(prev, pattern));
+                    let next = Box::new(RegexSlicer::new(prev, pattern)?);
                     (cache, NodeInstance::Segment(next))
                 }
                 (Bridge(invert), NodeInstance::Segment(prev)) => {
