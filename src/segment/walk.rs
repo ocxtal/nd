@@ -90,7 +90,7 @@ impl WalkSlicer {
         let mut spans = Vec::new();
 
         for expr in exprs.strip_suffix(',').unwrap_or(exprs).split(',') {
-            fetchers.push(SpanFetcher::new(expr.as_ref())?);
+            fetchers.push(SpanFetcher::new(expr)?);
             spans.push(0);
         }
 
@@ -334,6 +334,11 @@ mod tests {
             #[test]
             fn $name() {
                 test_long_impl!($inner, 1, 10, 10);
+                test_long_impl!($inner, 5, 10, 10);
+                test_long_impl!($inner, 50, 10, 10);
+
+                test_long_impl!($inner, 1, 10000, 10);
+                test_long_impl!($inner, 5, 10000, 10);
             }
         };
     }
