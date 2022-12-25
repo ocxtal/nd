@@ -32,11 +32,11 @@ impl GuidedSlicer {
     }
 
     fn extend_segment_buf(&mut self, is_eof: bool, bytes: usize) -> Result<()> {
-        // all existing segments must be covered
+        // all existing segments must be covered as we requested longer
         debug_assert!(self.segments.last().map_or(0, |x| x.tail()) <= bytes);
 
-        // if enough, first update max_consume to the end of the segment
-        // (and wait it being updated in the loop)
+        // first update max_consume to the end of the current chunk of the stream
+        // (may be shortened in the loop)
         self.max_consume = bytes;
 
         let tail = self.src_consumed + bytes; // in absolute offset
@@ -62,12 +62,8 @@ impl GuidedSlicer {
             self.segments.push(Segment { pos, len });
 
             if offset + span > tail {
-                if pos <= bytes {
-                    self.max_consume = pos; // may become zero, and try fill_buf again if so
-                }
-
-                // mask the last segment
-                self.guide_consumed = self.segments.len() - 1;
+                self.max_consume = std::cmp::min(self.max_consume, pos);
+                self.guide_consumed = self.segments.len() - 1;  // do not expose the last segment
                 break;
             }
         }
