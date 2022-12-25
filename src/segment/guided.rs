@@ -32,16 +32,8 @@ impl GuidedSlicer {
     }
 
     fn extend_segment_buf(&mut self, is_eof: bool, bytes: usize) -> Result<()> {
-        // if the stream is not enough for the next segment, try again
-        if let Some(last) = self.segments.last() {
-            if last.tail() > bytes {
-                if last.pos <= bytes {
-                    self.max_consume = last.pos;
-                }
-                self.guide_consumed = self.segments.len() - 1;
-                return Ok(());
-            }
-        }
+        // all existing segments must be covered
+        debug_assert!(self.segments.last().map_or(0, |x| x.tail()) <= bytes);
 
         // if enough, first update max_consume to the end of the segment
         // (and wait it being updated in the loop)
@@ -161,7 +153,7 @@ mod tests {
         ( $inner: ident, $len: expr, $count: expr ) => {
             let mut rng = rand::thread_rng();
             let v = (0..$len).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
-            let (guide, segments) = gen_guide(v.len(), $count);
+            let (guide, segments) = gen_guide($len, $count);
 
             let bind = |x: &[u8]| -> Box<dyn SegmentStream> {
                 let stream = Box::new(MockSource::new(x));
@@ -184,10 +176,9 @@ mod tests {
                 test_impl!($inner, 1000, 1000);
 
                 // try longer, multiple times
-                test_impl!($inner, 100000, 10000);
-                test_impl!($inner, 100000, 10000);
-                test_impl!($inner, 100000, 10000);
-                test_impl!($inner, 100000, 10000);
+                test_impl!($inner, 100000, 10);
+                test_impl!($inner, 100000, 100);
+                test_impl!($inner, 100000, 1000);
                 test_impl!($inner, 100000, 10000);
             }
         };
