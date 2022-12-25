@@ -14,13 +14,16 @@ pub struct RegexSlicer {
 }
 
 impl RegexSlicer {
-    pub fn new(src: Box<dyn SegmentStream>, pattern: &str) -> Self {
-        RegexSlicer {
+    pub fn new(src: Box<dyn SegmentStream>, pattern: &str) -> Result<Self> {
+        let matches = Vec::new();
+        let re = Regex::new(pattern)?;
+
+        Ok(RegexSlicer {
             src,
-            matches: Vec::new(),
+            matches,
             scanned: 0,
-            re: Regex::new(pattern).unwrap(),
-        }
+            re,
+        })
     }
 }
 
@@ -88,7 +91,7 @@ mod tests {
             |input: &[u8]| -> Box<dyn SegmentStream> {
                 let src = Box::new(MockSource::new(input));
                 let src = Box::new(ConstSlicer::from_raw(src, (0, -3), (false, false), 4, 6));
-                Box::new(RegexSlicer::new(src, $pattern))
+                Box::new(RegexSlicer::new(src, $pattern).unwrap())
             }
         };
     }

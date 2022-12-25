@@ -99,6 +99,9 @@ fn test_parse_hex_single_impl(f: &dyn Fn(&[u8]) -> Option<(u64, usize)>) {
     test!("a-cdef01                        ", None);
     test!("abc|ef01                        ", None);
     test!("abcdef01|                       ", None);
+
+    test!("abcdef01abcdef01abcdef01abcdef01", None);
+    test!("abcdefxyabcdefxyabcdefxyabcdefxy", None);
 }
 
 #[test]
@@ -530,6 +533,32 @@ impl TextParser {
         self.src.consume(len - rem_len);
         self.read_line_continued(offset, span, is_in_tail, buf)
     }
+}
+
+#[test]
+fn test_text_parser_hex_err() {
+    macro_rules! test {
+        ( $input: expr ) => {{
+            let input = Box::new(MockSource::new($input));
+            let mut parser = TextParser::new(input, &InoutFormat::from_str("xxx").unwrap());
+            let mut buf = Vec::new();
+            assert!(parser.read_line(&mut buf).is_err());
+        }};
+    }
+
+    // test!(b"0001 02\n"); // not an error; treated as an empty array
+    test!(b"0001 02 \n");
+    test!(b"0001 02|\n");
+    test!(b"0001 02  |\n");
+    test!(b"0001 02| \n");
+    test!(b"0001 02  | \n");
+
+    test!(b"0001 02; 10 11 12\n");
+    test!(b"0001 02; 10 11 12 |\n");
+    test!(b"0001 02; 10 11 12 | \n");
+    test!(b"0001 02 ; 10 11 12\n");
+    test!(b"0001 02 ; 10 11 12 |\n");
+    test!(b"0001 02 ; 10 11 12 | \n");
 }
 
 #[test]

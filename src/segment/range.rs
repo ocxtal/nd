@@ -122,15 +122,16 @@ impl RangeSlicer {
 impl SegmentStream for RangeSlicer {
     fn fill_segment_buf(&mut self) -> Result<(bool, usize, usize, usize)> {
         let (is_eof, bytes) = self.src.fill_buf(BLOCK_SIZE)?;
-        self.max_consume = self.cutter.accumulate(self.src_consumed, is_eof, bytes, &mut self.segments)?;
+        let max_consume = self.cutter.accumulate(self.src_consumed, is_eof, bytes, &mut self.segments)?;
 
         let (is_eof, bytes, max_consume) = if self.cutter.is_empty() {
-            let bytes = self.segments.last().map_or(0, |x| x.tail());
-            let max_consume = std::cmp::min(bytes, self.max_consume);
+            let bytes = self.segments.last().map_or(self.max_consume, |x| x.tail());
+            let max_consume = std::cmp::min(bytes, max_consume);
             (true, bytes, max_consume)
         } else {
-            (is_eof, bytes, self.max_consume)
+            (is_eof, bytes, max_consume)
         };
+        self.max_consume = max_consume;
 
         Ok((is_eof, bytes, self.segments.len(), max_consume))
     }

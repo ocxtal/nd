@@ -86,12 +86,12 @@ impl ClipperParams {
         };
 
         // apply tail clip (after head clip)
-        let len = if head_pad > range.len() {
-            0
+        let (head_pad, len) = if head_pad > range.len() {
+            (range.len(), 0)
         } else if range.len() != usize::MAX {
-            range.len() - head_pad
+            (head_pad, range.len() - head_pad)
         } else {
-            usize::MAX
+            (head_pad, usize::MAX)
         };
 
         let pad = (head_pad, tail_pad);
@@ -137,6 +137,9 @@ fn test_stream_params() {
     test!((Some((40, 0)),   Some(10),  Some(20..100)),  ((10, 0),  (0, 0),   70));
     test!((Some((40, 0)),   Some(30),  Some(20..100)),  ((0, 0),   (10, 0),  80));
     test!((Some((40, 0)),   Some(50),  Some(20..100)),  ((0, 0),   (30, 0),  80));
+    test!((Some((100, 0)),  Some(0),   Some(20..100)),  ((80, 0),  (0, 0),   0));
+    test!((Some((140, 0)),  Some(0),   Some(20..100)),  ((80, 0),  (0, 0),   0));
+    test!((Some((240, 0)),  Some(50),  Some(20..100)),  ((80, 0),  (0, 0),   0));
 }
 
 pub struct ClipStream {
@@ -223,9 +226,9 @@ mod tests {
     use crate::byte::tester::*;
 
     macro_rules! test_impl {
-        ( $inner: ident, $input: expr, $clip: expr, $len: expr, $expected: expr ) => {{
+        ( $inner: ident, $input: expr, $pad: expr, $clip: expr, $len: expr, $expected: expr ) => {{
             let params = ClipperParams {
-                pad: (0, 0),
+                pad: $pad,
                 clip: $clip,
                 len: $len,
             };
@@ -239,53 +242,60 @@ mod tests {
             #[test]
             fn $name() {
                 let mut rng = rand::thread_rng();
-                let pattern = (0..32 * 1024).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
+                let p = (0..32 * 1024).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
 
                 // all
-                test_impl!($inner, &pattern, (0, 0), pattern.len(), &pattern);
+                test_impl!($inner, &p, (0, 0), (0, 0), usize::MAX, &p);
 
                 // head clip
-                test_impl!($inner, &pattern, (1, 0), pattern.len(), &pattern[1..]);
-                test_impl!($inner, &pattern, (1000, 0), pattern.len(), &pattern[1000..]);
+                test_impl!($inner, &p, (0, 0), (1, 0), usize::MAX, &p[1..]);
+                test_impl!($inner, &p, (0, 0), (1000, 0), usize::MAX, &p[1000..]);
 
                 // tail clip
-                test_impl!($inner, &pattern, (0, 1), pattern.len(), &pattern[..pattern.len() - 1]);
-                test_impl!($inner, &pattern, (0, 1000), pattern.len(), &pattern[..pattern.len() - 1000]);
+                test_impl!($inner, &p, (0, 0), (0, 1), usize::MAX, &p[..p.len() - 1]);
+                test_impl!($inner, &p, (0, 0), (0, 1000), usize::MAX, &p[..p.len() - 1000]);
 
                 // length limit
-                test_impl!($inner, &pattern, (0, 0), 1, &pattern[..1]);
-                test_impl!($inner, &pattern, (0, 0), 1000, &pattern[..1000]);
+                test_impl!($inner, &p, (0, 0), (0, 0), 1, &p[..1]);
+                test_impl!($inner, &p, (0, 0), (0, 0), 1000, &p[..1000]);
 
                 // both
-                test_impl!($inner, &pattern, (1, 1000), 1, &pattern[1..2]);
-                test_impl!($inner, &pattern, (1000, 1000), 100, &pattern[1000..1100]);
-                test_impl!(
-                    $inner,
-                    &pattern,
-                    (3000, 1000),
-                    pattern.len() - 100,
-                    &pattern[3000..pattern.len() - 1000]
-                );
-                test_impl!(
-                    $inner,
-                    &pattern,
-                    (3000, 10000),
-                    pattern.len() - 3000,
-                    &pattern[3000..pattern.len() - 10000]
-                );
+                test_impl!($inner, &p, (0, 0), (1, 1000), 1, &p[1..2]);
+                test_impl!($inner, &p, (0, 0), (1000, 1000), 100, &p[1000..1100]);
+                test_impl!($inner, &p, (0, 0), (3000, 1000), p.len() - 100, &p[3000..p.len() - 1000]);
+                test_impl!($inner, &p, (0, 0), (3000, 10000), p.len() - 3000, &p[3000..p.len() - 10000]);
 
                 // none
-                test_impl!($inner, &pattern, (0, 0), 0, b"");
-                test_impl!($inner, &pattern, (10, 0), 0, b"");
-                test_impl!($inner, &pattern, (pattern.len(), 0), 0, b"");
-                test_impl!($inner, &pattern, (0, pattern.len()), 0, b"");
-                test_impl!($inner, &pattern, (pattern.len(), pattern.len()), 0, b"");
+                test_impl!($inner, &p, (0, 0), (0, 0), 0, b"");
+                test_impl!($inner, &p, (0, 0), (10, 0), 0, b"");
+                test_impl!($inner, &p, (0, 0), (p.len(), 0), 0, b"");
+                test_impl!($inner, &p, (0, 0), (0, p.len()), 0, b"");
+                test_impl!($inner, &p, (0, 0), (p.len(), p.len()), 0, b"");
 
                 // clip longer than the stream
-                test_impl!($inner, &pattern, (pattern.len() + 1, 0), pattern.len(), b"");
-                test_impl!($inner, &pattern, (pattern.len() + 1, 0), usize::MAX, b"");
-                test_impl!($inner, &pattern, (0, pattern.len() + 1), pattern.len(), b"");
-                test_impl!($inner, &pattern, (0, pattern.len() + 1), usize::MAX, b"");
+                test_impl!($inner, &p, (0, 0), (p.len() + 1, 0), p.len(), b"");
+                test_impl!($inner, &p, (0, 0), (p.len() + 1, 0), usize::MAX, b"");
+                test_impl!($inner, &p, (0, 0), (0, p.len() + 1), p.len(), b"");
+                test_impl!($inner, &p, (0, 0), (0, p.len() + 1), usize::MAX, b"");
+
+                // prep. padded array
+                let d = [[0u8; 100].as_slice(), &p, [0u8; 100].as_slice()].concat();
+
+                // padded-all
+                test_impl!($inner, &p, (0, 100), (0, 0), usize::MAX, &d[100..]);
+                test_impl!($inner, &p, (100, 0), (0, 0), usize::MAX, &d[..d.len() - 100]);
+
+                // padded-headclip
+                test_impl!($inner, &p, (0, 100), (1, 0), usize::MAX, &d[101..]);
+                test_impl!($inner, &p, (0, 100), (1000, 0), usize::MAX, &d[1100..]);
+                test_impl!($inner, &p, (100, 0), (1, 0), usize::MAX, &d[1..d.len() - 100]);
+                test_impl!($inner, &p, (100, 0), (1000, 0), usize::MAX, &d[1000..d.len() - 100]);
+
+                // padded-tailclip
+                test_impl!($inner, &p, (0, 100), (0, 1), usize::MAX, &d[100..d.len() - 1]);
+                test_impl!($inner, &p, (0, 100), (0, 1000), usize::MAX, &d[100..d.len() - 1000]);
+                test_impl!($inner, &p, (100, 0), (0, 1), usize::MAX, &d[..d.len() - 101]);
+                test_impl!($inner, &p, (100, 0), (0, 1000), usize::MAX, &d[..d.len() - 1100]);
             }
         };
     }

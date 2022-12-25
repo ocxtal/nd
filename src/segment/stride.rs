@@ -219,7 +219,7 @@ impl ConstSegments {
     }
 
     fn min_fill_len(&self) -> usize {
-        std::cmp::max(self.span, self.init_state.min_bytes_to_escape) + self.tail_reserved_bytes
+        std::cmp::max(self.span, self.init_state.min_bytes_to_escape) + self.tail_reserved_bytes + 1
     }
 
     fn get_next_tail(&mut self) -> usize {

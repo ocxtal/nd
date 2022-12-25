@@ -8,13 +8,11 @@ use std::collections::HashMap;
 
 use crate::eval::{Rpn, VarAttr};
 
-#[derive(Debug)]
 struct TemplateElement {
     fixed: String,
     var: Option<(Rpn, NumFmt)>,
 }
 
-#[derive(Debug)]
 pub struct Template {
     elems: Vec<TemplateElement>,
 }

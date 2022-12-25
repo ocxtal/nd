@@ -99,15 +99,14 @@ where
     let mut last_spos = -1;
     loop {
         let (is_eof, len, count, max_consume) = src.fill_segment_buf().unwrap();
+        if prev_is_eof {
+            assert!(is_eof);
+            assert_eq!(prev_len, len);
+        }
         if is_eof && len == 0 {
             assert_eq!(count, 0);
             assert_eq!(max_consume, 0);
             break;
-        }
-
-        if prev_is_eof {
-            assert!(is_eof);
-            assert_eq!(prev_len, len);
         }
 
         let (stream, segments) = src.as_slices();
@@ -160,15 +159,14 @@ where
     let mut last_spos = -1;
     loop {
         let (is_eof, len, count, max_consume) = src.fill_segment_buf().unwrap();
+        if prev_is_eof {
+            assert!(is_eof);
+            assert_eq!(prev_len, len);
+        }
         if is_eof && len == 0 {
             assert_eq!(count, 0);
             assert_eq!(max_consume, 0);
             break;
-        }
-
-        if prev_is_eof {
-            assert!(is_eof);
-            assert_eq!(prev_len, len);
         }
 
         let (stream, segments) = src.as_slices();
