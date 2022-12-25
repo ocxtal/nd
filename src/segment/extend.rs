@@ -4,32 +4,14 @@
 use super::{Segment, SegmentStream};
 use crate::mapper::SegmentMapper;
 use anyhow::{anyhow, Result};
-use std::cmp::Ordering;
+use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
 struct SorterElement {
     pos: usize,
     len: usize,
     original_end: usize,
-}
-
-impl Ord for SorterElement {
-    fn cmp(&self, other: &SorterElement) -> Ordering {
-        let s = (self.pos, self.len, self.original_end);
-        let o = (other.pos, other.len, other.original_end);
-
-        o.cmp(&s)
-    }
-}
-
-impl PartialOrd for SorterElement {
-    fn partial_cmp(&self, other: &SorterElement) -> Option<Ordering> {
-        let s = (self.pos, self.len, self.original_end);
-        let o = (other.pos, other.len, other.original_end);
-
-        o.partial_cmp(&s)
-    }
 }
 
 impl From<SorterElement> for Segment {
@@ -47,7 +29,7 @@ pub struct ExtendStream {
 
     // sorter; needed to reorder the segments when the start positions of the mapped
     // segments are derived from the end positions of the source segments
-    sorter: BinaryHeap<SorterElement>,
+    sorter: BinaryHeap<Reverse<SorterElement>>,
 
     // #segments that are not consumed in the source but already accumulated to `acc`
     // note: not the count from the beginning of the source stream
@@ -129,7 +111,7 @@ impl ExtendStream {
             for next in &segments[self.src_scanned..count] {
                 for mapper in &self.mappers {
                     if let Some(s) = map_segment(mapper, next) {
-                        self.sorter.push(s);
+                        self.sorter.push(Reverse(s));
                     }
                 }
             }
@@ -140,12 +122,12 @@ impl ExtendStream {
 
         // then sort the mapped segments into `self.segments` array
         let tail = if is_eof { usize::MAX } else { bytes };
-        while let Some(s) = self.sorter.peek() {
+        while let Some(&Reverse(s)) = self.sorter.peek() {
             if s.original_end > tail {
                 break;
             }
 
-            let s = self.sorter.pop().unwrap();
+            let s = self.sorter.pop().unwrap().0;
             self.segments.push(s.into());
         }
     }
