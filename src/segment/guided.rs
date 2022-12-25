@@ -63,7 +63,7 @@ impl GuidedSlicer {
 
             if offset + span > tail {
                 self.max_consume = std::cmp::min(self.max_consume, pos);
-                self.guide_consumed = self.segments.len() - 1;  // do not expose the last segment
+                self.guide_consumed = self.segments.len() - 1; // do not expose the last segment
                 break;
             }
         }
