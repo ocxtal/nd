@@ -155,6 +155,7 @@ jobs:
         run: |
           cargo build
           exec-commands --diff || true
+          ls
 
       # run coverage measurement postprocess
       - if: matrix.toolchain == 'stable'
