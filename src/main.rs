@@ -134,7 +134,7 @@ fn main() -> Result<()> {
 }
 
 fn build_sources(files: &[String]) -> Result<Vec<Box<dyn Read + Send>>> {
-    if files.iter().filter(|&x| x == "-").count() > 1 {
+    if files.iter().filter(|&x| x == "-" || x == "/dev/stdin").count() > 1 {
         return Err(anyhow!("\"-\" (stdin) must not appear more than once in the input files."));
     }
 
