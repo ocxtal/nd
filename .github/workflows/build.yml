@@ -155,13 +155,10 @@ jobs:
         run: |
           cargo build --target ${{ matrix.arch }}-unknown-linux-gnu
           exec-commands --diff --config "" --path target/${{ matrix.arch }}-unknown-linux-gnu/debug --pwd . test.md
-          ls -al
 
       # run coverage measurement postprocess
       - if: matrix.toolchain == 'stable'
         run: |
-          ls -al
-          ./grcov . --binary-path ./target/${{ matrix.arch }}-unknown-linux-gnu/debug/deps/ -s . -t markdown --branch --ignore-not-existing --ignore "../*" --ignore "/*"
           ./grcov . --binary-path ./target/${{ matrix.arch }}-unknown-linux-gnu/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "../*" --ignore "/*" -o ${{ matrix.arch }}-${{ matrix.toolchain }}.info
 
       # update coverage report for merge in the later step
@@ -200,8 +197,6 @@ jobs:
 
       # merge coverage information
       - run: |
-          ls -al
-          ./grcov . -s . -t markdown --branch --ignore-not-existing --ignore "../*" --ignore "/*"
           ./grcov . -s . -t lcov --branch --ignore-not-existing --ignore "../*" --ignore "/*" -o coverage.info
       - uses: codecov/codecov-action@v3
         with:
