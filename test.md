@@ -1,48 +1,54 @@
 
+# nd test script
+
+## Input handling
+
+Reads the input file(s) if any.
+
 ```console
-$ nd test/quick.txt
-000000000000 0010 | 54 68 65 20 71 75 69 63 6b 20 62 72 6f 77 6e 20 | The quick brown 
-000000000010 0010 | 66 6f 78 20 6a 75 6d 70 73 20 6f 76 65 72 20 74 | fox jumps over t
-000000000020 000d | 68 65 20 6c 61 7a 79 20 64 6f 67 2e 0a          | he lazy dog..   
+$ nd test/hello.txt
+```
+
+If none, the default input is stdin.
+
+```console
+$ cat test/hello.txt | nd
+```
+
+`-` means stdin.
+
+```console
+$ cat test/hello.txt | nd -
+$ cat test/hello.txt | nd /dev/stdin
+```
+
+Multiple stdins are not allowed.
+
+```console
+$ ! (cat test/hello.txt | nd - - 2>&1)
+$ ! (cat test/hello.txt | nd - /dev/stdin 2>&1)
+```
+
+## Output handling
+
+```console
+$ nd test/hello.txt
+$ nd test/hello.txt > /dev/null
+$ nd test/hello.txt > /dev/stdout
+$ nd test/hello.txt > out.txt && cat out.txt && rm out.txt
+```
+
+```console
+$ nd test/hello.txt -o -
+$ nd test/hello.txt -o out.txt && cat out.txt && rm out.txt
+$ ! (nd test/hello.txt -o out1.txt -o out2.txt 2>&1)
+```
+
+```console
 $ nd -c1 test/quick.txt test/quick.txt
-000000000000 0010 | 54 68 65 20 71 75 69 63 6b 20 62 72 6f 77 6e 20 | The quick brown 
-000000000010 0010 | 66 6f 78 20 6a 75 6d 70 73 20 6f 76 65 72 20 74 | fox jumps over t
-000000000020 0010 | 68 65 20 6c 61 7a 79 20 64 6f 67 2e 0a 54 68 65 | he lazy dog..The
-000000000030 0010 | 20 71 75 69 63 6b 20 62 72 6f 77 6e 20 66 6f 78 |  quick brown fox
-000000000040 0010 | 20 6a 75 6d 70 73 20 6f 76 65 72 20 74 68 65 20 |  jumps over the 
-000000000050 000a | 6c 61 7a 79 20 64 6f 67 2e 0a                   | lazy dog..      
 $ nd -c7 test/quick.txt test/quick.txt
-000000000000 0010 | 54 68 65 20 71 75 69 63 6b 20 62 72 6f 77 6e 20 | The quick brown 
-000000000010 0010 | 66 6f 78 20 6a 75 6d 70 73 20 6f 76 65 72 20 74 | fox jumps over t
-000000000020 0010 | 68 65 20 6c 61 7a 79 20 64 6f 67 2e 0a 00 00 00 | he lazy dog.....
-000000000030 0010 | 00 54 68 65 20 71 75 69 63 6b 20 62 72 6f 77 6e | .The quick brown
-000000000040 0010 | 20 66 6f 78 20 6a 75 6d 70 73 20 6f 76 65 72 20 |  fox jumps over 
-000000000050 0010 | 74 68 65 20 6c 61 7a 79 20 64 6f 67 2e 0a 00 00 | the lazy dog....
-000000000060 0002 | 00 00                                           | ..              
 $ nd -z1 test/quick.txt test/quick.txt
-000000000000 0010 | 54 54 68 68 65 65 20 20 71 71 75 75 69 69 63 63 | TThhee  qquuiicc
-000000000010 0010 | 6b 6b 20 20 62 62 72 72 6f 6f 77 77 6e 6e 20 20 | kk  bbrroowwnn  
-000000000020 0010 | 66 66 6f 6f 78 78 20 20 6a 6a 75 75 6d 6d 70 70 | ffooxx  jjuummpp
-000000000030 0010 | 73 73 20 20 6f 6f 76 76 65 65 72 72 20 20 74 74 | ss  oovveerr  tt
-000000000040 0010 | 68 68 65 65 20 20 6c 6c 61 61 7a 7a 79 79 20 20 | hhee  llaazzyy  
-000000000050 000a | 64 64 6f 6f 67 67 2e 2e 0a 0a                   | ddoogg....      
 $ nd -z7 test/quick.txt test/quick.txt
-000000000000 0010 | 54 68 65 20 71 75 69 54 68 65 20 71 75 69 63 6b | The quiThe quick
-000000000010 0010 | 20 62 72 6f 77 63 6b 20 62 72 6f 77 6e 20 66 6f |  browck brown fo
-000000000020 0010 | 78 20 6a 6e 20 66 6f 78 20 6a 75 6d 70 73 20 6f | x jn fox jumps o
-000000000030 0010 | 76 75 6d 70 73 20 6f 76 65 72 20 74 68 65 20 65 | vumps over the e
-000000000040 0010 | 72 20 74 68 65 20 6c 61 7a 79 20 64 6f 6c 61 7a | r the lazy dolaz
-000000000050 0010 | 79 20 64 6f 67 2e 0a 00 00 00 00 67 2e 0a 00 00 | y dog......g....
-000000000060 0002 | 00 00                                           | ..              
 $ nd --patch=<(echo "000000000010 0003 | 66 72 6f 67") test/quick.txt
-000000000000 0010 | 54 68 65 20 71 75 69 63 6b 20 62 72 6f 77 6e 20 | The quick brown 
-000000000010 0010 | 66 72 6f 67 20 6a 75 6d 70 73 20 6f 76 65 72 20 | frog jumps over 
-000000000020 000e | 74 68 65 20 6c 61 7a 79 20 64 6f 67 2e 0a       | the lazy dog..  
 $ nd --patch=<(echo "000000000010 0003 | 66 72 6f 67") test/quick.txt test/quick.txt
-000000000000 0010 | 54 68 65 20 71 75 69 63 6b 20 62 72 6f 77 6e 20 | The quick brown 
-000000000010 0010 | 66 72 6f 67 20 6a 75 6d 70 73 20 6f 76 65 72 20 | frog jumps over 
-000000000020 0010 | 74 68 65 20 6c 61 7a 79 20 64 6f 67 2e 0a 54 68 | the lazy dog..Th
-000000000030 0010 | 65 20 71 75 69 63 6b 20 62 72 6f 77 6e 20 66 6f | e quick brown fo
-000000000040 0010 | 78 20 6a 75 6d 70 73 20 6f 76 65 72 20 74 68 65 | x jumps over the
-000000000050 000b | 20 6c 61 7a 79 20 64 6f 67 2e 0a                |  lazy dog..     
 ```
