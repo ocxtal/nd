@@ -151,6 +151,7 @@ jobs:
 
       # run additional coverage measurement with exec-commands
       - if: matrix.arch == 'x86_64' && matrix.toolchain == 'stable'
+        name: "Run extra coverage measurement"
         run: |
           cargo build
           exec-commands --diff
