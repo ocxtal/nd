@@ -154,7 +154,7 @@ jobs:
         name: "Run extra coverage measurement"
         run: |
           cargo build
-          exec-commands --diff
+          exec-commands --diff || true
 
       # run coverage measurement postprocess
       - if: matrix.toolchain == 'stable'
