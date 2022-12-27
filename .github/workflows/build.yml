@@ -116,6 +116,10 @@ jobs:
         name: "Setup profiling tools"
         run: curl -L https://github.com/mozilla/grcov/releases/download/v0.8.13/grcov-x86_64-unknown-linux-musl.tar.bz2 | tar jxf - > grcov
 
+      # install exec-commands for additional coverage measurement
+      - if: steps.cache-cargo.outputs.cache-hit != 'true' && matrix.arch == 'x86_64' && matrix.toolchain == 'stable'
+        run: cargo install exec-commands --git https://github.com/ocxtal/exec-commands.git
+
       # install cross-compiling toolchain for aarch64 targets
       - if: matrix.arch == 'aarch64'
         run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu qemu-user-static
@@ -144,6 +148,12 @@ jobs:
           rustup default ${{ matrix.toolchain }}
           cargo clippy --target ${{ matrix.arch }}-unknown-linux-gnu --no-deps -- -D warnings
           cargo test   --target ${{ matrix.arch }}-unknown-linux-gnu
+
+      # run additional coverage measurement with exec-commands
+      - if: matrix.arch == 'x86_64' && matrix.toolchain == 'stable'
+        run: |
+          cargo build
+          exec-commands --diff
 
       # run coverage measurement postprocess
       - if: matrix.toolchain == 'stable'
