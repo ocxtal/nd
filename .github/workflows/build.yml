@@ -94,6 +94,7 @@ jobs:
             ~/.cargo/git/db/
             ~/.rustup/
             target/
+            grcov
           key: ${{ matrix.toolchain }}-${{ matrix.arch }}-unknown-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
 
       # install toolchain when the cache is not available
@@ -102,6 +103,7 @@ jobs:
         with:
           profile: minimal
           toolchain: stable
+
       - if: steps.cache-cargo.outputs.cache-hit != 'true'
         name: "Setup toolchain"
         run: |
@@ -109,9 +111,10 @@ jobs:
           rustup toolchain install --target=${{ matrix.arch }}-unknown-linux-gnu ${{ matrix.toolchain }}
           rustup component add --toolchain ${{ matrix.toolchain }} clippy llvm-tools-preview
           rustup component add llvm-tools-preview
-          curl -OL https://github.com/mozilla/grcov/releases/download/v0.8.13/grcov-x86_64-unknown-linux-musl.tar.bz2
-          tar xf grcov-x86_64-unknown-linux-musl.tar.bz2
-          cp ./grcov ~/.cargo/bin/.
+
+      - if: steps.cache-cargo.outputs.cache-hit != 'true' && matrix.toolchain == 'stable'
+        name: "Setup profiling tools"
+        run: curl -L https://github.com/mozilla/grcov/releases/download/v0.8.13/grcov-x86_64-unknown-linux-musl.tar.bz2 | tar jxf - > grcov
 
       # install cross-compiling toolchain for aarch64 targets
       - if: matrix.arch == 'aarch64'
@@ -119,9 +122,15 @@ jobs:
 
       # target-specific environment variables
       - if: matrix.arch == 'aarch64'
-        run: echo "RUSTFLAGS=-C target-cpu=cortex-x2 -C instrument-coverage" >> $GITHUB_ENV
+        run: |
+          echo "RUSTFLAGS=-C target-cpu=cortex-x2 -C instrument-coverage" >> $GITHUB_ENV
+          echo "CARGO_INCREMENTAL=0" >> $GITHUB_ENV
+          echo "LLVM_PROFILE_FILE=cargo-test-%p-%m.profraw" >> $GITHUB_ENV
       - if: matrix.arch == 'x86_64'
-        run: echo "RUSTFLAGS=-C target-cpu=x86-64-v3 -C instrument-coverage" >> $GITHUB_ENV
+        run: |
+          echo "RUSTFLAGS=-C target-cpu=x86-64-v3 -C instrument-coverage" >> $GITHUB_ENV
+          echo "CARGO_INCREMENTAL=0" >> $GITHUB_ENV
+          echo "LLVM_PROFILE_FILE=cargo-test-%p-%m.profraw" >> $GITHUB_ENV
 
       # run rustfmt
       - if: matrix.arch == 'x86_64' && matrix.toolchain == 'stable'
@@ -132,15 +141,13 @@ jobs:
       # run cargo clippy and cargo test on all confs
       - name: "Run cargo clippy -> cargo test"
         run: |
-          export CARGO_INCREMENTAL=0
-          export LLVM_PROFILE_FILE="cargo-test-%p-%m.profraw"
           rustup default ${{ matrix.toolchain }}
           cargo clippy --target ${{ matrix.arch }}-unknown-linux-gnu --no-deps -- -D warnings
           cargo test   --target ${{ matrix.arch }}-unknown-linux-gnu
-          grcov . --binary-path ./target/${{ matrix.arch }}-unknown-linux-gnu/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "../*" --ignore "/*" -o ${{ matrix.arch }}-${{ matrix.toolchain }}.info
+          ./grcov . --binary-path ./target/${{ matrix.arch }}-unknown-linux-gnu/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "../*" --ignore "/*" -o ${{ matrix.arch }}-${{ matrix.toolchain }}.info
 
       # update coverage report for merge in the later step
-      - if: matrix.toolchain == 'nightly'
+      - if: matrix.toolchain == 'stable'
         uses: actions/upload-artifact@v3
         with:
           name: ${{ matrix.arch }}-${{ matrix.toolchain }}-coverage-report
@@ -150,39 +157,32 @@ jobs:
     needs: cargo-test-all
     runs-on: ubuntu-22.04
     steps:
-      - name: "Setup PATH"
-        run: echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
-
       # checkout repository
       - uses: actions/checkout@v3
 
       # download all artifacts
       - uses: actions/download-artifact@v3
         with:
-          name: aarch64-nightly-coverage-report
+          name: aarch64-stable-coverage-report
       - uses: actions/download-artifact@v3
         with:
-          name: x86_64-nightly-coverage-report
+          name: x86_64-stable-coverage-report
 
       # restore grcov
       - uses: actions/cache@v3
         id: cache-grcov
         with:
-          path: |
-            ~/.cargo/bin/
+          path: grcov
           key: grcov
 
       # install exec-commands and check-links in ~/.cargo/bin when the cache is not available
       - if: steps.cache-grcov.outputs.cache-hit != 'true'
         name: "Install tools"
-        run: |
-          curl -OL https://github.com/mozilla/grcov/releases/download/v0.8.13/grcov-x86_64-unknown-linux-musl.tar.bz2
-          tar xf grcov-x86_64-unknown-linux-musl.tar.bz2
-          mkdir -p ~/.cargo/bin/ && cp ./grcov ~/.cargo/bin/.
+        run: curl -L https://github.com/mozilla/grcov/releases/download/v0.8.13/grcov-x86_64-unknown-linux-musl.tar.bz2 | tar jxf - > grcov
 
       # merge coverage information
       - run: |
-          grcov . -s . -t lcov --branch --ignore-not-existing --ignore '../*' --ignore "/*" -o coverage.info
+          ./grcov . -s . -t lcov --branch --ignore-not-existing --ignore '../*' --ignore "/*" -o coverage.info
       - uses: codecov/codecov-action@v3
         with:
           files: coverage.info
