@@ -10,7 +10,7 @@ alt:
   - raw: "cargo install --git https://github.com/ocxtal/nd.git"
     alt: ":"
   - raw: "cargo msrv --output-format=minimal"
-    alt: "cat ../msrv.txt"
+    alt: "cat ../msrv.txt || echo \"1.60.0 (without confirmation)\""
 
 hooks:
   pre_block:
