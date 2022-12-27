@@ -144,6 +144,10 @@ jobs:
           rustup default ${{ matrix.toolchain }}
           cargo clippy --target ${{ matrix.arch }}-unknown-linux-gnu --no-deps -- -D warnings
           cargo test   --target ${{ matrix.arch }}-unknown-linux-gnu
+
+      # run coverage measurement postprocess
+      - if: matrix.toolchain == 'stable'
+        run: |
           ./grcov . --binary-path ./target/${{ matrix.arch }}-unknown-linux-gnu/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "../*" --ignore "/*" -o ${{ matrix.arch }}-${{ matrix.toolchain }}.info
 
       # update coverage report for merge in the later step
