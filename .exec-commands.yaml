@@ -10,12 +10,14 @@ alt:
   - raw: "cargo install --git https://github.com/ocxtal/nd.git"
     alt: ":"
   - raw: "cargo msrv --output-format=minimal"
-    alt: "cat ../msrv.txt"
+    alt: "cat ../msrv.txt || echo \"1.60.0 (without confirmation)\""
 
 hooks:
   pre_block:
     - "git clean -f -d"
     - "git checkout HEAD ."
+  post_block:
+    - "if [ -n \"$(find -maxdepth 1 -type f -name \"*.profraw\" -print -quit)\" ]; then mv *.profraw ..; fi"
   post_file:
     - "git clean -f -d"
     - "git checkout HEAD ."
