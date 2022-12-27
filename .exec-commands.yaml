@@ -16,6 +16,8 @@ hooks:
   pre_block:
     - "git clean -f -d"
     - "git checkout HEAD ."
+  post_block:
+    - "if [ -e *.profraw ]; then mv *.profraw ..; fi"
   post_file:
     - "git clean -f -d"
     - "git checkout HEAD ."
