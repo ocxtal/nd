@@ -93,13 +93,10 @@ struct Args {
 
 impl Args {
     fn count_stdin(&self) -> usize {
-        let is_stdin = |x: &str| -> bool {
-            x == "-" || x == "/dev/stdin"
-        };
+        let is_stdin = |x: &str| -> bool { x == "-" || x == "/dev/stdin" };
 
         let count = self.inputs.iter().filter(|&x| is_stdin(x)).count();
-        let count = count + self.pipeline.count_stdin();
-        count
+        count + self.pipeline.count_stdin()
     }
 }
 

@@ -97,9 +97,7 @@ pub struct PipelineArgs {
 
 impl PipelineArgs {
     pub fn count_stdin(&self) -> usize {
-        let is_stdin = |x: &str| -> bool {
-            x == "-" || x == "/dev/stdin"
-        };
+        let is_stdin = |x: &str| -> bool { x == "-" || x == "/dev/stdin" };
 
         let mut count = 0;
         if let Some(patch) = &self.patch {
