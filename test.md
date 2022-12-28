@@ -158,22 +158,34 @@ $ nd test/hello.txt -o out.txt && cat out.txt && rm out.txt
 `-o` is a template.
 
 ```console
-$ nd test/hello.txt --width 3 -o "out.{l}.txt" && ls out.*.txt && cat out.1.txt out.0.txt && rm out.*.txt
+$ nd test/hello.txt --width 3 -o "out.{l}.txt" \
+    && ls out.*.txt \
+    && cat out.1.txt out.0.txt \
+    && rm out.*.txt
 out.0.txt
 out.1.txt
 000000000003 0003 | 6c 6f 0a | lo.
 000000000000 0003 | 48 65 6c | Hel
-$ nd test/hello.txt --width 3 -o "out.{n}.txt" && ls out.*.txt && cat out.3.txt out.0.txt && rm out.*.txt
+$ nd test/hello.txt --width 3 -o "out.{n}.txt" \
+    && ls out.*.txt \
+    && cat out.3.txt out.0.txt \
+    && rm out.*.txt
 out.0.txt
 out.3.txt
 000000000003 0003 | 6c 6f 0a | lo.
 000000000000 0003 | 48 65 6c | Hel
-$ nd test/hello.txt --width 3 -o "out.{n:02x}.txt" && ls out.*.txt && cat out.03.txt out.00.txt && rm out.*.txt
+$ nd test/hello.txt --width 3 -o "out.{n:02x}.txt" \
+    && ls out.*.txt \
+    && cat out.03.txt out.00.txt \
+    && rm out.*.txt
 out.00.txt
 out.03.txt
 000000000003 0003 | 6c 6f 0a | lo.
 000000000000 0003 | 48 65 6c | Hel
-$ nd test/hello.txt --width 3 -o "out.{(n+8):02x}.txt" && ls out.*.txt && cat out.0b.txt out.08.txt && rm out.*.txt
+$ nd test/hello.txt --width 3 -o "out.{(n+8):02x}.txt" \
+    && ls out.*.txt \
+    && cat out.0b.txt out.08.txt \
+    && rm out.*.txt
 out.08.txt
 out.0b.txt
 000000000003 0003 | 6c 6f 0a | lo.
@@ -183,7 +195,7 @@ out.0b.txt
 Multiple `-o` s are not allowed.
 
 ```console
-$ ! (nd test/hello.txt -o out1.txt -o out2.txt 2>&1)
+$ ! (nd test/hello.txt -o out.1.txt -o out.2.txt 2>&1)
 error: The argument '--output <FILE>' was provided more than once, but cannot be used multiple times
 
 USAGE:
@@ -206,7 +218,38 @@ $ nd test/hello.txt --pager "sed s/H/h/"
 ```console
 $ nd --patch-back cat test/hello.txt
 Hello
+$ nd -P cat test/hello.txt
+Hello
 $ nd --patch-back "sed s/48/68/" test/hello.txt
+hello
+$ nd -P "sed s/48/68/" test/hello.txt
+hello
+```
+
+`--inplace` overwrites the input file.
+
+```console
+$ cp test/hello.txt tmp.txt \
+    && nd --patch-back "sed s/48/68/" --inplace tmp.txt \
+    && cat tmp.txt \
+    && rm tmp.txt
+hello
+$ cp test/hello.txt tmp.txt \
+    && nd --patch-back "sed s/48/68/" -i tmp.txt \
+    && cat tmp.txt \
+    && rm tmp.txt
+hello
+```
+
+`--inplace` is applied for each file.
+
+```console
+$ cp test/hello.txt tmp.1.txt \
+    && cp test/hello.txt tmp.2.txt \
+    && nd --patch-back "sed s/48/68/" --inplace tmp.1.txt tmp.2.txt \
+    && cat tmp.1.txt tmp.2.txt \
+    && rm tmp.*.txt
+hello
 hello
 ```
 
