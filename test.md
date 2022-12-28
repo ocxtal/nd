@@ -7,8 +7,9 @@
    * `cargo install exec-commands --git https://github.com/ocxtal/exec-commands`
 2. Build nd
    * `cargo build`
-3. Run exec-commands in the root directory of nd.
+3. Run exec-commands in the root directory of this repository.
    * `exec-commands --diff --ignore-default-config --path target/debug --pwd . test.md`
+   * It overwrites this document when run without `--diff`.
 
 ## Version information
 
@@ -147,10 +148,20 @@ $ cat test/hello.txt | nd /dev/stdin
 Multiple stdins are not allowed.
 
 ```console
-$ ! (cat test/hello.txt | nd - - 2>&1)
-Error: "-" (stdin) must not appear more than once in the input files.
+$ ! (cat test/hello.txt | nd - -          2>&1)
+Error: "-" (stdin) must not be used more than once.
 $ ! (cat test/hello.txt | nd - /dev/stdin 2>&1)
-Error: "-" (stdin) must not appear more than once in the input files.
+Error: "-" (stdin) must not be used more than once.
+$ ! (nd test/hello.txt  | nd --patch=-          - 2>&1)
+Error: "-" (stdin) must not be used more than once.
+$ ! (nd test/hello.txt  | nd --patch=/dev/stdin - 2>&1)
+Error: "-" (stdin) must not be used more than once.
+$ ! (nd test/hello.txt  | nd --guide=-          - 2>&1)
+Error: "-" (stdin) must not be used more than once.
+$ ! (nd test/hello.txt  | nd --guide=/dev/stdin - 2>&1)
+Error: "-" (stdin) must not be used more than once.
+$ ! (nd test/hello.txt  | nd --patch=- --guide=- test/world.txt 2>&1)
+Error: "-" (stdin) must not be used more than once.
 ```
 
 ## Output handling
@@ -167,22 +178,28 @@ $ (nd test/hello.txt >out.txt && cat out.txt); rm -f out.txt
 000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
 ```
 
-`-o` specifies the output file.
+`--output` specifies the output file.
 
 ```console
-$ nd test/hello.txt -o -
+$ nd test/hello.txt --output -
 000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
-$ nd test/hello.txt -o /dev/stdout
+$ nd test/hello.txt -o       -
 000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
-$ (nd test/hello.txt -o out.txt && cat out.txt); rm -f out.txt
+$ nd test/hello.txt --output /dev/stdout
+000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
+$ nd test/hello.txt -o       /dev/stdout
+000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
+$ trap "rm -f out.txt" EXIT; \
+  (nd test/hello.txt -o out.txt && cat out.txt)
 000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
 ```
 
-`-o` is a template.
+`--output` is a template.
 
 ```console
+$ function setup () { trap "rm -f out.*.txt" EXIT; }
 $ function check () { ls out.*.txt && tail -n +1 out.*.txt; }
-$ (nd test/hello.txt --width 3 -o "out.{l}.txt" && check); rm out.*.txt
+$ (setup; nd test/hello.txt -w3 -o "out.{l}.txt"         && check)
 out.0.txt
 out.1.txt
 ==> out.0.txt <==
@@ -190,7 +207,7 @@ out.1.txt
 
 ==> out.1.txt <==
 000000000003 0003 | 6c 6f 0a | lo.
-$ (nd test/hello.txt --width 3 -o "out.{n}.txt" && check); rm out.*.txt
+$ (setup; nd test/hello.txt -w3 -o "out.{n}.txt"         && check)
 out.0.txt
 out.3.txt
 ==> out.0.txt <==
@@ -198,7 +215,7 @@ out.3.txt
 
 ==> out.3.txt <==
 000000000003 0003 | 6c 6f 0a | lo.
-$ (nd test/hello.txt --width 3 -o "out.{n:02x}.txt" && check); rm out.*.txt
+$ (setup; nd test/hello.txt -w3 -o "out.{n:02x}.txt"     && check)
 out.00.txt
 out.03.txt
 ==> out.00.txt <==
@@ -206,7 +223,7 @@ out.03.txt
 
 ==> out.03.txt <==
 000000000003 0003 | 6c 6f 0a | lo.
-$ (nd test/hello.txt --width 3 -o "out.{(n+8):02x}.txt" && check); rm out.*.txt
+$ (setup; nd test/hello.txt -w3 -o "out.{(n+8):02x}.txt" && check)
 out.08.txt
 out.0b.txt
 ==> out.08.txt <==
@@ -216,7 +233,7 @@ out.0b.txt
 000000000003 0003 | 6c 6f 0a | lo.
 ```
 
-Multiple `-o` s are not allowed.
+Multiple `--output` s are not allowed.
 
 ```console
 $ ! (nd test/hello.txt -o out.1.txt -o out.2.txt 2>&1)
@@ -247,75 +264,407 @@ $ PAGER="sed s/H/h/" nd test/hello.txt
 `--patch-back` feeds the output to another command and then applies its output to the original stream as a patch.
 
 ```console
-$ nd --patch-back cat test/hello.txt
+$ nd --patch-back cat            test/hello.txt
 Hello
-$ nd -P cat test/hello.txt
+$ nd -P           cat            test/hello.txt
 Hello
 $ nd --patch-back "sed s/48/68/" test/hello.txt
 hello
-$ nd -P "sed s/48/68/" test/hello.txt
+$ nd -P           "sed s/48/68/" test/hello.txt
 hello
 ```
 
-`--inplace` overwrites the input file, and is applied for each file.
+`--inplace` overwrites the input file.
 
 ```console
-$ function prep () { cp test/hello.txt tmp.$1.txt; }
-$ function check () { tail -n +1 tmp.*.txt; }
-$ (prep 1 && nd --patch-back "sed s/48/68/" --inplace tmp.1.txt && check); rm tmp.*.txt
-hello
-$ (prep 1 && nd --patch-back "sed s/48/68/" -i tmp.1.txt && check); rm tmp.*.txt
-hello
-$ (prep 1 && prep 2 && nd --patch-back "sed s/48/68/" --inplace tmp.1.txt tmp.2.txt && check); rm tmp.*.txt
+$ function setup () { trap "rm -f tmp.*.txt" EXIT; }
+$ function prep () { echo $* | xargs -n1 -I% cp test/hello.txt tmp.%.txt; }
+$ function check () { ls tmp.*.txt && tail -n +1 tmp.*.txt; }
+$ (setup; prep 1     && nd -P "sed s/6c/4c/" --inplace tmp.1.txt && check)
+tmp.1.txt
+HeLlo
+$ (setup; prep 1     && nd -P "sed s/6c/4c/" -i        tmp.1.txt && check)
+tmp.1.txt
+HeLlo
+```
+
+(cont'd) Applied for each file.
+
+```console continued
+$ (setup; prep 1 2 3 && nd -P "sed s/6c/4c/" --inplace tmp.1.txt tmp.2.txt tmp.3.txt && check)
+tmp.1.txt
+tmp.2.txt
+tmp.3.txt
 ==> tmp.1.txt <==
-hello
+HeLlo
 
 ==> tmp.2.txt <==
-hello
+HeLlo
+
+==> tmp.3.txt <==
+HeLlo
 ```
 
-## work-in-progress
+(cont'd) The file list is deduped when `--inplace`.
+
+```console continued
+$ (setup; prep 1     && nd -P "sed s/6c/4c/" --inplace tmp.1.txt tmp.1.txt tmp.1.txt && check)
+tmp.1.txt
+HeLlo
+```
+
+## Output format
+
+Raw and hex are supported. Hex without offset/lengths is todo. 
 
 ```console
-$ nd -c1 test/quick.txt test/quick.txt
-000000000000 0010 | 54 68 65 20 71 75 69 63 6b 20 62 72 6f 77 6e 20 | The quick brown 
-000000000010 0010 | 66 6f 78 20 6a 75 6d 70 73 20 6f 76 65 72 20 74 | fox jumps over t
-000000000020 0010 | 68 65 20 6c 61 7a 79 20 64 6f 67 2e 0a 54 68 65 | he lazy dog..The
-000000000030 0010 | 20 71 75 69 63 6b 20 62 72 6f 77 6e 20 66 6f 78 |  quick brown fox
-000000000040 0010 | 20 6a 75 6d 70 73 20 6f 76 65 72 20 74 68 65 20 |  jumps over the 
-000000000050 000a | 6c 61 7a 79 20 64 6f 67 2e 0a                   | lazy dog..      
-$ nd -c7 test/quick.txt test/quick.txt
-000000000000 0010 | 54 68 65 20 71 75 69 63 6b 20 62 72 6f 77 6e 20 | The quick brown 
-000000000010 0010 | 66 6f 78 20 6a 75 6d 70 73 20 6f 76 65 72 20 74 | fox jumps over t
-000000000020 0010 | 68 65 20 6c 61 7a 79 20 64 6f 67 2e 0a 00 00 00 | he lazy dog.....
-000000000030 0010 | 00 54 68 65 20 71 75 69 63 6b 20 62 72 6f 77 6e | .The quick brown
-000000000040 0010 | 20 66 6f 78 20 6a 75 6d 70 73 20 6f 76 65 72 20 |  fox jumps over 
-000000000050 0010 | 74 68 65 20 6c 61 7a 79 20 64 6f 67 2e 0a 00 00 | the lazy dog....
-000000000060 0002 | 00 00                                           | ..              
-$ nd -z1 test/quick.txt test/quick.txt
-000000000000 0010 | 54 54 68 68 65 65 20 20 71 71 75 75 69 69 63 63 | TThhee  qquuiicc
-000000000010 0010 | 6b 6b 20 20 62 62 72 72 6f 6f 77 77 6e 6e 20 20 | kk  bbrroowwnn  
-000000000020 0010 | 66 66 6f 6f 78 78 20 20 6a 6a 75 75 6d 6d 70 70 | ffooxx  jjuummpp
-000000000030 0010 | 73 73 20 20 6f 6f 76 76 65 65 72 72 20 20 74 74 | ss  oovveerr  tt
-000000000040 0010 | 68 68 65 65 20 20 6c 6c 61 61 7a 7a 79 79 20 20 | hhee  llaazzyy  
-000000000050 000a | 64 64 6f 6f 67 67 2e 2e 0a 0a                   | ddoogg....      
-$ nd -z7 test/quick.txt test/quick.txt
-000000000000 0010 | 54 68 65 20 71 75 69 54 68 65 20 71 75 69 63 6b | The quiThe quick
-000000000010 0010 | 20 62 72 6f 77 63 6b 20 62 72 6f 77 6e 20 66 6f |  browck brown fo
-000000000020 0010 | 78 20 6a 6e 20 66 6f 78 20 6a 75 6d 70 73 20 6f | x jn fox jumps o
-000000000030 0010 | 76 75 6d 70 73 20 6f 76 65 72 20 74 68 65 20 65 | vumps over the e
-000000000040 0010 | 72 20 74 68 65 20 6c 61 7a 79 20 64 6f 6c 61 7a | r the lazy dolaz
-000000000050 0010 | 79 20 64 6f 67 2e 0a 00 00 00 00 67 2e 0a 00 00 | y dog......g....
-000000000060 0002 | 00 00                                           | ..              
-$ nd --patch=<(echo "000000000010 0003 | 66 72 6f 67") test/quick.txt
-000000000000 0010 | 54 68 65 20 71 75 69 63 6b 20 62 72 6f 77 6e 20 | The quick brown 
-000000000010 0010 | 66 72 6f 67 20 6a 75 6d 70 73 20 6f 76 65 72 20 | frog jumps over 
-000000000020 000e | 74 68 65 20 6c 61 7a 79 20 64 6f 67 2e 0a       | the lazy dog..  
-$ nd --patch=<(echo "000000000010 0003 | 66 72 6f 67") test/quick.txt test/quick.txt
-000000000000 0010 | 54 68 65 20 71 75 69 63 6b 20 62 72 6f 77 6e 20 | The quick brown 
-000000000010 0010 | 66 72 6f 67 20 6a 75 6d 70 73 20 6f 76 65 72 20 | frog jumps over 
-000000000020 0010 | 74 68 65 20 6c 61 7a 79 20 64 6f 67 2e 0a 54 68 | the lazy dog..Th
-000000000030 0010 | 65 20 71 75 69 63 6b 20 62 72 6f 77 6e 20 66 6f | e quick brown fo
-000000000040 0010 | 78 20 6a 75 6d 70 73 20 6f 76 65 72 20 74 68 65 | x jumps over the
-000000000050 000b | 20 6c 61 7a 79 20 64 6f 67 2e 0a                |  lazy dog..     
+$ nd --out-format xxx test/hello.txt
+000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
+$ nd -f xxx           test/hello.txt
+000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
+$ nd --out-format x   test/hello.txt
+000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
+$ nd -f x             test/hello.txt
+000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
+$ nd --out-format nnx test/hello.txt  # FIXME
+000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
+$ nd -f nnx           test/hello.txt  # FIXME
+000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
+$ nd --out-format nnb test/hello.txt
+Hello
+$ nd -f nnb           test/hello.txt
+Hello
+$ nd --out-format b   test/hello.txt
+Hello
+$ nd -f b             test/hello.txt
+Hello
+$ ! (nd --out-format xx   test/hello.txt 2>&1)
+error: Invalid value "xx" for '--out-format <FORMAT>': unrecognized input / output format signature: "xx"
+
+For more information try --help
+$ ! (nd --out-format xxxx test/hello.txt 2>&1 | head -1)
+error: Invalid value "xxxx" for '--out-format <FORMAT>': unrecognized input / output format signature: "xxxx"
+$ ! (nd --out-format nxx  test/hello.txt 2>&1 | head -1)
+error: Invalid value "nxx" for '--out-format <FORMAT>': unrecognized input / output format signature: "nxx"
+$ ! (nd --out-format bbb  test/hello.txt 2>&1 | head -1)
+error: Invalid value "bbb" for '--out-format <FORMAT>': unrecognized input / output format signature: "bbb"
 ```
+
+## Input format
+
+Raw and hex with/without offset/lengths are supported.
+
+```console
+$ nd -a6 -w6 test/hello.txt | tail -1 | nd --in-format xxx
+000000000000 000c | 00 00 00 00 00 00 48 65 6c 6c 6f 0a             | ......Hello.    
+$ nd -a6 -w6 test/hello.txt | tail -1 | nd -F xxx
+000000000000 000c | 00 00 00 00 00 00 48 65 6c 6c 6f 0a             | ......Hello.    
+$ nd -a6 -w6 test/hello.txt | tail -1 | nd --in-format x
+000000000000 000c | 00 00 00 00 00 00 48 65 6c 6c 6f 0a             | ......Hello.    
+$ nd -a6 -w6 test/hello.txt | tail -1 | nd -F x
+000000000000 000c | 00 00 00 00 00 00 48 65 6c 6c 6f 0a             | ......Hello.    
+$ nd -a6 -w6 test/hello.txt | tail -1 | nd --in-format nnx
+000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
+$ nd -a6 -w6 test/hello.txt | tail -1 | nd -F nnx
+000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
+$ nd test/hello.txt | nd --in-format b   | head -2
+000000000000 0010 | 30 30 30 30 30 30 30 30 30 30 30 30 20 30 30 30 | 000000000000 000
+000000000010 0010 | 36 20 7c 20 34 38 20 36 35 20 36 63 20 36 63 20 | 6 | 48 65 6c 6c 
+$ nd test/hello.txt | nd -F b            | head -2
+000000000000 0010 | 30 30 30 30 30 30 30 30 30 30 30 30 20 30 30 30 | 000000000000 000
+000000000010 0010 | 36 20 7c 20 34 38 20 36 35 20 36 63 20 36 63 20 | 6 | 48 65 6c 6c 
+$ nd test/hello.txt | nd --in-format nnb | head -2
+000000000000 0010 | 30 30 30 30 30 30 30 30 30 30 30 30 20 30 30 30 | 000000000000 000
+000000000010 0010 | 36 20 7c 20 34 38 20 36 35 20 36 63 20 36 63 20 | 6 | 48 65 6c 6c 
+$ nd test/hello.txt | nd -F nnb          | head -2
+000000000000 0010 | 30 30 30 30 30 30 30 30 30 30 30 30 20 30 30 30 | 000000000000 000
+000000000010 0010 | 36 20 7c 20 34 38 20 36 35 20 36 63 20 36 63 20 | 6 | 48 65 6c 6c 
+$ ! (nd test/hello.txt | nd -F xx   2>&1)
+error: Invalid value "xx" for '--in-format <FORMAT>': unrecognized input / output format signature: "xx"
+
+For more information try --help
+$ ! (nd test/hello.txt | nd -F xxxx 2>&1 | head -1)
+error: Invalid value "xxxx" for '--in-format <FORMAT>': unrecognized input / output format signature: "xxxx"
+$ ! (nd test/hello.txt | nd -F nxx  2>&1 | head -1)
+error: Invalid value "nxx" for '--in-format <FORMAT>': unrecognized input / output format signature: "nxx"
+$ ! (nd test/hello.txt | nd -F bbb  2>&1 | head -1)
+error: Invalid value "bbb" for '--in-format <FORMAT>': unrecognized input / output format signature: "bbb"
+```
+
+TODO: test input parser.
+
+## Filler
+
+`--filler` overwrites padding value.
+
+```console
+$ nd -a2,2                            test/hello.txt
+000000000000 000a | 00 00 48 65 6c 6c 6f 0a 00 00                   | ..Hello...      
+$ nd -a2,2 --filler 0                 test/hello.txt
+000000000000 000a | 00 00 48 65 6c 6c 6f 0a 00 00                   | ..Hello...      
+$ nd -a2,2 --filler 128               test/hello.txt
+000000000000 000a | 80 80 48 65 6c 6c 6f 0a 80 80                   | ..Hello...      
+$ nd -a2,2 --filler 0xff              test/hello.txt
+000000000000 000a | ff ff 48 65 6c 6c 6f 0a ff ff                   | ..Hello...      
+$ nd -a2,2 --filler "0xffff - 0xff00" test/hello.txt
+000000000000 000a | ff ff 48 65 6c 6c 6f 0a ff ff                   | ..Hello...      
+$ nd -a2,2 --filler "0xff & -1"       test/hello.txt
+000000000000 000a | ff ff 48 65 6c 6c 6f 0a ff ff                   | ..Hello...      
+$ ! (nd -a2,2 --filler 256     test/hello.txt 2>&1)
+Error: filler must be within [0, 256) (got: 256)
+$ ! (nd -a2,2 --filler "0 - 1" test/hello.txt 2>&1)
+error: Invalid value "0 - 1" for '--filler <N>': negative value is not allowed for this option ("0 - 1" gave -1).
+
+For more information try --help
+```
+
+It applies to all operations that pad.
+
+```console
+$ nd --cat 4   --filler 128 test/hello.txt test/world.txt
+000000000000 0010 | 48 65 6c 6c 6f 0a 80 80 77 6f 72 6c 64 0a 80 80 | Hello...world...
+$ nd --zip 4   --filler 128 test/hello.txt test/world.txt
+000000000000 0010 | 48 65 6c 6c 77 6f 72 6c 6f 0a 80 80 64 0a 80 80 | Hellworlo...d...
+$ nd --pad 4   --filler 128 test/hello.txt
+000000000000 000a | 80 80 80 80 48 65 6c 6c 6f 0a                   | ....Hello.      
+$ nd --pad 0,4 --filler 128 test/hello.txt
+000000000000 000a | 48 65 6c 6c 6f 0a 80 80 80 80                   | Hello.....      
+$ nd -a6 -w6 test/hello.txt | tail -1 | nd --in-format x --filler 128
+000000000000 000c | 80 80 80 80 80 80 48 65 6c 6c 6f 0a             | ......Hello.    
+```
+
+## Input stream multiplexing
+
+The default is `--cat 1`.
+
+```console
+$ nd test/hello.txt test/world.txt
+000000000000 000c | 48 65 6c 6c 6f 0a 77 6f 72 6c 64 0a             | Hello.world.    
+$ cat test/world.txt | nd test/hello.txt -
+000000000000 000c | 48 65 6c 6c 6f 0a 77 6f 72 6c 64 0a             | Hello.world.    
+$ cat test/hello.txt | nd - test/world.txt
+000000000000 000c | 48 65 6c 6c 6f 0a 77 6f 72 6c 64 0a             | Hello.world.    
+```
+
+An arbitrary positive value is allowed.
+
+```console
+$ nd --cat 5           test/hello.txt test/world.txt
+000000000000 0010 | 48 65 6c 6c 6f 0a 00 00 00 00 77 6f 72 6c 64 0a | Hello.....world.
+000000000010 0004 | 00 00 00 00                                     | ....            
+$ nd -c 5              test/hello.txt test/world.txt
+000000000000 0010 | 48 65 6c 6c 6f 0a 00 00 00 00 77 6f 72 6c 64 0a | Hello.....world.
+000000000010 0004 | 00 00 00 00                                     | ....            
+$ nd --cat "65536 + 1" test/hello.txt test/world.txt 2>&1 >/dev/null
+$ nd -c "65536 + 1"    test/hello.txt test/world.txt 2>&1 >/dev/null
+$ cat test/hello.txt | nd --cat 4 - test/world.txt
+000000000000 0010 | 48 65 6c 6c 6f 0a 00 00 77 6f 72 6c 64 0a 00 00 | Hello...world...
+$ ! (nd --cat "0 - 1" test/hello.txt test/world.txt 2>&1)
+error: Invalid value "0 - 1" for '--cat <N>': negative value is not allowed for this option ("0 - 1" gave -1).
+
+For more information try --help
+```
+
+`--zip` as well.
+
+```console
+$ nd --zip 5           test/hello.txt test/world.txt
+000000000000 0010 | 48 65 6c 6c 6f 77 6f 72 6c 64 0a 00 00 00 00 0a | Helloworld......
+000000000010 0004 | 00 00 00 00                                     | ....            
+$ nd -z 5              test/hello.txt test/world.txt
+000000000000 0010 | 48 65 6c 6c 6f 77 6f 72 6c 64 0a 00 00 00 00 0a | Helloworld......
+000000000010 0004 | 00 00 00 00                                     | ....            
+$ nd --zip "65536 + 1" test/hello.txt test/world.txt 2>&1 >/dev/null
+$ nd -z    "65536 + 1" test/hello.txt test/world.txt 2>&1 >/dev/null
+$ cat test/hello.txt | nd --zip 4 - test/world.txt
+000000000000 0010 | 48 65 6c 6c 77 6f 72 6c 6f 0a 00 00 64 0a 00 00 | Hellworlo...d...
+$ ! (nd --zip "0 - 1" test/hello.txt test/world.txt 2>&1)
+error: Invalid value "0 - 1" for '--zip <N>': negative value is not allowed for this option ("0 - 1" gave -1).
+
+For more information try --help
+```
+
+## Seek and pad
+
+`--cut` slices and concatenates the stream.
+
+```console
+$ nd --cut 1..2      test/hello.txt
+000000000000 0001 | 65                                              | e               
+$ nd --cut 1..2,4..5 test/hello.txt
+000000000000 0002 | 65 6f                                           | eo              
+$ nd --cut  ..2,4..  test/hello.txt
+000000000000 0004 | 48 65 6f 0a                                     | Heo.            
+$ nd --cut  ..       test/hello.txt
+000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
+$ nd -n 1..2         test/hello.txt
+000000000000 0001 | 65                                              | e               
+$ nd -n 1..2,4..5    test/hello.txt
+000000000000 0002 | 65 6f                                           | eo              
+$ nd -n  ..2,4..     test/hello.txt
+000000000000 0004 | 48 65 6f 0a                                     | Heo.            
+$ nd -n  ..          test/hello.txt
+000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
+$ nd --cut 2..2      test/hello.txt
+```
+
+Empty ranges and negative indices are allowed for now (may be changed in the future).
+
+```console
+$ nd --cut   2..1 test/hello.txt
+$ nd --cut 0-1..1 test/hello.txt
+000000000000 0001 | 48                                              | H               
+```
+
+Trailing comma allowed.
+
+```console
+$ nd --cut 1..2, test/hello.txt
+000000000000 0001 | 65                                              | e               
+```
+
+`--pad` adds filler bytes.
+
+```console
+$ nd --pad 2,2 test/hello.txt
+000000000000 000a | 00 00 48 65 6c 6c 6f 0a 00 00                   | ..Hello...      
+$ nd --pad 2   test/hello.txt
+000000000000 0008 | 00 00 48 65 6c 6c 6f 0a                         | ..Hello.        
+$ nd --pad 2,  test/hello.txt
+000000000000 0008 | 00 00 48 65 6c 6c 6f 0a                         | ..Hello.        
+$ nd --pad  ,2 test/hello.txt
+000000000000 0008 | 48 65 6c 6c 6f 0a 00 00                         | Hello...        
+$ nd -a 2,2    test/hello.txt
+000000000000 000a | 00 00 48 65 6c 6c 6f 0a 00 00                   | ..Hello...      
+$ nd -a 2      test/hello.txt
+000000000000 0008 | 00 00 48 65 6c 6c 6f 0a                         | ..Hello.        
+$ nd -a 2,     test/hello.txt
+000000000000 0008 | 00 00 48 65 6c 6c 6f 0a                         | ..Hello.        
+$ nd -a  ,2    test/hello.txt
+000000000000 0008 | 48 65 6c 6c 6f 0a 00 00                         | Hello...        
+$ ! (nd --pad=-2   test/hello.txt 2>&1)
+error: Invalid value "-2" for '--pad <N,M>': negative values are not allowed for this option ("-2" gave -2 and 0).
+
+For more information try --help
+$ ! (nd --pad 2,2, test/hello.txt 2>&1)
+error: Invalid value "2,2," for '--pad <N,M>': "N,M" format expected for this option.
+
+For more information try --help
+$ ! (nd --pad ,,   test/hello.txt 2>&1 | head -1)
+error: Invalid value ",," for '--pad <N,M>': "N,M" format expected for this option.
+$ ! (nd --pad xx   test/hello.txt 2>&1 | head -1)
+error: Invalid value "xx" for '--pad <N,M>': failed to parse "xx" at "xx": parsing failed at a variable in "xx"
+```
+
+`--pad` is applied after `--cut`.
+
+```console
+$ nd --pad 2,2 --cut 1..2,4..5 test/hello.txt
+000000000000 0006 | 00 00 65 6f 00 00                               | ..eo..          
+$ nd --cut 1..2,4..5 --pad 2,2 test/hello.txt
+000000000000 0006 | 00 00 65 6f 00 00                               | ..eo..          
+```
+
+## Patch
+
+Substitution.
+
+```console
+$ echo "02 02 | 68" | nd --patch -          test/hello.txt
+000000000000 0005 | 48 65 68 6f 0a                                  | Heho.           
+$ echo "02 02 | 68" | nd --patch /dev/stdin test/hello.txt
+000000000000 0005 | 48 65 68 6f 0a                                  | Heho.           
+$ echo "02 04 | 68" | nd --patch -          test/hello.txt
+000000000000 0003 | 48 65 68                                        | Heh             
+$ echo "02 05 | 68" | nd --patch -          test/hello.txt
+000000000000 0003 | 48 65 68                                        | Heh             
+```
+
+Spaces and trailing comments are ignored.
+
+```console
+$ echo "02 05 | 68 "        | nd --patch - test/hello.txt
+000000000000 0003 | 48 65 68                                        | Heh             
+$ echo "02 05 | 68 |"       | nd --patch - test/hello.txt
+000000000000 0003 | 48 65 68                                        | Heh             
+$ echo "02 05 | 68 | "      | nd --patch - test/hello.txt
+000000000000 0003 | 48 65 68                                        | Heh             
+$ echo "02 05 | 68 |abcde"  | nd --patch - test/hello.txt
+000000000000 0003 | 48 65 68                                        | Heh             
+$ echo "02 05 | 68 | abcde" | nd --patch - test/hello.txt
+000000000000 0003 | 48 65 68                                        | Heh             
+$ echo "02 05 | 68  |"      | nd --patch - test/hello.txt
+000000000000 0003 | 48 65 68                                        | Heh             
+$ echo "02 05 | 68   |"     | nd --patch - test/hello.txt
+000000000000 0003 | 48 65 68                                        | Heh             
+$ echo "02 05 | 68    |"    | nd --patch - test/hello.txt
+000000000000 0003 | 48 65 68                                        | Heh             
+$ echo "02 05 | 68     |"   | nd --patch - test/hello.txt
+000000000000 0003 | 48 65 68                                        | Heh             
+```
+
+The last line doesn't have to have the trailing newline.
+
+```console
+$ printf "02 05 | 68"             | nd --patch - test/hello.txt
+000000000000 0003 | 48 65 68                                        | Heh             
+$ printf "02 01 | 68\n03 01 | 68" | nd --patch - test/hello.txt
+000000000000 0006 | 48 65 68 68 6f 0a                               | Hehho.          
+```
+
+Offset and length fields can be as long as 15 digits.
+
+```console
+$    echo "2 5 | 68"                | nd --patch - test/hello.txt
+000000000000 0003 | 48 65 68                                        | Heh             
+$    echo "00000000000002 5 | 68"   | nd --patch - test/hello.txt
+000000000000 0003 | 48 65 68                                        | Heh             
+$    echo "000000000000002 5 | 68"  | nd --patch - test/hello.txt
+000000000000 0003 | 48 65 68                                        | Heh             
+$ ! (echo "0000000000000002 5 | 68" | nd --patch - test/hello.txt 2>&1)
+thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: failed to parse the header at record "0000000000000002 5 | 68"', src/byte/patch.rs:75:26
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+$    echo "2 00000000000005 | 68"   | nd --patch - test/hello.txt
+000000000000 0003 | 48 65 68                                        | Heh             
+$    echo "2 000000000000005 | 68"  | nd --patch - test/hello.txt
+000000000000 0003 | 48 65 68                                        | Heh             
+$ ! (echo "2 0000000000000005 | 68" | nd --patch - test/hello.txt 2>&1)
+thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: failed to parse the header at record "2 0000000000000005 | 68"', src/byte/patch.rs:75:26
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+```
+
+Insertion.
+
+```console
+$ echo "00 00 | 6c 6c" | nd --patch - test/hello.txt
+000000000000 0008 | 6c 6c 48 65 6c 6c 6f 0a                         | llHello.        
+$ echo "02 00 | 6c 6c" | nd --patch - test/hello.txt
+000000000000 0008 | 48 65 6c 6c 6c 6c 6f 0a                         | Hellllo.        
+$ echo "06 00 | 6c 6c" | nd --patch - test/hello.txt  # FIXME
+000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
+$ echo "07 00 | 6c 6c" | nd --patch - test/hello.txt
+000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
+```
+
+Deletion.
+
+```console
+$ echo "02 02 | " | nd --patch - test/hello.txt
+000000000000 0004 | 48 65 6f 0a                                     | Heo.            
+$ echo "02 04 | " | nd --patch - test/hello.txt
+000000000000 0002 | 48 65                                           | He              
+$ echo "02 05 | " | nd --patch - test/hello.txt
+000000000000 0002 | 48 65                                           | He              
+```
+
+The array can be omitted but any partial delimiter is not allowed.
+
+```console
+$    echo "02 02"     | nd --patch - test/hello.txt
+000000000000 0004 | 48 65 6f 0a                                     | Heo.            
+$ ! (echo "02 02 "    | nd --patch - test/hello.txt)
+$ ! (echo "02 02 |"   | nd --patch - test/hello.txt)
+$ ! (echo "02 02 |  " | nd --patch - test/hello.txt)
+000000000000 0004 | 48 65 6f 0a                                     | Heo.            
+```
+
