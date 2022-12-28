@@ -95,6 +95,23 @@ pub struct PipelineArgs {
     patch_back: Option<String>,
 }
 
+impl PipelineArgs {
+    pub fn count_stdin(&self) -> usize {
+        let is_stdin = |x: &str| -> bool {
+            x == "-" || x == "/dev/stdin"
+        };
+
+        let mut count = 0;
+        if let Some(patch) = &self.patch {
+            count += is_stdin(patch) as usize;
+        }
+        if let Some(patch) = &self.guide {
+            count += is_stdin(patch) as usize;
+        }
+        count
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Node {
     // input placeholders: Read -> ByteStream
@@ -304,8 +321,12 @@ impl Pipeline {
     }
 
     fn open_file(&self, file: &str) -> Result<Box<dyn ByteStream>> {
-        let file = std::fs::File::open(file)?;
-        Ok(Box::new(RawStream::new(Box::new(file), 1, self.filler)))
+        let file: Box<dyn Read + Send> = if file == "-" {
+            Box::new(std::io::stdin())
+        } else {
+            Box::new(std::fs::File::open(file)?)
+        };
+        Ok(Box::new(RawStream::new(file, 1, self.filler)))
     }
 
     fn build_parser(&self, source: Box<dyn Read + Send>) -> Box<dyn ByteStream> {

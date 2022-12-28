@@ -91,6 +91,18 @@ struct Args {
     pipeline: PipelineArgs,
 }
 
+impl Args {
+    fn count_stdin(&self) -> usize {
+        let is_stdin = |x: &str| -> bool {
+            x == "-" || x == "/dev/stdin"
+        };
+
+        let count = self.inputs.iter().filter(|&x| is_stdin(x)).count();
+        let count = count + self.pipeline.count_stdin();
+        count
+    }
+}
+
 fn main() -> Result<()> {
     let mut command = Args::command()
         .name("nd")
@@ -103,6 +115,10 @@ fn main() -> Result<()> {
         .infer_long_args(true);
 
     let args = Args::from_arg_matches(&command.get_matches_mut())?;
+    if args.count_stdin() > 1 {
+        return Err(anyhow!("\"-\" (stdin) must not be used more than once."));
+    }
+
     let pipeline = Pipeline::from_args(&args.pipeline)?;
 
     // process the stream
@@ -134,17 +150,12 @@ fn main() -> Result<()> {
 }
 
 fn build_sources(files: &[String]) -> Result<Vec<Box<dyn Read + Send>>> {
-    if files.iter().filter(|&x| x == "-" || x == "/dev/stdin").count() > 1 {
-        return Err(anyhow!("\"-\" (stdin) must not appear more than once in the input files."));
-    }
-
     let mut v: Vec<Box<dyn Read + Send>> = Vec::new();
     for file in files.iter() {
         if file == "-" {
             v.push(Box::new(std::io::stdin()));
         } else {
-            let path = std::path::Path::new(file);
-            let file = std::fs::File::open(path)?;
+            let file = std::fs::File::open(file)?;
             v.push(Box::new(file));
         }
     }
