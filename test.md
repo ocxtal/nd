@@ -1,6 +1,15 @@
 
 # nd test script
 
+## Running this script
+
+1. Install [exec-commands](https://github.com/ocxtal/exec-commands)
+   * `cargo install exec-commands --git https://github.com/ocxtal/exec-commands`
+2. Build nd
+   * `cargo build`
+3. Run exec-commands in the root directory of nd.
+   * `exec-commands --diff --ignore-default-config --path target/debug --pwd . test.md`
+
 ## Version information
 
 ```console
@@ -8,7 +17,7 @@ $ nd --version
 nd 0.0.1
 $ nd -V
 nd 0.0.1
-$ ! (nd -version 2>&1)
+$ ! (nd -version 2>&1)  # --invert "ersion"
 Error: parsing failed at a variable in "ersion"
 ```
 
@@ -71,17 +80,13 @@ OPTIONS:
         --filler N          use N (0 <= N < 256) for padding
         --pager PAGER       feed the stream to PAGER (ignored in the --inplace mode) [less -S -F]
 
-$ nd -h | head -5
+$ nd -h | head -3
 
 nd 0.0.1 -- streamed blob manipulator
 
-USAGE:
-
-$ nd -help | head -5  # -h -e "lp"
+$ nd -help | head -3  # --help --regex "lp"
 
 nd 0.0.1 -- streamed blob manipulator
-
-USAGE:
 
 $ ! (nd -H 2>&1)
 error: Found argument '-H' which wasn't expected, or isn't valid in this context
@@ -92,6 +97,24 @@ USAGE:
     nd [options] FILE ...
 
 For more information try --help
+```
+
+Printed to stdout when requested.
+
+```console
+$ nd --help >/dev/null
+$ nd --help 2>/dev/null | head -3
+
+nd 0.0.1 -- streamed blob manipulator
+
+```
+
+Printed to stderr on error.
+
+```console
+$ ! (nd -H 2>&1 >/dev/null | head -1)
+error: Found argument '-H' which wasn't expected, or isn't valid in this context
+$ ! (nd -H 2>/dev/null)
 ```
 
 ## Input handling
@@ -137,10 +160,10 @@ The default output is stdout.
 ```console
 $ nd test/hello.txt
 000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
-$ nd test/hello.txt > /dev/null
-$ nd test/hello.txt > /dev/stdout
+$ nd test/hello.txt >/dev/null
+$ nd test/hello.txt >/dev/stdout
 000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
-$ nd test/hello.txt > out.txt && cat out.txt && rm out.txt
+$ (nd test/hello.txt >out.txt && cat out.txt); rm -f out.txt
 000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
 ```
 
@@ -151,45 +174,46 @@ $ nd test/hello.txt -o -
 000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
 $ nd test/hello.txt -o /dev/stdout
 000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
-$ nd test/hello.txt -o out.txt && cat out.txt && rm out.txt
+$ (nd test/hello.txt -o out.txt && cat out.txt); rm -f out.txt
 000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
 ```
 
 `-o` is a template.
 
 ```console
-$ nd test/hello.txt --width 3 -o "out.{l}.txt" \
-    && ls out.*.txt \
-    && cat out.1.txt out.0.txt \
-    && rm out.*.txt
+$ function check () { ls out.*.txt && tail -n +1 out.*.txt; }
+$ (nd test/hello.txt --width 3 -o "out.{l}.txt" && check); rm out.*.txt
 out.0.txt
 out.1.txt
-000000000003 0003 | 6c 6f 0a | lo.
+==> out.0.txt <==
 000000000000 0003 | 48 65 6c | Hel
-$ nd test/hello.txt --width 3 -o "out.{n}.txt" \
-    && ls out.*.txt \
-    && cat out.3.txt out.0.txt \
-    && rm out.*.txt
+
+==> out.1.txt <==
+000000000003 0003 | 6c 6f 0a | lo.
+$ (nd test/hello.txt --width 3 -o "out.{n}.txt" && check); rm out.*.txt
 out.0.txt
 out.3.txt
-000000000003 0003 | 6c 6f 0a | lo.
+==> out.0.txt <==
 000000000000 0003 | 48 65 6c | Hel
-$ nd test/hello.txt --width 3 -o "out.{n:02x}.txt" \
-    && ls out.*.txt \
-    && cat out.03.txt out.00.txt \
-    && rm out.*.txt
+
+==> out.3.txt <==
+000000000003 0003 | 6c 6f 0a | lo.
+$ (nd test/hello.txt --width 3 -o "out.{n:02x}.txt" && check); rm out.*.txt
 out.00.txt
 out.03.txt
-000000000003 0003 | 6c 6f 0a | lo.
+==> out.00.txt <==
 000000000000 0003 | 48 65 6c | Hel
-$ nd test/hello.txt --width 3 -o "out.{(n+8):02x}.txt" \
-    && ls out.*.txt \
-    && cat out.0b.txt out.08.txt \
-    && rm out.*.txt
+
+==> out.03.txt <==
+000000000003 0003 | 6c 6f 0a | lo.
+$ (nd test/hello.txt --width 3 -o "out.{(n+8):02x}.txt" && check); rm out.*.txt
 out.08.txt
 out.0b.txt
-000000000003 0003 | 6c 6f 0a | lo.
+==> out.08.txt <==
 000000000000 0003 | 48 65 6c | Hel
+
+==> out.0b.txt <==
+000000000003 0003 | 6c 6f 0a | lo.
 ```
 
 Multiple `-o` s are not allowed.
@@ -213,6 +237,13 @@ $ nd test/hello.txt --pager "sed s/H/h/"
 000000000000 0006 | 48 65 6c 6c 6f 0a                               | hello.          
 ```
 
+It recognizes `PAGER`.
+
+```console
+$ PAGER="sed s/H/h/" nd test/hello.txt
+000000000000 0006 | 48 65 6c 6c 6f 0a                               | hello.          
+```
+
 `--patch-back` feeds the output to another command and then applies its output to the original stream as a patch.
 
 ```console
@@ -226,30 +257,20 @@ $ nd -P "sed s/48/68/" test/hello.txt
 hello
 ```
 
-`--inplace` overwrites the input file.
+`--inplace` overwrites the input file, and is applied for each file.
 
 ```console
-$ cp test/hello.txt tmp.txt \
-    && nd --patch-back "sed s/48/68/" --inplace tmp.txt \
-    && cat tmp.txt \
-    && rm tmp.txt
+$ function prep () { cp test/hello.txt tmp.$1.txt; }
+$ function check () { tail -n +1 tmp.*.txt; }
+$ (prep 1 && nd --patch-back "sed s/48/68/" --inplace tmp.1.txt && check); rm tmp.*.txt
 hello
-$ cp test/hello.txt tmp.txt \
-    && nd --patch-back "sed s/48/68/" -i tmp.txt \
-    && cat tmp.txt \
-    && rm tmp.txt
+$ (prep 1 && nd --patch-back "sed s/48/68/" -i tmp.1.txt && check); rm tmp.*.txt
 hello
-```
+$ (prep 1 && prep 2 && nd --patch-back "sed s/48/68/" --inplace tmp.1.txt tmp.2.txt && check); rm tmp.*.txt
+==> tmp.1.txt <==
+hello
 
-`--inplace` is applied for each file.
-
-```console
-$ cp test/hello.txt tmp.1.txt \
-    && cp test/hello.txt tmp.2.txt \
-    && nd --patch-back "sed s/48/68/" --inplace tmp.1.txt tmp.2.txt \
-    && cat tmp.1.txt tmp.2.txt \
-    && rm tmp.*.txt
-hello
+==> tmp.2.txt <==
 hello
 ```
 
