@@ -315,7 +315,7 @@ HeLlo
 
 ## Output format
 
-Raw and hex are supported. Hex without offset/lengths is todo. 
+Raw and hex are supported. Hex without offset/lengths is todo.
 
 ```console
 $ nd --out-format xxx test/hello.txt
