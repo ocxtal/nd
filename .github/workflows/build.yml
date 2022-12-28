@@ -43,8 +43,7 @@ jobs:
         with:
           filters: |
             md:
-              - '*.md'
-              - '**/*.md'
+              - 'README.md'
 
       # determine MSRV before running exec-commands
       - if: steps.changes.outputs.md == 'true'
