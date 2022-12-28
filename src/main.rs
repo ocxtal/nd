@@ -107,7 +107,11 @@ fn main() -> Result<()> {
 
     // process the stream
     if pipeline.is_inplace() {
-        for input in args.inputs.windows(1) {
+        let mut inputs = args.inputs;
+        inputs.sort();
+        inputs.dedup();
+
+        for input in inputs.windows(1) {
             let sources = build_sources(input)?;
 
             let tmpfile = format!("{}.tmp", &input[0]);
