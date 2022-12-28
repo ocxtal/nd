@@ -278,7 +278,7 @@ hello
 
 ```console
 $ function setup () { trap "rm -f tmp.*.txt" EXIT; }
-$ function prep () { echo $* | xargs -n1 -I% cp test/hello.txt tmp.%.txt; }
+$ function prep () { printf "%s\n" $* | xargs -I% -n1 cp test/hello.txt tmp.%.txt; }
 $ function check () { ls tmp.*.txt && tail -n +1 tmp.*.txt; }
 $ (setup; prep 1     && nd -P "sed s/6c/4c/" --inplace tmp.1.txt && check)
 tmp.1.txt
