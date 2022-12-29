@@ -81,7 +81,7 @@ OPTIONS:
 
 #[derive(Debug, Parser)]
 struct Args {
-    #[clap(value_name = "FILE", default_value = "-")]
+    #[clap(value_name = "FILE")]
     inputs: Vec<String>,
 
     #[clap(long = "pager", value_name = "PAGER")]
@@ -95,12 +95,15 @@ impl Args {
     fn count_stdin(&self) -> usize {
         let is_stdin = |x: &str| -> bool { x == "-" || x == "/dev/stdin" };
 
-        let count = self.inputs.iter().filter(|&x| is_stdin(x)).count();
-        count + self.pipeline.count_stdin()
+        self.inputs.iter().filter(|&x| is_stdin(x)).count()
+    }
+
+    fn is_command_alone(&self) -> bool {
+        self.inputs.is_empty() && atty::is(Stream::Stdin) && atty::is(Stream::Stdout) && atty::is(Stream::Stderr)
     }
 }
 
-fn main() -> Result<()> {
+fn main() {
     let mut command = Args::command()
         .name("nd")
         .version("0.0.1")
@@ -111,15 +114,34 @@ fn main() -> Result<()> {
         .dont_delimit_trailing_values(true)
         .infer_long_args(true);
 
+    if let Err(err) = main_impl(&mut command) {
+        eprint!("error");
+        err.chain().for_each(|x| eprint!(": {x}"));
+
+        // clap-style footer
+        eprintln!("\n\n{}\n\nFor more information try --help", command.render_usage());
+
+        std::process::exit(1);
+    }
+}
+
+fn main_impl(command: &mut clap::Command) -> Result<()> {
     let args = Args::from_arg_matches(&command.get_matches_mut())?;
-    if args.count_stdin() > 1 {
-        return Err(anyhow!("\"-\" (stdin) must not be used more than once."));
+    if args.count_stdin() + args.pipeline.count_stdin() > 1 {
+        return Err(anyhow!("stdin (\"-\" or \"/dev/stdin\") must not be used more than once"));
+    }
+    if args.is_command_alone() {
+        return Err(anyhow!("No input nor output found"));
     }
 
     let pipeline = Pipeline::from_args(&args.pipeline)?;
 
     // process the stream
     if pipeline.is_inplace() {
+        if args.count_stdin() > 0 {
+            return Err(anyhow!("stdin (\"-\" or \"/dev/stdin\") must not be used with '--inplace'"));
+        }
+
         let mut inputs = args.inputs;
         inputs.sort();
         inputs.dedup();
@@ -136,7 +158,13 @@ fn main() -> Result<()> {
             std::fs::rename(&tmpfile, &input[0])?;
         }
     } else {
-        let sources = build_sources(&args.inputs)?;
+        let inputs = if args.inputs.is_empty() {
+            vec!["-".to_string()]
+        } else {
+            args.inputs
+        };
+
+        let sources = build_sources(&inputs)?;
         let (child, drain) = build_drain(&args.pager)?;
 
         let stream = pipeline.spawn_stream(sources)?;
