@@ -19,7 +19,12 @@ nd 0.0.1
 $ nd -V
 nd 0.0.1
 $ ! (nd -version 2>&1)  # --invert "ersion"
-Error: parsing failed at a variable in "ersion"
+error: parsing failed at a variable in "ersion"
+
+USAGE:
+    nd [options] FILE ...
+
+For more information try --help
 ```
 
 ## Help message
@@ -149,19 +154,54 @@ Multiple stdins are not allowed.
 
 ```console
 $ ! (cat test/hello.txt | nd - -          2>&1)
-Error: "-" (stdin) must not be used more than once.
+error: stdin ("-" or "/dev/stdin") must not be used more than once
+
+USAGE:
+    nd [options] FILE ...
+
+For more information try --help
 $ ! (cat test/hello.txt | nd - /dev/stdin 2>&1)
-Error: "-" (stdin) must not be used more than once.
+error: stdin ("-" or "/dev/stdin") must not be used more than once
+
+USAGE:
+    nd [options] FILE ...
+
+For more information try --help
 $ ! (nd test/hello.txt  | nd --patch=-          - 2>&1)
-Error: "-" (stdin) must not be used more than once.
+error: stdin ("-" or "/dev/stdin") must not be used more than once
+
+USAGE:
+    nd [options] FILE ...
+
+For more information try --help
 $ ! (nd test/hello.txt  | nd --patch=/dev/stdin - 2>&1)
-Error: "-" (stdin) must not be used more than once.
+error: stdin ("-" or "/dev/stdin") must not be used more than once
+
+USAGE:
+    nd [options] FILE ...
+
+For more information try --help
 $ ! (nd test/hello.txt  | nd --guide=-          - 2>&1)
-Error: "-" (stdin) must not be used more than once.
+error: stdin ("-" or "/dev/stdin") must not be used more than once
+
+USAGE:
+    nd [options] FILE ...
+
+For more information try --help
 $ ! (nd test/hello.txt  | nd --guide=/dev/stdin - 2>&1)
-Error: "-" (stdin) must not be used more than once.
+error: stdin ("-" or "/dev/stdin") must not be used more than once
+
+USAGE:
+    nd [options] FILE ...
+
+For more information try --help
 $ ! (nd test/hello.txt  | nd --patch=- --guide=- test/world.txt 2>&1)
-Error: "-" (stdin) must not be used more than once.
+error: stdin ("-" or "/dev/stdin") must not be used more than once
+
+USAGE:
+    nd [options] FILE ...
+
+For more information try --help
 ```
 
 ## Output handling
@@ -411,7 +451,12 @@ $ nd -a2,2 --filler "0xffff - 0xff00" test/hello.txt
 $ nd -a2,2 --filler "0xff & -1"       test/hello.txt
 000000000000 000a | ff ff 48 65 6c 6c 6f 0a ff ff                   | ..Hello...      
 $ ! (nd -a2,2 --filler 256     test/hello.txt 2>&1)
-Error: filler must be within [0, 256) (got: 256)
+error: filler must be within [0, 256) (got: 256)
+
+USAGE:
+    nd [options] FILE ...
+
+For more information try --help
 $ ! (nd -a2,2 --filler "0 - 1" test/hello.txt 2>&1)
 error: Invalid value "0 - 1" for '--filler <N>': negative value is not allowed for this option ("0 - 1" gave -1).
 
