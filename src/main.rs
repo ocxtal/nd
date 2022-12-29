@@ -139,7 +139,7 @@ fn main_impl(command: &mut clap::Command) -> Result<()> {
     // process the stream
     if pipeline.is_inplace() {
         if args.count_stdin() > 0 {
-            return Err(anyhow!("stdin (\"-\" or \"/dev/stdin\") must not be used with '--inplace'"))
+            return Err(anyhow!("stdin (\"-\" or \"/dev/stdin\") must not be used with '--inplace'"));
         }
 
         let mut inputs = args.inputs;
