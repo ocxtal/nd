@@ -117,7 +117,7 @@ fn main() {
 
     if let Err(err) = main_impl(&mut command) {
         eprint!("error");
-        err.chain().for_each(|x| eprint!(": {}", x));
+        err.chain().for_each(|x| eprint!(": {x}"));
 
         // clap-style footer
         eprintln!("\n\n{}\n\nFor more information try --help", command.render_usage());
