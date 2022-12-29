@@ -95,8 +95,7 @@ impl Args {
     fn count_stdin(&self) -> usize {
         let is_stdin = |x: &str| -> bool { x == "-" || x == "/dev/stdin" };
 
-        let count = self.inputs.iter().filter(|&x| is_stdin(x)).count();
-        count + self.pipeline.count_stdin()
+        self.inputs.iter().filter(|&x| is_stdin(x)).count()
     }
 
     fn is_command_alone(&self) -> bool {
@@ -128,8 +127,8 @@ fn main() {
 
 fn main_impl(command: &mut clap::Command) -> Result<()> {
     let args = Args::from_arg_matches(&command.get_matches_mut())?;
-    if args.count_stdin() > 1 {
-        return Err(anyhow!("\"-\" (stdin) must not be used more than once."));
+    if args.count_stdin() + args.pipeline.count_stdin() > 1 {
+        return Err(anyhow!("stdin (\"-\" or \"/dev/stdin\") must not be used more than once"));
     }
     if args.is_command_alone() {
         return Err(anyhow!("No input nor output found"));
@@ -139,6 +138,10 @@ fn main_impl(command: &mut clap::Command) -> Result<()> {
 
     // process the stream
     if pipeline.is_inplace() {
+        if args.count_stdin() > 0 {
+            return Err(anyhow!("stdin (\"-\" or \"/dev/stdin\") must not be used with '--inplace'"))
+        }
+
         let mut inputs = args.inputs;
         inputs.sort();
         inputs.dedup();
