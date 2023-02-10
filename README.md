@@ -526,7 +526,7 @@ $ nd --width 8,s+2..e-2 quick.txt | nd --filler 0xff --in-format x
 
 It feeds the stdout of nd to `CMD`.
 
-* The default value is `less -F -S` if the output is a terminal. No pager is used by default if the output is piped to another command.
+* The default value is `less -F -S -X` if the output is a terminal. No pager is used by default if the output is piped to another command.
 * If the user specifies the `--pager` option or sets the `PAGER` environment variable, it feeds the stdout to a pager. The `--pager` option precedes the `PAGER` environment variable.
 
 ## Expression evaluation engine
