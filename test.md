@@ -84,7 +84,7 @@ OPTIONS:
     -h, --help              print help (this) message
     -V, --version           print version information
         --filler N          use N (0 <= N < 256) for padding
-        --pager PAGER       feed the stream to PAGER (ignored in the --inplace mode) [less -S -F]
+        --pager PAGER       feed the stream to PAGER (ignored in the --inplace mode) [less -S -F -X]
 
 $ nd -h | head -3
 
