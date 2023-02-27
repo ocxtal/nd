@@ -139,12 +139,12 @@ fn test_template_has_variable() {
 
     macro_rules! has_variable {
         ( $pattern: expr ) => {
-            !Template::from_str($pattern, Some(&vars)).unwrap().has_variable()
+            Template::from_str($pattern, Some(&vars)).unwrap().has_variable()
         };
     }
 
-    assert!(has_variable!(""));
-    assert!(has_variable!("name"));
+    assert!(!has_variable!(""));
+    assert!(!has_variable!("name"));
 
     assert!(has_variable!("{a}"));
     assert!(has_variable!("prefix{a}"));
