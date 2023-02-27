@@ -71,51 +71,51 @@ fn latter_precedes(former: &Token, latter: &Token) -> bool {
 
 #[test]
 fn test_precedence() {
-    assert_eq!(latter_precedes(&Op('*'), &Op('*')), false);
-    assert_eq!(latter_precedes(&Op('*'), &Op('/')), false);
-    assert_eq!(latter_precedes(&Op('*'), &Op('%')), false);
-    assert_eq!(latter_precedes(&Op('/'), &Op('*')), false);
-    assert_eq!(latter_precedes(&Op('%'), &Op('*')), false);
+    assert!(!latter_precedes(&Op('*'), &Op('*')));
+    assert!(!latter_precedes(&Op('*'), &Op('/')));
+    assert!(!latter_precedes(&Op('*'), &Op('%')));
+    assert!(!latter_precedes(&Op('/'), &Op('*')));
+    assert!(!latter_precedes(&Op('%'), &Op('*')));
 
-    assert_eq!(latter_precedes(&Op('*'), &Op('+')), false);
-    assert_eq!(latter_precedes(&Op('*'), &Op('+')), false);
-    assert_eq!(latter_precedes(&Op('*'), &Op('+')), false);
-    assert_eq!(latter_precedes(&Op('/'), &Op('+')), false);
-    assert_eq!(latter_precedes(&Op('%'), &Op('+')), false);
+    assert!(!latter_precedes(&Op('*'), &Op('+')));
+    assert!(!latter_precedes(&Op('*'), &Op('+')));
+    assert!(!latter_precedes(&Op('*'), &Op('+')));
+    assert!(!latter_precedes(&Op('/'), &Op('+')));
+    assert!(!latter_precedes(&Op('%'), &Op('+')));
 
-    assert_eq!(latter_precedes(&Op('+'), &Op('*')), true);
-    assert_eq!(latter_precedes(&Op('+'), &Op('*')), true);
-    assert_eq!(latter_precedes(&Op('+'), &Op('*')), true);
-    assert_eq!(latter_precedes(&Op('+'), &Op('/')), true);
-    assert_eq!(latter_precedes(&Op('+'), &Op('%')), true);
+    assert!(latter_precedes(&Op('+'), &Op('*')));
+    assert!(latter_precedes(&Op('+'), &Op('*')));
+    assert!(latter_precedes(&Op('+'), &Op('*')));
+    assert!(latter_precedes(&Op('+'), &Op('/')));
+    assert!(latter_precedes(&Op('+'), &Op('%')));
 
-    assert_eq!(latter_precedes(&Op('+'), &Op('+')), false);
-    assert_eq!(latter_precedes(&Op('-'), &Op('+')), false);
-    assert_eq!(latter_precedes(&Op('+'), &Op('-')), false);
+    assert!(!latter_precedes(&Op('+'), &Op('+')));
+    assert!(!latter_precedes(&Op('-'), &Op('+')));
+    assert!(!latter_precedes(&Op('+'), &Op('-')));
 
-    assert_eq!(latter_precedes(&Op('*'), &Op('<')), false);
-    assert_eq!(latter_precedes(&Op('<'), &Op('*')), true);
-    assert_eq!(latter_precedes(&Op('+'), &Op('<')), false);
-    assert_eq!(latter_precedes(&Op('<'), &Op('+')), true);
-    assert_eq!(latter_precedes(&Op('<'), &Op('>')), false);
+    assert!(!latter_precedes(&Op('*'), &Op('<')));
+    assert!(latter_precedes(&Op('<'), &Op('*')));
+    assert!(!latter_precedes(&Op('+'), &Op('<')));
+    assert!(latter_precedes(&Op('<'), &Op('+')));
+    assert!(!latter_precedes(&Op('<'), &Op('>')));
 
-    assert_eq!(latter_precedes(&Op('*'), &Op('@')), false);
-    assert_eq!(latter_precedes(&Op('@'), &Op('*')), true);
-    assert_eq!(latter_precedes(&Op('+'), &Op('@')), false);
-    assert_eq!(latter_precedes(&Op('@'), &Op('+')), true);
-    assert_eq!(latter_precedes(&Op('@'), &Op('@')), true);
+    assert!(!latter_precedes(&Op('*'), &Op('@')));
+    assert!(latter_precedes(&Op('@'), &Op('*')));
+    assert!(!latter_precedes(&Op('+'), &Op('@')));
+    assert!(latter_precedes(&Op('@'), &Op('+')));
+    assert!(latter_precedes(&Op('@'), &Op('@')));
 
-    assert_eq!(latter_precedes(&Op('+'), &Op('g')), false);
-    assert_eq!(latter_precedes(&Op('g'), &Op('+')), true);
-    assert_eq!(latter_precedes(&Op('@'), &Op('g')), false);
-    assert_eq!(latter_precedes(&Op('g'), &Op('@')), true);
-    assert_eq!(latter_precedes(&Op('g'), &Op('g')), false);
+    assert!(!latter_precedes(&Op('+'), &Op('g')));
+    assert!(latter_precedes(&Op('g'), &Op('+')));
+    assert!(!latter_precedes(&Op('@'), &Op('g')));
+    assert!(latter_precedes(&Op('g'), &Op('@')));
+    assert!(!latter_precedes(&Op('g'), &Op('g')));
 
-    assert_eq!(latter_precedes(&Prefix('+'), &Op('*')), false);
-    assert_eq!(latter_precedes(&Prefix('+'), &Op('+')), false);
-    assert_eq!(latter_precedes(&Prefix('+'), &Op('<')), false);
-    assert_eq!(latter_precedes(&Prefix('+'), &Op('g')), false);
-    assert_eq!(latter_precedes(&Prefix('+'), &Op('@')), true);
+    assert!(!latter_precedes(&Prefix('+'), &Op('*')));
+    assert!(!latter_precedes(&Prefix('+'), &Op('+')));
+    assert!(!latter_precedes(&Prefix('+'), &Op('<')));
+    assert!(!latter_precedes(&Prefix('+'), &Op('g')));
+    assert!(latter_precedes(&Prefix('+'), &Op('@')));
 }
 
 fn parse_op<I>(first: char, it: &mut Peekable<I>) -> Option<Token>
