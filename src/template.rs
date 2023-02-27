@@ -143,21 +143,21 @@ fn test_template_has_variable() {
         };
     }
 
-    assert_eq!(has_variable!(""), false);
-    assert_eq!(has_variable!("name"), false);
+    assert!(!has_variable!(""));
+    assert!(!has_variable!("name"));
 
-    assert_eq!(has_variable!("{a}"), true);
-    assert_eq!(has_variable!("prefix{a}"), true);
-    assert_eq!(has_variable!("{a}suffix"), true);
-    assert_eq!(has_variable!("prefix{a}suffix"), true);
+    assert!(has_variable!("{a}"));
+    assert!(has_variable!("prefix{a}"));
+    assert!(has_variable!("{a}suffix"));
+    assert!(has_variable!("prefix{a}suffix"));
 
-    assert_eq!(has_variable!("{a}"), true);
-    assert_eq!(has_variable!("{a:}"), true);
-    assert_eq!(has_variable!("{a:x}"), true);
+    assert!(has_variable!("{a}"));
+    assert!(has_variable!("{a:}"));
+    assert!(has_variable!("{a:x}"));
 
-    assert_eq!(has_variable!("{(a + 1)}"), true);
-    assert_eq!(has_variable!("{(a + 1):}"), true);
-    assert_eq!(has_variable!("{(a + 1):x}"), true);
+    assert!(has_variable!("{(a + 1)}"));
+    assert!(has_variable!("{(a + 1):}"));
+    assert!(has_variable!("{(a + 1):x}"));
 }
 
 #[test]
