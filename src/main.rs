@@ -131,7 +131,7 @@ fn main_impl(command: &mut clap::Command) -> Result<()> {
         return Err(anyhow!("stdin (\"-\" or \"/dev/stdin\") must not be used more than once"));
     }
     if args.is_command_alone() {
-        return Err(anyhow!("No input nor output found"));
+        return Err(anyhow!("no input nor output found"));
     }
 
     let pipeline = Pipeline::from_args(&args.pipeline)?;
