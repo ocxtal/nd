@@ -21,8 +21,7 @@ nd 0.0.1
 $ ! (nd -version 2>&1)  # --invert "ersion"
 error: parsing failed at a variable in "ersion"
 
-USAGE:
-    nd [options] FILE ...
+Usage: nd [options] FILE ...
 
 For more information try --help
 ```
@@ -31,7 +30,6 @@ For more information try --help
 
 ```console
 $ nd --help
-
 nd 0.0.1 -- streamed blob manipulator
 
 USAGE:
@@ -85,24 +83,22 @@ OPTIONS:
     -V, --version           print version information
         --filler N          use N (0 <= N < 256) for padding
         --pager PAGER       feed the stream to PAGER (ignored in the --inplace mode) [less -S -F -X]
-
 $ nd -h | head -3
-
 nd 0.0.1 -- streamed blob manipulator
-
-$ nd -help | head -3  # --help --regex "lp"
-
-nd 0.0.1 -- streamed blob manipulator
-
-$ ! (nd -H 2>&1)
-error: Found argument '-H' which wasn't expected, or isn't valid in this context
-
-	If you tried to supply `-H` as a value rather than a flag, use `-- -H`
 
 USAGE:
-    nd [options] FILE ...
+$ nd -help | head -3  # --help --regex "lp"
+nd 0.0.1 -- streamed blob manipulator
 
-For more information try --help
+USAGE:
+$ ! (nd -H 2>&1)
+error: unexpected argument '-H' found
+
+  tip: to pass '-H' as a value, use '-- -H'
+
+Usage: nd [options] FILE ...
+
+For more information, try '--help'.
 ```
 
 Printed to stdout when requested.
@@ -110,16 +106,16 @@ Printed to stdout when requested.
 ```console
 $ nd --help >/dev/null
 $ nd --help 2>/dev/null | head -3
-
 nd 0.0.1 -- streamed blob manipulator
 
+USAGE:
 ```
 
 Printed to stderr on error.
 
 ```console
 $ ! (nd -H 2>&1 >/dev/null | head -1)
-error: Found argument '-H' which wasn't expected, or isn't valid in this context
+error: unexpected argument '-H' found
 $ ! (nd -H 2>/dev/null)
 ```
 
@@ -156,50 +152,43 @@ Multiple stdins are not allowed.
 $ ! (cat test/hello.txt | nd - -          2>&1)
 error: stdin ("-" or "/dev/stdin") must not be used more than once
 
-USAGE:
-    nd [options] FILE ...
+Usage: nd [options] FILE ...
 
 For more information try --help
 $ ! (cat test/hello.txt | nd - /dev/stdin 2>&1)
 error: stdin ("-" or "/dev/stdin") must not be used more than once
 
-USAGE:
-    nd [options] FILE ...
+Usage: nd [options] FILE ...
 
 For more information try --help
 $ ! (nd test/hello.txt  | nd --patch=-          - 2>&1)
 error: stdin ("-" or "/dev/stdin") must not be used more than once
 
-USAGE:
-    nd [options] FILE ...
+Usage: nd [options] FILE ...
 
 For more information try --help
 $ ! (nd test/hello.txt  | nd --patch=/dev/stdin - 2>&1)
 error: stdin ("-" or "/dev/stdin") must not be used more than once
 
-USAGE:
-    nd [options] FILE ...
+Usage: nd [options] FILE ...
 
 For more information try --help
 $ ! (nd test/hello.txt  | nd --guide=-          - 2>&1)
 error: stdin ("-" or "/dev/stdin") must not be used more than once
 
-USAGE:
-    nd [options] FILE ...
+Usage: nd [options] FILE ...
 
 For more information try --help
 $ ! (nd test/hello.txt  | nd --guide=/dev/stdin - 2>&1)
 error: stdin ("-" or "/dev/stdin") must not be used more than once
 
-USAGE:
-    nd [options] FILE ...
+Usage: nd [options] FILE ...
 
 For more information try --help
 $ ! (nd test/hello.txt  | nd --patch=- --guide=- test/world.txt 2>&1)
 error: stdin ("-" or "/dev/stdin") must not be used more than once
 
-USAGE:
-    nd [options] FILE ...
+Usage: nd [options] FILE ...
 
 For more information try --help
 ```
@@ -277,12 +266,11 @@ Multiple `--output` s are not allowed.
 
 ```console
 $ ! (nd test/hello.txt -o out.1.txt -o out.2.txt 2>&1)
-error: The argument '--output <FILE>' was provided more than once, but cannot be used multiple times
+error: the argument '--output <FILE>' cannot be used multiple times
 
-USAGE:
-    nd [options] FILE ...
+Usage: nd [options] FILE ...
 
-For more information try --help
+For more information, try '--help'.
 ```
 
 `--pager` feeds the output to another command.
@@ -379,15 +367,15 @@ Hello
 $ nd -f b             test/hello.txt
 Hello
 $ ! (nd --out-format xx   test/hello.txt 2>&1)
-error: Invalid value "xx" for '--out-format <FORMAT>': unrecognized input / output format signature: "xx"
+error: invalid value 'xx' for '--out-format <FORMAT>': unrecognized input / output format signature: "xx"
 
-For more information try --help
+For more information, try '--help'.
 $ ! (nd --out-format xxxx test/hello.txt 2>&1 | head -1)
-error: Invalid value "xxxx" for '--out-format <FORMAT>': unrecognized input / output format signature: "xxxx"
+error: invalid value 'xxxx' for '--out-format <FORMAT>': unrecognized input / output format signature: "xxxx"
 $ ! (nd --out-format nxx  test/hello.txt 2>&1 | head -1)
-error: Invalid value "nxx" for '--out-format <FORMAT>': unrecognized input / output format signature: "nxx"
+error: invalid value 'nxx' for '--out-format <FORMAT>': unrecognized input / output format signature: "nxx"
 $ ! (nd --out-format bbb  test/hello.txt 2>&1 | head -1)
-error: Invalid value "bbb" for '--out-format <FORMAT>': unrecognized input / output format signature: "bbb"
+error: invalid value 'bbb' for '--out-format <FORMAT>': unrecognized input / output format signature: "bbb"
 ```
 
 ## Input format
@@ -420,15 +408,15 @@ $ nd test/hello.txt | nd -F nnb          | head -2
 000000000000 0010 | 30 30 30 30 30 30 30 30 30 30 30 30 20 30 30 30 | 000000000000 000
 000000000010 0010 | 36 20 7c 20 34 38 20 36 35 20 36 63 20 36 63 20 | 6 | 48 65 6c 6c 
 $ ! (nd test/hello.txt | nd -F xx   2>&1)
-error: Invalid value "xx" for '--in-format <FORMAT>': unrecognized input / output format signature: "xx"
+error: invalid value 'xx' for '--in-format <FORMAT>': unrecognized input / output format signature: "xx"
 
-For more information try --help
+For more information, try '--help'.
 $ ! (nd test/hello.txt | nd -F xxxx 2>&1 | head -1)
-error: Invalid value "xxxx" for '--in-format <FORMAT>': unrecognized input / output format signature: "xxxx"
+error: invalid value 'xxxx' for '--in-format <FORMAT>': unrecognized input / output format signature: "xxxx"
 $ ! (nd test/hello.txt | nd -F nxx  2>&1 | head -1)
-error: Invalid value "nxx" for '--in-format <FORMAT>': unrecognized input / output format signature: "nxx"
+error: invalid value 'nxx' for '--in-format <FORMAT>': unrecognized input / output format signature: "nxx"
 $ ! (nd test/hello.txt | nd -F bbb  2>&1 | head -1)
-error: Invalid value "bbb" for '--in-format <FORMAT>': unrecognized input / output format signature: "bbb"
+error: invalid value 'bbb' for '--in-format <FORMAT>': unrecognized input / output format signature: "bbb"
 ```
 
 TODO: test input parser.
@@ -453,14 +441,13 @@ $ nd -a2,2 --filler "0xff & -1"       test/hello.txt
 $ ! (nd -a2,2 --filler 256     test/hello.txt 2>&1)
 error: filler must be within [0, 256) (got: 256)
 
-USAGE:
-    nd [options] FILE ...
+Usage: nd [options] FILE ...
 
 For more information try --help
 $ ! (nd -a2,2 --filler "0 - 1" test/hello.txt 2>&1)
-error: Invalid value "0 - 1" for '--filler <N>': negative value is not allowed for this option ("0 - 1" gave -1).
+error: invalid value '0 - 1' for '--filler <N>': negative value is not allowed for this option ("0 - 1" gave -1).
 
-For more information try --help
+For more information, try '--help'.
 ```
 
 It applies to all operations that pad.
@@ -505,9 +492,9 @@ $ nd -c "65536 + 1"    test/hello.txt test/world.txt 2>&1 >/dev/null
 $ cat test/hello.txt | nd --cat 4 - test/world.txt
 000000000000 0010 | 48 65 6c 6c 6f 0a 00 00 77 6f 72 6c 64 0a 00 00 | Hello...world...
 $ ! (nd --cat "0 - 1" test/hello.txt test/world.txt 2>&1)
-error: Invalid value "0 - 1" for '--cat <N>': negative value is not allowed for this option ("0 - 1" gave -1).
+error: invalid value '0 - 1' for '--cat <N>': negative value is not allowed for this option ("0 - 1" gave -1).
 
-For more information try --help
+For more information, try '--help'.
 ```
 
 `--zip` as well.
@@ -524,9 +511,9 @@ $ nd -z    "65536 + 1" test/hello.txt test/world.txt 2>&1 >/dev/null
 $ cat test/hello.txt | nd --zip 4 - test/world.txt
 000000000000 0010 | 48 65 6c 6c 77 6f 72 6c 6f 0a 00 00 64 0a 00 00 | Hellworlo...d...
 $ ! (nd --zip "0 - 1" test/hello.txt test/world.txt 2>&1)
-error: Invalid value "0 - 1" for '--zip <N>': negative value is not allowed for this option ("0 - 1" gave -1).
+error: invalid value '0 - 1' for '--zip <N>': negative value is not allowed for this option ("0 - 1" gave -1).
 
-For more information try --help
+For more information, try '--help'.
 ```
 
 ## Seek and pad
@@ -588,17 +575,17 @@ $ nd -a 2,     test/hello.txt
 $ nd -a  ,2    test/hello.txt
 000000000000 0008 | 48 65 6c 6c 6f 0a 00 00                         | Hello...        
 $ ! (nd --pad=-2   test/hello.txt 2>&1)
-error: Invalid value "-2" for '--pad <N,M>': negative values are not allowed for this option ("-2" gave -2 and 0).
+error: invalid value '-2' for '--pad <N,M>': negative values are not allowed for this option ("-2" gave -2 and 0).
 
-For more information try --help
+For more information, try '--help'.
 $ ! (nd --pad 2,2, test/hello.txt 2>&1)
-error: Invalid value "2,2," for '--pad <N,M>': "N,M" format expected for this option.
+error: invalid value '2,2,' for '--pad <N,M>': "N,M" format expected for this option.
 
-For more information try --help
+For more information, try '--help'.
 $ ! (nd --pad ,,   test/hello.txt 2>&1 | head -1)
-error: Invalid value ",," for '--pad <N,M>': "N,M" format expected for this option.
+error: invalid value ',,' for '--pad <N,M>': "N,M" format expected for this option.
 $ ! (nd --pad xx   test/hello.txt 2>&1 | head -1)
-error: Invalid value "xx" for '--pad <N,M>': failed to parse "xx" at "xx": parsing failed at a variable in "xx"
+error: invalid value 'xx' for '--pad <N,M>': failed to parse "xx" at "xx": parsing failed at a variable in "xx"
 ```
 
 `--pad` is applied after `--cut`.
