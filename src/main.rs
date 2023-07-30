@@ -11,10 +11,9 @@ mod template;
 mod text;
 
 use anyhow::{anyhow, Context, Result};
-use atty::Stream;
 use clap::{ColorChoice, CommandFactory, FromArgMatches, Parser};
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{IsTerminal, Read, Write};
 use std::process::{Child, Stdio};
 
 use byte::ByteStream;
@@ -99,7 +98,7 @@ impl Args {
     }
 
     fn is_command_alone(&self) -> bool {
-        self.inputs.is_empty() && atty::is(Stream::Stdin) && atty::is(Stream::Stdout) && atty::is(Stream::Stderr)
+        self.inputs.is_empty() && std::io::stdin().is_terminal() && std::io::stdout().is_terminal() && std::io::stderr().is_terminal() 
     }
 }
 
@@ -193,7 +192,7 @@ fn build_sources(files: &[String]) -> Result<Vec<Box<dyn Read + Send>>> {
 
 fn build_drain(pager: &Option<String>) -> Result<(Option<Child>, Box<dyn Write>)> {
     let pager = pager.clone().or_else(|| std::env::var("PAGER").ok());
-    if pager.is_none() && !atty::is(Stream::Stdout) {
+    if pager.is_none() && !std::io::stdout().is_terminal() {
         return Ok((None, Box::new(std::io::stdout())));
     }
 
