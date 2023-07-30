@@ -98,7 +98,7 @@ impl Args {
     }
 
     fn is_command_alone(&self) -> bool {
-        self.inputs.is_empty() && std::io::stdin().is_terminal() && std::io::stdout().is_terminal() && std::io::stderr().is_terminal() 
+        self.inputs.is_empty() && std::io::stdin().is_terminal() && std::io::stdout().is_terminal() && std::io::stderr().is_terminal()
     }
 }
 
