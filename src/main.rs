@@ -125,7 +125,7 @@ fn main() {
         if is_error {
             eprint!("error");
             err.chain().for_each(|x| eprint!(": {x}"));
-            eprintln!("");
+            eprintln!();
         }
         if print_usage {
             // clap-style footer
