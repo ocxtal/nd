@@ -162,10 +162,7 @@ mod tests {
 
                 while offset < pattern.len() {
                     let base = offset;
-                    let tail = rng.gen_range(base..=std::cmp::min(pattern.len(), base + 1024));
-                    if base == tail {
-                        continue;
-                    }
+                    let tail = rng.gen_range(base + 1..=std::cmp::min(pattern.len(), base + 1024));
 
                     while offset < tail {
                         let (_, len) = stream.fill_buf(1).unwrap();
