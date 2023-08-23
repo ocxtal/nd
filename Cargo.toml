@@ -10,4 +10,4 @@ memchr = "2.5"
 rand = { version = "0.8", features = ["small_rng"] }
 regex = "1.9"
 num-runtime-fmt = "0.1"
-tempfile = "3.7"
+tempfile = "3.8"
