@@ -145,15 +145,18 @@ where
     Some(Op(first))
 }
 
-fn parse_char(c: char) -> Option<i64> {
+fn parse_char(c: char) -> Option<(bool, i64)> {
+    if c == '_' {
+        return Some((true, 0));
+    }
     if c.is_ascii_digit() {
-        return Some((c as i64) - ('0' as i64));
+        return Some((false, (c as i64) - ('0' as i64)));
     }
     if ('a'..='f').contains(&c) {
-        return Some((c as i64) - ('a' as i64) + 10);
+        return Some((false, (c as i64) - ('a' as i64) + 10));
     }
     if ('A'..='F').contains(&c) {
-        return Some((c as i64) - ('A' as i64) + 10);
+        return Some((false, (c as i64) - ('A' as i64) + 10));
     }
 
     // if c == '.' {
@@ -202,13 +205,40 @@ where
         }
     };
 
-    let mut val = parse_char(first)?;
-    while let Some(digit) = parse_char(*it.peek().unwrap_or(&'\n')) {
-        if digit >= num_base {
+    let mut skip_mask = 1u64;
+    let mut push_skip_mask = |skip: bool| {
+        skip_mask = (skip_mask << 1) | (skip as u64);
+    };
+
+    let mut i = 0;
+    let mut digits = [0u8; 32];
+    let mut push_digit = |digit: i64| {
+        digits[i] = digit as u8;
+        i += 1;
+    };
+
+    let (skip, digit) = parse_char(first)?;
+    push_skip_mask(skip);
+    push_digit(digit);
+
+    while let Some((skip, digit)) = parse_char(*it.peek().unwrap_or(&'\n')) {
+        push_skip_mask(skip);
+        if !skip {
+            push_digit(digit);
+        }
+        it.next()?;
+    }
+
+    // filler character, '_', must not appear at the head or tail, and must not appear contiguously.
+    if (skip_mask & ((skip_mask << 1) | 1)) != 0 {
+        return None;
+    }
+    let mut val = 0;
+    for &digit in &digits[..i] {
+        if digit as i64 >= num_base {
             return None;
         }
-        val = val * num_base + digit;
-        it.next()?;
+        val = val * num_base + digit as i64;
     }
 
     let scaler = match it.peek() {
@@ -1308,6 +1338,13 @@ fn test_parse_int() {
     assert_eq!(parse_int("-0").unwrap(), 0);
     assert_eq!(parse_int("!2").unwrap(), -3);
     assert_eq!(parse_int("~3").unwrap(), -4);
+
+    assert_eq!(parse_int("0_000").unwrap(), 0);
+    assert_eq!(parse_int("1_234").unwrap(), 1234);
+    assert_eq!(parse_int("1_2_3_4").unwrap(), 1234);
+    assert!(parse_int("123_4_").is_err());
+    assert!(parse_int("_123_4").is_err());
+    assert!(parse_int("123__4").is_err());
 
     assert!(parse_int("0b").is_err());
     assert!(parse_int("0B").is_err());
