@@ -114,13 +114,25 @@ fn main() {
         .infer_long_args(true);
 
     if let Err(err) = main_impl(&mut command) {
-        eprint!("error");
-        err.chain().for_each(|x| eprint!(": {x}"));
+        // if the root cause is a broken pipe, ignore it. if any other I/O error, print the error stack.
+        // if the root cause is not an I/O error, print an extra message.
+        let (is_error, print_usage) = if let Some(e) = err.root_cause().downcast_ref::<std::io::Error>() {
+            (e.kind() != std::io::ErrorKind::BrokenPipe, false)
+        } else {
+            (true, true)
+        };
 
-        // clap-style footer
-        eprintln!("\n\n{}\n\nFor more information try --help", command.render_usage());
+        if is_error {
+            eprint!("error");
+            err.chain().for_each(|x| eprint!(": {x}"));
+            eprintln!("");
+        }
+        if print_usage {
+            // clap-style footer
+            eprintln!("\n{}\n\nFor more information try --help", command.render_usage());
+        }
 
-        std::process::exit(1);
+        std::process::exit(is_error as i32);
     }
 }
 
