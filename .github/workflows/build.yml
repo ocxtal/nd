@@ -106,7 +106,7 @@ jobs:
 
       - if: steps.cache-cargo.outputs.cache-hit != 'true' && matrix.toolchain == 'stable'
         name: "Setup profiling tools"
-        run: curl -L https://github.com/mozilla/grcov/releases/download/v0.8.13/grcov-x86_64-unknown-linux-musl.tar.bz2 | tar jxf - > grcov
+        run: curl -L https://github.com/mozilla/grcov/releases/download/v0.8.18/grcov-x86_64-unknown-linux-musl.tar.bz2 | tar jxf - > grcov
 
       # install exec-commands for additional coverage measurement
       - if: steps.cache-cargo.outputs.cache-hit != 'true' && matrix.arch == 'x86_64' && matrix.toolchain == 'stable'
@@ -185,7 +185,7 @@ jobs:
       # install exec-commands and check-links in ~/.cargo/bin when the cache is not available
       - if: steps.cache-grcov.outputs.cache-hit != 'true'
         name: "Install tools"
-        run: curl -L https://github.com/mozilla/grcov/releases/download/v0.8.13/grcov-x86_64-unknown-linux-musl.tar.bz2 | tar jxf - > grcov
+        run: curl -L https://github.com/mozilla/grcov/releases/download/v0.8.18/grcov-x86_64-unknown-linux-musl.tar.bz2 | tar jxf - > grcov
 
       # merge coverage information
       - run: |
