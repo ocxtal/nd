@@ -25,14 +25,11 @@ jobs:
 
       # install exec-commands and check-links in ~/.cargo/bin when the cache is not available
       - if: steps.cache-check-docs.outputs.cache-hit != 'true'
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - if: steps.cache-check-docs.outputs.cache-hit != 'true'
         name: "Install tools"
         run: |
+          rustup set profile minimal
+          rustup install stable
+          rustup override set stable
           cargo install cargo-msrv    --git https://github.com/foresterre/cargo-msrv.git
           cargo install exec-commands --git https://github.com/ocxtal/exec-commands.git
           cargo install check-links   --git https://github.com/epwalsh/check-links.git
@@ -98,14 +95,10 @@ jobs:
 
       # install toolchain when the cache is not available
       - if: steps.cache-cargo.outputs.cache-hit != 'true'
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-
-      - if: steps.cache-cargo.outputs.cache-hit != 'true'
         name: "Setup toolchain"
         run: |
+          rustup set profile minimal
+          rustup install stable
           rustup target add ${{ matrix.arch }}-unknown-linux-gnu
           rustup toolchain install --target=${{ matrix.arch }}-unknown-linux-gnu ${{ matrix.toolchain }}
           rustup component add --toolchain ${{ matrix.toolchain }} clippy llvm-tools-preview
