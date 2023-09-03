@@ -52,6 +52,7 @@ impl TextFormatter {
         } else {
             match (&format.offset, &format.span, &format.body) {
                 (ColumnFormat::Hexadecimal, ColumnFormat::Hexadecimal, ColumnFormat::Hexadecimal) => format_hex,
+                (ColumnFormat::None, ColumnFormat::None, ColumnFormat::Hexadecimal) => format_hex,
                 _ => panic!("unsupported formatters: {:?}, {:?}, {:?}", format.offset, format.span, format.body),
             }
         };
