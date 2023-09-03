@@ -5,7 +5,7 @@
 mod hex;
 
 use self::hex::format_line;
-use super::InoutFormat;
+use super::{ColumnFormat, InoutFormat};
 use crate::filluninit::FillUninit;
 use crate::segment::Segment;
 
@@ -47,8 +47,17 @@ pub struct TextFormatter {
 
 impl TextFormatter {
     pub fn new(format: &InoutFormat, offset: (usize, usize)) -> Self {
+        let format_lines = if format.is_binary() {
+            format_binary
+        } else {
+            match (&format.offset, &format.span, &format.body) {
+                (ColumnFormat::Hexadecimal, ColumnFormat::Hexadecimal, ColumnFormat::Hexadecimal) => format_hex,
+                _ => panic!("unsupported formatters: {:?}, {:?}, {:?}", format.offset, format.span, format.body),
+            }
+        };
+
         TextFormatter {
-            format_lines: if format.is_binary() { format_binary } else { format_hex },
+            format_lines,
             offset,
             min_width: format.cols,
         }

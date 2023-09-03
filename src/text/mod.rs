@@ -9,13 +9,37 @@ pub use self::formatter::TextFormatter;
 pub use self::parser::TextParser;
 
 use anyhow::{anyhow, Result};
-use std::collections::HashMap;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
+pub enum ColumnFormat {
+    None,
+    Binary,
+    Decimal,
+    Hexadecimal,
+    Struct(String),
+}
+
+impl ColumnFormat {
+    fn from_str(s: &str) -> Result<Self> {
+        assert!(!s.is_empty());
+
+        let b = s.as_bytes();
+        match (b[0], b.len() > 1) {
+            (b'n', false) => Ok(ColumnFormat::None),
+            (b'b', false) => Ok(ColumnFormat::Binary),
+            (b'd', false) => Ok(ColumnFormat::Decimal),
+            (b'x', false) => Ok(ColumnFormat::Hexadecimal),
+            (b'@' | b'=' | b'<' | b'>' | b'!', true) => Ok(ColumnFormat::Struct(s.to_string())),
+            _ => Err(anyhow!("unrecognized input/output format specifier: {s:?}")),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct InoutFormat {
-    pub offset: u8, // in {'b', 'd', 'x'}
-    pub span: u8,   // in {'b', 'd', 'x'}
-    pub body: u8,   // in {'b', 'd', 'x', 'a'}
+    pub offset: ColumnFormat,
+    pub span: ColumnFormat,
+    pub body: ColumnFormat,
 
     // the minimum number of columns of the body part when formatting;
     // ignored in parsing
@@ -23,47 +47,41 @@ pub struct InoutFormat {
 }
 
 impl InoutFormat {
-    fn new(sig: &str, cols: usize) -> Self {
-        debug_assert!(sig.len() == 3);
+    fn new(offset: &str, span: &str, body: &str, cols: usize) -> Result<Self> {
+        let offset = ColumnFormat::from_str(offset)?;
+        let span = ColumnFormat::from_str(span)?;
+        let body = ColumnFormat::from_str(body)?;
 
-        let sig = sig.as_bytes();
-        let offset = sig[0];
-        let span = sig[1];
-        let body = sig[2];
-
-        InoutFormat { offset, span, body, cols }
+        Ok(InoutFormat { offset, span, body, cols })
     }
 
-    pub fn from_str_with_columns(config: &str, cols: usize) -> Result<Self> {
-        let map = [
-            // shorthand form
-            ("x", "xxx"),
-            ("b", "nnb"),
-            ("d", "ddd"),
-            ("a", "xxa"),
-            // complete form; allowed combinations
-            ("nna", "nna"),
-            ("nnb", "nnb"),
-            ("nnx", "nnx"),
-            ("dda", "dda"),
-            ("ddd", "ddd"),
-            ("ddx", "ddx"),
-            ("dxa", "dxa"),
-            ("dxd", "dxd"),
-            ("dxx", "dxx"),
-            ("xda", "xda"),
-            ("xdd", "xdd"),
-            ("xdx", "xdx"),
-            ("xxa", "xxa"),
-            ("xxd", "xxd"),
-            ("xxx", "xxx"),
-        ];
-        let map: HashMap<&str, &str> = map.iter().cloned().collect();
-
-        match map.get(config) {
-            Some(x) => Ok(InoutFormat::new(x, cols)),
-            _ => Err(anyhow!("unrecognized input / output format signature: {:?}", config)),
+    pub fn from_str_with_columns(sig: &str, cols: usize) -> Result<Self> {
+        if sig.is_empty() {
+            return Err(anyhow!("empty input/output format signature: {sig:?}"));
         }
+
+        // shorthand forms; for compatibility
+        match sig {
+            "b" | "nnb" => return InoutFormat::new("n", "n", "b", 0),
+            "d" | "ddx" => return InoutFormat::new("d", "d", "x", 0),
+            "x" | "xxx" => return InoutFormat::new("x", "x", "x", 0),
+            "nnx" => return InoutFormat::new("n", "n", "x", 0),
+            _ => {}
+        }
+
+        // we need ',' delimiters for the complete forms
+        let sigs = sig.split(',').collect::<Vec<_>>();
+        if sigs.len() > 3 {
+            return Err(anyhow!("unrecognized input/output format: {sig:?}"));
+        }
+
+        #[allow(clippy::get_first)]
+        InoutFormat::new(
+            sigs.get(0).unwrap_or(&"x"),
+            sigs.get(1).unwrap_or(&"x"),
+            sigs.get(2).unwrap_or(&"x"),
+            cols,
+        )
     }
 
     pub fn from_str(config: &str) -> Result<Self> {
@@ -71,11 +89,11 @@ impl InoutFormat {
     }
 
     pub fn is_gapless(&self) -> bool {
-        self.offset == b'n' && self.span == b'n'
+        self.offset == ColumnFormat::None && self.span == ColumnFormat::None
     }
 
     pub fn is_binary(&self) -> bool {
-        self.is_gapless() && self.body == b'b'
+        self.is_gapless() && self.body == ColumnFormat::Binary
     }
 }
 
