@@ -811,4 +811,33 @@ fn test_text_parser_hex_multiline() {
     );
 }
 
+#[test]
+fn test_text_parser_multiline() {
+    macro_rules! test {
+        ( $input: expr, $ex_offset_and_spans: expr, $ex_arr: expr ) => {{
+            let input = Box::new(MockSource::new($input));
+            let mut parser = TextParser::new(input, &InoutFormat::from_str("xxx").unwrap());
+
+            let mut offset_and_spans = Vec::new();
+            let mut buf = Vec::new();
+            while let Some((offset, span)) = parser.read_line(&mut buf).unwrap() {
+                offset_and_spans.push((offset, span));
+            }
+            assert_eq!(&offset_and_spans, $ex_offset_and_spans);
+            assert_eq!(&buf, $ex_arr);
+        }};
+    }
+
+    test!(
+        b"0001 02 | 01 02 03\n\
+          0012 003\n\
+          0023 00004 | \n\
+          0034 5 | 11 12 13 |\n\
+          0045 000006 | 21 22 23    |\n\
+          0056 07",
+        &[(0x01, 0x02), (0x12, 0x03), (0x23, 0x04), (0x34, 0x05), (0x45, 0x06), (0x56, 0x07)],
+        &[0x01u8, 0x02, 0x03, 0x11, 0x12, 0x13, 0x21, 0x22, 0x23]
+    );
+}
+
 // end of parser.rs

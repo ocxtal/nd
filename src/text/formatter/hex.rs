@@ -8,29 +8,29 @@ use core::arch::aarch64::*;
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use core::arch::x86_64::*;
 
-fn format_hex_single_naive(dst: &mut [u8], offset: usize, bytes: usize) -> usize {
-    // eprintln!("{:?}, {:?}", offset, bytes);
-    for (i, x) in dst[..2 * bytes].iter_mut().enumerate() {
-        let y = (offset >> (4 * (2 * bytes - i - 1))) & 0x0f;
+fn format_hex_single_naive(dst: &mut [u8], val: usize, active_bytes: usize) -> usize {
+    // eprintln!("{:?}, {:?}", val, active_bytes);
+    for (i, x) in dst[..2 * active_bytes].iter_mut().enumerate() {
+        let y = (val >> (4 * (2 * active_bytes - i - 1))) & 0x0f;
         *x = b"0123456789abcdef"[y];
     }
-    dst[2 * bytes] = b' ';
+    dst[2 * active_bytes] = b' ';
 
-    2 * bytes + 1
+    2 * active_bytes + 1
 }
 
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-unsafe fn format_hex_single_neon(dst: &mut [u8], offset: usize, bytes: usize) -> usize {
-    debug_assert!(offset < (1usize << 56));
-    debug_assert!((1..8).contains(&bytes));
+unsafe fn format_hex_single_neon(dst: &mut [u8], val: usize, active_bytes: usize) -> usize {
+    debug_assert!(val < (1usize << 56));
+    debug_assert!((1..8).contains(&active_bytes));
 
     let table = vld1q_u8(b"fedcba9876543210".as_ptr());
     let space = vdupq_n_u8(b' ');
 
-    let shift = 64 - 8 * bytes;
+    let shift = 64 - 8 * active_bytes;
     let mask = 0xf0f0f0f0f0f0f0f0;
 
-    let l = offset as u64;
+    let l = val as u64;
     let h = l >> 4;
 
     let l = !((l | mask) << shift).swap_bytes();
@@ -52,13 +52,13 @@ unsafe fn format_hex_single_neon(dst: &mut [u8], offset: usize, bytes: usize) ->
         in("v1") l,
     );
 
-    2 * bytes + 1 // add a space as a separator
+    2 * active_bytes + 1 // add a space as a separator
 }
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-unsafe fn format_hex_single_avx2(dst: &mut [u8], offset: usize, bytes: usize) -> usize {
-    debug_assert!(offset < (1usize << 56));
-    debug_assert!((1..8).contains(&bytes));
+unsafe fn format_hex_single_avx2(dst: &mut [u8], val: usize, active_bytes: usize) -> usize {
+    debug_assert!(val < (1usize << 56));
+    debug_assert!((1..8).contains(&active_bytes));
 
     let table = [
         0x46u8, 0x45, 0x44, 0x43, 0x42, 0x41, 0x19, 0x18, 0x17, 0x16, 0x15, 0x14, 0x13, 0x12, 0x11, 0x10,
@@ -66,10 +66,10 @@ unsafe fn format_hex_single_avx2(dst: &mut [u8], offset: usize, bytes: usize) ->
     let table = _mm_loadu_si128(table.as_ptr() as *const __m128i);
     let space = _mm_set1_epi8(b' ' as i8);
 
-    let shift = 64 - 8 * bytes;
+    let shift = 64 - 8 * active_bytes;
     let mask = 0xf0f0f0f0f0f0f0f0;
 
-    let l = offset as u64;
+    let l = val as u64;
     let h = l >> 4;
 
     let l = !((l | mask) << shift).swap_bytes();
@@ -85,27 +85,27 @@ unsafe fn format_hex_single_avx2(dst: &mut [u8], offset: usize, bytes: usize) ->
     let x = _mm_add_epi8(x, space);
     _mm_storeu_si128(dst.as_mut_ptr() as *mut __m128i, x);
 
-    2 * bytes + 1 // add a space as a separator
+    2 * active_bytes + 1 // add a space as a separator
 }
 
 #[allow(unreachable_code)]
-fn format_hex_single(dst: &mut [u8], offset: usize, bytes: usize) -> usize {
+pub fn format_hex_single(dst: &mut [u8], val: usize, active_bytes: usize) -> usize {
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    return unsafe { format_hex_single_neon(dst, offset, bytes) };
+    return unsafe { format_hex_single_neon(dst, val, active_bytes) };
 
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-    return unsafe { format_hex_single_avx2(dst, offset, bytes) };
+    return unsafe { format_hex_single_avx2(dst, val, active_bytes) };
 
     // no optimized implementation available
-    format_hex_single_naive(dst, offset, bytes)
+    format_hex_single_naive(dst, val, active_bytes)
 }
 
 #[test]
 fn test_format_hex_single() {
     macro_rules! test {
-        ( $offset: expr, $width: expr, $expected_str: expr ) => {{
+        ( $val: expr, $width: expr, $expected_str: expr ) => {{
             let mut buf = [0u8; 256];
-            let bytes = format_hex_single(&mut buf, $offset, $width);
+            let bytes = format_hex_single(&mut buf, $val, $width);
 
             let expected_bytes = $expected_str.len();
             assert_eq!(bytes, expected_bytes);
@@ -214,12 +214,12 @@ unsafe fn format_hex_body_avx2(dst: &mut [u8], src: &[u8]) -> usize {
 }
 
 #[allow(unreachable_code)]
-unsafe fn format_hex_body(dst: &mut [u8], src: &[u8]) -> usize {
+pub fn format_hex_body(dst: &mut [u8], src: &[u8]) -> usize {
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    return format_hex_body_neon(dst, src);
+    return unsafe { format_hex_body_neon(dst, src) };
 
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-    return format_hex_body_avx2(dst, src);
+    return unsafe { format_hex_body_avx2(dst, src) };
 
     // no optimized implementation available
     format_hex_body_naive(dst, src)
@@ -230,7 +230,7 @@ fn test_format_hex_body() {
     macro_rules! test {
         ( $src: expr, $expected_str: expr ) => {{
             let mut buf = [0u8; 256 * 256];
-            let bytes = unsafe { format_hex_body(&mut buf, &$src) };
+            let bytes = format_hex_body(&mut buf, &$src);
 
             let expected_bytes = $expected_str.len();
             assert_eq!(bytes, expected_bytes);
@@ -309,7 +309,7 @@ unsafe fn format_mosaic_avx2(dst: &mut [u8], src: &[u8]) -> usize {
 }
 
 #[allow(unreachable_code)]
-fn format_mosaic(dst: &mut [u8], src: &[u8]) -> usize {
+pub fn format_mosaic(dst: &mut [u8], src: &[u8]) -> usize {
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     return unsafe { format_mosaic_neon(dst, src) };
 
@@ -341,47 +341,6 @@ fn test_format_mosaic() {
     test!([0x7f; 16], "................");
     test!([0xff; 16], "................");
     test!(b"0123456789abcdef".as_slice(), "0123456789abcdef");
-}
-
-pub unsafe fn format_line(dst: &mut [u8], src: &[u8], offset: usize, width: usize) -> usize {
-    let mut dst = dst;
-    let len_width = 8 - ((src.len() | 0xffff).leading_zeros() as usize) / 8;
-
-    // header; p is the current offset in the dst buffer
-    let (header, rem) = dst.split_at_mut(16 + 2 * len_width);
-    format_hex_single(header, offset, 6);
-    format_hex_single(&mut header[13..], src.len(), len_width);
-    header[14 + 2 * len_width] = b'|';
-    header[15 + 2 * len_width] = b' ';
-    dst = rem;
-
-    // body
-    let (body, rem) = dst.split_at_mut(3 * width);
-    format_hex_body(body, src);
-    dst = rem;
-
-    let (delim, rem) = dst.split_at_mut(2);
-    delim[0] = b'|';
-    delim[1] = b' ';
-    dst = rem;
-
-    // mosaic
-    let (mosaic, rem) = dst.split_at_mut(width);
-    format_mosaic(mosaic, src);
-    dst = rem;
-    dst[0] = b'\n';
-
-    if src.len() < width {
-        // unlikely
-        for i in src.len()..width {
-            body[3 * i] = b' ';
-            body[3 * i + 1] = b' ';
-            body[3 * i + 2] = b' ';
-            mosaic[i] = b' ';
-        }
-    }
-
-    19 + 2 * len_width + 4 * width
 }
 
 // end of hex.rs

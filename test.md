@@ -358,6 +358,10 @@ $ nd --out-format nnx test/hello.txt  # FIXME
 000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
 $ nd -f nnx           test/hello.txt  # FIXME
 000000000000 0006 | 48 65 6c 6c 6f 0a                               | Hello.          
+$ nd --out-format ddx test/hello.txt
+0 6 | 48 65 6c 6c 6f 0a                               | Hello.          
+$ nd -f ddx           test/hello.txt
+0 6 | 48 65 6c 6c 6f 0a                               | Hello.          
 $ nd --out-format nnb test/hello.txt
 Hello
 $ nd -f nnb           test/hello.txt
