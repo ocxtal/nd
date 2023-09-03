@@ -87,8 +87,8 @@ unsafe fn format_line_ddh(dst: &mut [u8], src: &[u8], offset: usize, width: usiz
     let mut p = 0;
     p += format_dec_single(&mut dst[p..], offset);
     p += format_dec_single(&mut dst[p..], src.len());
-    dst[p + 1] = b'|';
-    dst[p + 2] = b' ';
+    dst[p] = b'|';
+    dst[p + 1] = b' ';
 
     // body
     let (body, rem) = dst[p + 2..].split_at_mut(3 * width);
