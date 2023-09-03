@@ -62,10 +62,10 @@ impl InoutFormat {
 
         // shorthand forms; for compatibility
         match sig {
-            "b" | "nnb" => return InoutFormat::new("n", "n", "b", 0),
-            "d" | "ddx" => return InoutFormat::new("d", "d", "x", 0),
-            "x" | "xxx" => return InoutFormat::new("x", "x", "x", 0),
-            "nnx" => return InoutFormat::new("n", "n", "x", 0),
+            "b" | "nnb" => return InoutFormat::new("n", "n", "b", cols),
+            "d" | "ddx" => return InoutFormat::new("d", "d", "x", cols),
+            "x" | "xxx" => return InoutFormat::new("x", "x", "x", cols),
+            "nnx" => return InoutFormat::new("n", "n", "x", cols),
             _ => {}
         }
 
