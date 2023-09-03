@@ -274,9 +274,11 @@ impl Pipeline {
 
         let in_format = m
             .in_format
+            .clone()
             .unwrap_or_else(|| InoutFormat::from_str_with_columns(default_in_signature, cols).unwrap());
         let out_format = m
             .out_format
+            .clone()
             .unwrap_or_else(|| InoutFormat::from_str_with_columns(default_out_signature, cols).unwrap());
         let patch_format = InoutFormat::from_str_with_columns("xxx", cols).unwrap();
 

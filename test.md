@@ -367,15 +367,15 @@ Hello
 $ nd -f b             test/hello.txt
 Hello
 $ ! (nd --out-format xx   test/hello.txt 2>&1)
-error: invalid value 'xx' for '--out-format <FORMAT>': unrecognized input / output format signature: "xx"
+error: invalid value 'xx' for '--out-format <FORMAT>': unrecognized input/output format specifier: "xx"
 
 For more information, try '--help'.
 $ ! (nd --out-format xxxx test/hello.txt 2>&1 | head -1)
-error: invalid value 'xxxx' for '--out-format <FORMAT>': unrecognized input / output format signature: "xxxx"
+error: invalid value 'xxxx' for '--out-format <FORMAT>': unrecognized input/output format specifier: "xxxx"
 $ ! (nd --out-format nxx  test/hello.txt 2>&1 | head -1)
-error: invalid value 'nxx' for '--out-format <FORMAT>': unrecognized input / output format signature: "nxx"
+error: invalid value 'nxx' for '--out-format <FORMAT>': unrecognized input/output format specifier: "nxx"
 $ ! (nd --out-format bbb  test/hello.txt 2>&1 | head -1)
-error: invalid value 'bbb' for '--out-format <FORMAT>': unrecognized input / output format signature: "bbb"
+error: invalid value 'bbb' for '--out-format <FORMAT>': unrecognized input/output format specifier: "bbb"
 ```
 
 ## Input format
@@ -408,15 +408,15 @@ $ nd test/hello.txt | nd -F nnb          | head -2
 000000000000 0010 | 30 30 30 30 30 30 30 30 30 30 30 30 20 30 30 30 | 000000000000 000
 000000000010 0010 | 36 20 7c 20 34 38 20 36 35 20 36 63 20 36 63 20 | 6 | 48 65 6c 6c 
 $ ! (nd test/hello.txt | nd -F xx   2>&1)
-error: invalid value 'xx' for '--in-format <FORMAT>': unrecognized input / output format signature: "xx"
+error: invalid value 'xx' for '--in-format <FORMAT>': unrecognized input/output format specifier: "xx"
 
 For more information, try '--help'.
 $ ! (nd test/hello.txt | nd -F xxxx 2>&1 | head -1)
-error: invalid value 'xxxx' for '--in-format <FORMAT>': unrecognized input / output format signature: "xxxx"
+error: invalid value 'xxxx' for '--in-format <FORMAT>': unrecognized input/output format specifier: "xxxx"
 $ ! (nd test/hello.txt | nd -F nxx  2>&1 | head -1)
-error: invalid value 'nxx' for '--in-format <FORMAT>': unrecognized input / output format signature: "nxx"
+error: invalid value 'nxx' for '--in-format <FORMAT>': unrecognized input/output format specifier: "nxx"
 $ ! (nd test/hello.txt | nd -F bbb  2>&1 | head -1)
-error: invalid value 'bbb' for '--in-format <FORMAT>': unrecognized input / output format signature: "bbb"
+error: invalid value 'bbb' for '--in-format <FORMAT>': unrecognized input/output format specifier: "bbb"
 ```
 
 TODO: test input parser.

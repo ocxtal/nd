@@ -17,7 +17,7 @@ use x86_64::*;
 mod naive;
 use naive::*;
 
-use super::InoutFormat;
+use super::{ColumnFormat, InoutFormat};
 use crate::byte::ByteStream;
 use crate::filluninit::FillUninit;
 use crate::params::{BLOCK_SIZE, MARGIN_SIZE};
@@ -348,32 +348,29 @@ pub struct TextParser {
 impl TextParser {
     pub fn new(src: Box<dyn ByteStream>, format: &InoutFormat) -> Self {
         assert!(!format.is_binary());
-        let offset = format.offset as usize;
-        let span = format.span as usize;
-        let body = format.body as usize;
-
-        let header_parsers = {
-            let mut t: [Option<ParseSingle>; 256] = [None; 256];
-            t[b'd' as usize] = Some(parse_dec_single); // parse_dec_single
-            t[b'x' as usize] = Some(parse_hex_single);
-            t[b'n' as usize] = Some(parse_hex_single); // parse_none_single
-            t
+        let parse_offset = match &format.offset {
+            ColumnFormat::None => parse_hex_single, // TODO: parse_none_single
+            ColumnFormat::Decimal => parse_dec_single,
+            ColumnFormat::Hexadecimal => parse_hex_single,
+            _ => panic!("unsupported parser for header.offset: {:?}", &format.offset),
         };
-
-        let body_parsers = {
-            let mut t: [Option<ParseBody>; 256] = [None; 256];
-            t[b'a' as usize] = Some(parse_hex_body); // parse_contigous_hex_body
-            t[b'd' as usize] = Some(parse_hex_body); // parse_dec_body
-            t[b'x' as usize] = Some(parse_hex_body);
-            t[b'n' as usize] = Some(parse_hex_body); // parse_none_body
-            t
+        let parse_span = match &format.span {
+            ColumnFormat::None => parse_hex_single, // TODO: parse_none_single
+            ColumnFormat::Decimal => parse_dec_single,
+            ColumnFormat::Hexadecimal => parse_hex_single,
+            _ => panic!("unsupported parser for header.span: {:?}", &format.span),
+        };
+        let parse_body = match &format.body {
+            ColumnFormat::None => parse_hex_body, // TODO: parse_none_body
+            ColumnFormat::Hexadecimal => parse_hex_body,
+            _ => panic!("unsupported parser for header.body: {:?}", &format.span),
         };
 
         TextParser {
             src,
-            parse_offset: header_parsers[offset].expect("unrecognized parser key for header.offset"),
-            parse_span: header_parsers[span].expect("unrecognized parser key for header.span"),
-            parse_body: body_parsers[body].expect("unrecognized parser key for body"),
+            parse_offset,
+            parse_span,
+            parse_body,
             cache: LineCache::new(),
         }
     }
