@@ -4,6 +4,7 @@
 
 mod dec;
 mod hex;
+mod unpacker;
 
 use self::dec::format_dec_single;
 use self::hex::{format_hex_body, format_hex_single, format_mosaic};
